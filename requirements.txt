@@ -5,3 +5,4 @@ python-dotenv
 supabase
 yfinance
 plotlyreportlab==4.3.1
+plotly==6.9.0
