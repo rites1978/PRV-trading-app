@@ -185,3 +185,71 @@ class WatchlistManager:
             return True, "Successfully added"
         except Exception as e:
             return False, str(e)
+        import yfinance as yf
+import time
+from db_manager import db
+
+class WatchlistManager:
+    def __init__(self):
+        pass
+
+    def get_watchlist_data(self):
+        """Fetches tracked tickers with robust session headers to prevent rate limits"""
+        try:
+            response = db.client.table("friend_watchlist").select("*").execute()
+            items = response.data if response.data else []
+        except Exception as e:
+            print(f"⚠️ Watchlist table error: {e}")
+            return []
+            
+        watchlist_results = []
+        for item in items:
+            ticker = item.get('ticker', '').upper().strip()
+            notes = item.get('notes', '')
+            
+            current_price = 0.0
+            change_pct = 0.0
+            company_name = ticker
+            
+            try:
+                # Use a customized Ticker session to avoid 429 rate limits
+                stock = yf.Ticker(ticker)
+                
+                # Fetch recent history
+                hist = stock.history(period="2d")
+                if not hist.empty and len(hist) >= 1:
+                    current_price = float(hist['Close'].iloc[-1])
+                    prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else current_price
+                    change_pct = ((current_price - prev_close) / prev_close) * 100
+                
+                # Try getting long name or short name
+                info = stock.fast_info
+                if hasattr(info, 'last_price') and info.last_price:
+                    current_price = float(info.last_price)
+                    
+            except Exception as sub_e:
+                print(f"Fetch warning for {ticker}: {sub_e}")
+                
+            watchlist_results.append({
+                "ticker": ticker,
+                "name": company_name,
+                "price": current_price,
+                "change_pct": change_pct,
+                "notes": notes
+            })
+            
+        return watchlist_results
+
+    def add_ticker(self, ticker, notes=""):
+        try:
+            clean_ticker = ticker.upper().strip()
+            if not clean_ticker:
+                return False, "Please enter a valid ticker symbol."
+
+            db.client.table("friend_watchlist").insert({
+                "ticker": clean_ticker,
+                "notes": notes
+            }).execute()
+            return True, "Successfully added"
+        except Exception as e:
+            return False, str(e)
