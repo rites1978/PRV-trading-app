@@ -98,3 +98,23 @@ class MultiAgentEngine:
 if __name__ == "__main__":
     engine = MultiAgentEngine()
     engine.execute_boardroom_cycle()
+    # Inside MultiAgentEngine class...
+def execute_boardroom_cycle(self):
+    # ... (previous code)
+    
+    # NEW: News Intelligence Gatekeeper
+    from news_engine import NewsEngine
+    news = NewsEngine()
+    
+    for target in targets:
+        ticker = target['ticker']
+        
+        # Consult News Engine
+        is_safe, headline = news.is_trade_safe(ticker)
+        
+        if not is_safe:
+            print(f"⛔ VETO: News Engine detected negative sentiment for {ticker}: {headline}")
+            db.log_debate(ticker=ticker, consensus="VETOED", sentiment_analysis={"headline": headline}, risk_veto=True)
+            continue # Skip to next target
+            
+        # ... (Proceed to Tech/Macro Agents and execution)
