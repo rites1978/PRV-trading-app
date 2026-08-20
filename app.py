@@ -341,3 +341,59 @@ with tab4:
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 if st.button("🔄 Sync Glass Telemetry"):
     st.rerun() if hasattr(st, "rerun") else st.experimental_rerun()
+
+    # Add to your tab definitions
+# tab1, tab2, tab3, tab4, tab5 = st.tabs([... , "👀 Friend's Watchlist"])
+
+wwith tab5:
+    st.markdown("### 👀 Friend's Watchlist & Ideas")
+    st.markdown("<p style='color:#64748b;'>Passive tracking for external ideas. Automatically identified via Yahoo Finance.</p>", unsafe_allow_html=True)
+    
+    # Quick Add Form
+    with st.form("add_watchlist_form"):
+        col1, col2, col3 = st.columns([2, 3, 1])
+        with col1:
+            new_ticker = st.text_input("Ticker Symbol", placeholder="e.g. TSLA, AZN.L, PLTR")
+        with col2:
+            new_notes = st.text_input("Notes / Rationale", placeholder="e.g. Friend's swing trade idea")
+        with col3:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            submitted = st.form_submit_button("Add Company")
+            
+        if submitted and new_ticker:
+            from watchlist_manager import WatchlistManager
+            wm = WatchlistManager()
+            success, msg = wm.add_ticker(new_ticker, new_notes)
+            if success:
+                st.success(f"Added {new_ticker.upper()} to watchlist!")
+                st.rerun()
+            else:
+                st.error(f"Could not add ticker: {msg}")
+
+    st.markdown("---")
+    
+    # Display Watchlist Cards with iOS 27 Glass Styling
+    from watchlist_manager import WatchlistManager
+    wm = WatchlistManager()
+    watchlist_items = wm.get_watchlist_data()
+    
+    if watchlist_items:
+        for w in watchlist_items:
+            change_color = "#34d399" if w['change_pct'] >= 0 else "#f43f5e"
+            sign = "+" if w['change_pct'] >= 0 else ""
+            
+            st.markdown(f"""
+                <div class="glass-card" style="padding: 16px 20px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-weight:700; font-size:1.1rem; color:#ffffff; margin-right:12px;">{w['ticker']}</span>
+                        <span style="color:#e2e8f0; font-size:0.9rem; margin-right:12px;">{w['name']}</span>
+                        <span style="color:#94a3b8; font-size:0.8rem; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">{w['notes']}</span>
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="font-weight:600; color:#f8fafc; font-size:1rem; margin-right:16px;">£{w['price']:,.2f}</span>
+                        <span style="color:{change_color}; font-weight:700; font-size:0.9rem;">{sign}{w['change_pct']:.2f}%</span>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("No tickers on the watchlist yet. Add a company above to start tracking!")
