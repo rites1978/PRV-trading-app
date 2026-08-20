@@ -30,3 +30,7 @@ class RiskEngine:
             "stop_loss_price": round(df['Close'].iloc[-1] - stop_loss_distance, 2),
             "atr": round(atr, 2)
         }
+    class RiskEngine:
+    def __init__(self, portfolio_nav=40000.0):
+        self.portfolio_nav = portfolio_nav
+        self.risk_per_trade = self.portfolio_nav * 0.005  # 0.5% risk per trade = £200 risk unit
