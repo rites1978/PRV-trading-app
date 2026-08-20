@@ -24,7 +24,7 @@ st.set_page_config(
 # ==========================================
 import streamlit as st
 
-# Page Config - Clean, wide layout
+# Page Config
 st.set_page_config(
     page_title="PRV Capital | Markets",
     page_icon="📈",
@@ -32,16 +32,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- APPLE STOCKS DESIGN SYSTEM CSS ---
+# --- SAFE APPLE STOCKS DESIGN SYSTEM CSS ---
 st.markdown("""
 <style>
-    /* Global Reset & Dark OLED Background */
-    .stApp {
-        background-color: #000000;
-        color: #f5f5f7;
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    }
-    
     /* Hide Streamlit Header & Footer */
     header {visibility: hidden;}
     footer {visibility: hidden;}
@@ -55,13 +48,12 @@ st.markdown("""
         border-radius: 16px;
         padding: 20px 24px;
         margin-bottom: 12px;
-        transition: transform 0.2s ease, background 0.2s ease;
     }
     .apple-card:hover {
         background: rgba(44, 44, 46, 0.75);
     }
     
-    /* Typography - Apple Scale */
+    /* Typography */
     .apple-title {
         font-size: 34px;
         font-weight: 700;
@@ -93,7 +85,7 @@ st.markdown("""
         text-align: right;
     }
     
-    /* Apple Pill Badges for Change % */
+    /* Apple Pill Badges */
     .pill-green {
         background-color: rgba(48, 209, 88, 0.15);
         color: #30d158;
@@ -101,7 +93,6 @@ st.markdown("""
         border-radius: 8px;
         font-weight: 600;
         font-size: 14px;
-        text-align: right;
         display: inline-block;
     }
     .pill-red {
@@ -111,30 +102,7 @@ st.markdown("""
         border-radius: 8px;
         font-weight: 600;
         font-size: 14px;
-        text-align: right;
         display: inline-block;
-    }
-
-    /* Custom Apple Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: rgba(28, 28, 30, 0.4);
-        padding: 4px;
-        border-radius: 12px;
-        border: 0.5px solid rgba(255, 255, 255, 0.08);
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 36px;
-        border-radius: 8px;
-        color: #86868b;
-        font-weight: 500;
-        font-size: 13px;
-        border: none !important;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #2c2c2e !important;
-        color: #ffffff !important;
-        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -143,7 +111,7 @@ st.markdown("""
 st.markdown('<div class="apple-title">Watchlist</div>', unsafe_allow_html=True)
 st.markdown('<div class="apple-subtitle">PRV Capital • Autonomous Terminal</div>', unsafe_allow_html=True)
 
-# Tabs
+# Native Streamlit Tabs (Guaranteed to render correctly without breaking)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "⚡ Nerve Center", 
     "📊 Execution Ledger", 
@@ -152,11 +120,10 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "👀 Friend's Watchlist"
 ])
 
-# Example layout implementation for Tab 5 (Friend's Watchlist) styled Apple-clean
+# Example layout for Tab 5 (Friend's Watchlist)
 with tab5:
-    st.markdown("### Market Tracker", help="External ideas & tracked equities")
+    st.markdown("### Market Tracker")
     
-   # Minimalist Apple Input Form with explicit unique key
     with st.form(key="watchlist_form", clear_on_submit=True):
         col1, col2, col3 = st.columns([2, 3, 1])
         with col1:
@@ -179,6 +146,36 @@ with tab5:
 
     st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
     
+    from watchlist_manager import WatchlistManager
+    wm = WatchlistManager()
+    watchlist_items = wm.get_watchlist_data()
+    
+    if watchlist_items:
+        for w in watchlist_items:
+            is_positive = w['change_pct'] >= 0
+            pill_class = "pill-green" if is_positive else "pill-red"
+            sign = "+" if is_positive else ""
+            
+            st.markdown(f"""
+                <div class="apple-card" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div class="stock-ticker">{w['ticker']}</div>
+                        <div class="stock-name">{w['name']} &bull; <span style="color:#636366;">{w['notes']}</span></div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 24px;">
+                        <div class="stock-price">£{w['price']:,.2f}</div>
+                        <div>
+                            <span class="{pill_class}">{sign}{w['change_pct']:.2f}%</span>
+                        </div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+            <div class="apple-card" style="text-align: center; color: #86868b; padding: 40px;">
+                No symbols tracked yet. Add one above to populate your feed.
+            </div>
+        """, unsafe_allow_html=True)    
     # Render Watchlist in Apple Stocks Row Format
     from watchlist_manager import WatchlistManager
     wm = WatchlistManager()
