@@ -1,116 +1,93 @@
 import os
-import time
 import requests
-import pandas as pd
-import yfinance as yf
-from datetime import datetime
+from requests.auth import HTTPBasicAuth
 from dotenv import load_dotenv
+from db_manager import db
+from risk_engine import RiskEngine
+from portfolio_guard import PortfolioGuard
 
 load_dotenv()
+
 API_KEY = os.getenv("TRADING212_API_KEY")
 API_SECRET = os.getenv("TRADING212_API_SECRET")
+BASE_URL = "https://demo.trading212.com/api/v0/equity"  # Change to live URL when ready
 
-print("⚡ PRV Visual High-Growth Trading Desk Initialized (GBP Mode)...")
-print("Targeting High-Growth Tech & AI Sectors | Starting Allocation: £1,000 Sandbox\n")
+class VisualTraderEngine:
+    def __init__(self):
+        self.auth = HTTPBasicAuth(API_KEY, API_SECRET)
+        self.risk_engine = RiskEngine(portfolio_nav=40000.0)
+        self.portfolio_guard = PortfolioGuard()
 
-UNIVERSE = {
-    "NVDA": "NVDA_US_EQ",
-    "MSFT": "MSFT_US_EQ",
-    "TSLA": "TSLA_US_EQ",
-    "PLTR": "PLTR_US_EQ",
-    "AMD": "AMD_US_EQ"
-}
-
-def log_to_journal(log_entry):
-    filename = "visual_trading_journal.txt"
-    timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S] ")
-    with open(filename, "a") as f:
-        f.write(timestamp + log_entry + "\n")
-
-def print_trade_receipt(action, ticker, price, shares, total_cost, reason):
-    """Prints a visual, professional trade receipt to the terminal."""
-    border = "=================================================="
-    print(f"\n{border}")
-    print(f"🧾 AI TRADING DESK EXECUTION RECEIPT")
-    print(f"{border}")
-    print(f"• ACTION TYPE  : {action.upper()}" )
-    print(f"• ASSET TEE    : {ticker}")
-    print(f"• EXEC. PRICE  : ${price:.2f} USD")
-    print(f"• QUANTITY     : {shares} Share(s)")
-    print(f"• EST. VALUE   : ${total_cost:.2f} USD")
-    print(f"• RATIONALE    : {reason}")
-    print(f"{border}\n")
-    
-    log_to_journal(f"RECEIPT [{action.upper()}] {ticker} @ ${price:.2f} | Reason: {reason}")
-
-def run_visual_trading_cycle():
-    print(f"\n--------------------------------------------------")
-    print(f"🔄 Market Scan Cycle Started: {datetime.now().strftime('%H:%M:%S')}")
-    print(f"--------------------------------------------------")
-    
-    opportunities = []
-    
-    for yf_ticker, t212_ticker in UNIVERSE.items():
+    def get_portfolio(self):
         try:
-            stock = yf.Ticker(yf_ticker)
-            history = stock.history(period="5d", interval="1h")
-            
-            if not history.empty and len(history) > 10:
-                current_price = history['Close'].iloc[-1]
-                sma_short = history['Close'].tail(5).mean()
-                sma_long = history['Close'].mean()
-                
-                volume_avg = history['Volume'].mean()
-                current_volume = history['Volume'].iloc[-1]
-                is_high_volume = current_volume > volume_avg
-                
-                dip_percentage = (sma_long - current_price) / sma_long
-                is_bullish = sma_short > sma_long
-                
-                print(f"[{yf_ticker}] Price: ${current_price:.2f} | Dip: {dip_percentage*100:.2f}% | Bullish: {is_bullish} | Vol Spike: {is_high_volume}")
-                
-                # High-growth strategy trigger: Valid structural dip + volume confirmation
-                if dip_percentage >= 0.002 and is_high_volume:
-                    score = dip_percentage * 100
-                    opportunities.append({
-                        "yf_ticker": yf_ticker,
-                        "t212_ticker": t212_ticker,
-                        "price": current_price,
-                        "score": score,
-                        "reason": f"Caught a {dip_percentage*100:.2f}% technical dip with active volume spike during high-growth momentum scan."
-                    })
+            res = requests.get(f"{BASE_URL}/portfolio", auth=self.auth, timeout=5)
+            if res.status_code == 200:
+                import pandas as pd
+                data = res.json()
+                return pd.DataFrame(data) if data else pd.DataFrame(columns=['ticker', 'quantity', 'currentValue'])
         except Exception as e:
-            print(f"⚠️ Feed warning on {yf_ticker}: {e}")
+            print(f"⚠️ Failed to fetch broker portfolio: {e}")
+        return pd.DataFrame(columns=['ticker', 'quantity', 'currentValue'])
 
-    if opportunities:
-        opportunities.sort(key=lambda x: x['score'], reverse=True)
-        top_pick = opportunities[0]
+    def execute_market_order(self, yf_ticker, t212_ticker, boardroom_decision_id):
+        print(f"⚡ Visual Trader: Evaluating execution sequence for {yf_ticker} ({t212_ticker})...")
         
-        # Execute via Trading 212 API
-        order_url = "https://demo.trading212.com/api/v0/equity/orders/market"
-        payload = {"ticker": top_pick['t212_ticker'], "quantity": 1}
+        # 1. Risk Sizing
+        risk_metrics = self.risk_engine.calculate_position(yf_ticker)
+        quantity = risk_metrics['quantity']
+        stop_loss = risk_metrics['stop_loss_price']
         
-        response = requests.post(order_url, auth=(API_KEY, API_SECRET), json=payload)
-        
-        if response.status_code == 200:
-            print_trade_receipt(
-                action="BUY (AUTOMATED)",
-                ticker=top_pick['yf_ticker'],
-                price=top_pick['price'],
-                shares=1,
-                total_cost=top_pick['price'],
-                reason=top_pick['reason']
-            )
-        else:
-            print(f"❌ Execution Rejected by Broker: {response.text}")
-    else:
-        print("💤 Market is balanced. AI Portfolio Manager is holding cash, waiting for high-conviction entry points.\n")
+        if quantity <= 0:
+            print(f"⛔ Execution Halted: Calculated quantity too low for {yf_ticker}.")
+            return False
+
+        # 2. Portfolio Guard Check
+        active_positions = self.get_portfolio()
+        is_safe = self.portfolio_guard.check_correlation_and_concentration(
+            proposed_ticker=yf_ticker,
+            active_positions_df=active_positions,
+            nav=40000.0
+        )
+
+        if not is_safe:
+            print(f"🛡️ Execution Blocked by Portfolio Guard for {yf_ticker}.")
+            return False
+
+        # 3. Fire Order to Trading 212 API
+        payload = {
+            "ticker": t212_ticker,
+            "quantity": quantity,
+            "target": None
+        }
+
+        print(f"🚀 Dispatching market buy order to Trading 212: {quantity} shares of {t212_ticker}")
+        try:
+            res = requests.post(f"{BASE_URL}/orders/market", auth=self.auth, json=payload, timeout=10)
+            
+            if res.status_code in [200, 201]:
+                order_data = res.json()
+                fill_price = order_data.get('filledValue', 0) / max(quantity, 0.001)
+                
+                print(f"✅ Order Executed Successfully! Fill Price: ~{fill_price}")
+                
+                # 4. Commit to Supabase Execution Journal
+                db.log_trade(
+                    ticker=yf_ticker,
+                    action="BUY",
+                    price=fill_price if fill_price > 0 else 100.0,
+                    quantity=quantity,
+                    stop_loss=stop_loss,
+                    debate_id=boardroom_decision_id
+                )
+                return True
+            else:
+                print(f"❌ Broker API Rejected Order: {res.status_code} - {res.text}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Critical Execution Error: {e}")
+            return False
 
 if __name__ == "__main__":
-    try:
-        while True:
-            run_visual_trading_cycle()
-            # Scan every 5 minutes for rapid visual demonstration
-            time.sleep(300)
-    except KeyboardInterrupt:
-        print("\n🛑 Visual Trading Desk shut down safely.")
+    trader = VisualTraderEngine()
+    print("Visual Trader Engine initialized and linked to Trading 212 & Supabase.")
