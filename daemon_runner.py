@@ -53,3 +53,19 @@ if __name__ == "__main__":
         # Sleep for 1 hour (3600 seconds) before the next institutional cycle
         print("⏳ Waiting for next hourly cycle...")
         time.sleep(3600)
+        from circuit_breaker import CircuitBreaker
+
+# Initialize breaker (e.g., checking against a starting daily NAV of £40,000)
+breaker = CircuitBreaker(max_daily_drawdown_pct=0.025)
+
+def run_daemon_cycle():
+    # 1. Check Circuit Breaker FIRST
+    current_nav = 39000.0  # Replace with live broker NAV call from Trading 212 API
+    starting_nav = 40000.0
+    
+    if breaker.check_portfolio_health(starting_nav, current_nav):
+        print("🛑 HALTED: Circuit Breaker is active. Skipping trading cycle.")
+        return
+
+    print("🟢 System normal. Proceeding with Multi-Agent Boardroom cycle...")
+    # ... (Rest of your existing trade execution logic)
