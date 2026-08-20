@@ -1,8 +1,9 @@
 streamlit
+plotly
 pandas
-requests
-python-dotenv
-supabase
+numpy
 yfinance
-plotlyreportlab==4.3.1
-plotly==6.9.0
+supabase
+requests
+reportlab
+python-dotenv
