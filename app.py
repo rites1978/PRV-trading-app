@@ -156,8 +156,8 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 with tab5:
     st.markdown("### Market Tracker", help="External ideas & tracked equities")
     
-    # Minimalist Apple Input Form
-    with st.form("add_watchlist_form", clear_on_submit=True):
+   # Minimalist Apple Input Form with explicit unique key
+    with st.form(key="watchlist_form", clear_on_submit=True):
         col1, col2, col3 = st.columns([2, 3, 1])
         with col1:
             new_ticker = st.text_input("Symbol", placeholder="e.g. AAPL, LCID")
