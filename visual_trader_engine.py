@@ -91,3 +91,14 @@ class VisualTraderEngine:
 if __name__ == "__main__":
     trader = VisualTraderEngine()
     print("Visual Trader Engine initialized and linked to Trading 212 & Supabase.")
+    from alert_system import AlertSystem
+
+# Inside execute_market_order, upon successful fill:
+alert = AlertSystem()
+alert.send_trade_alert(
+    ticker=yf_ticker,
+    action="BUY",
+    quantity=quantity,
+    price=fill_price,
+    stop_loss=stop_loss
+)
