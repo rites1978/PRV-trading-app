@@ -4,4 +4,4 @@ requests
 python-dotenv
 supabase
 yfinance
-plotly
+plotlyreportlab==4.3.1
