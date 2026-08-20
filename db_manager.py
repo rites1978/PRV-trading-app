@@ -68,3 +68,6 @@ class DatabaseManager:
         return res.data if res.data else []
 
 db = DatabaseManager()
+# In your telemetry initialization or default fallback:
+initial_nav = 40000.0
+free_cash = 40000.0
