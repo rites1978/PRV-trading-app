@@ -157,7 +157,13 @@ m4.metric("Max Drawdown", f"{drawdown:.2f}%", delta="Nominal", delta_color="norm
 
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4 = st.tabs(["⚡ Nerve Center & Allocation", "📈 Capital Curve & Models", "🏛️ AI Boardroom Logs", "🧠 Agent Intelligence Matrix"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "⚡ Nerve Center", 
+    "📊 Execution Ledger", 
+    "🤖 AI Boardroom", 
+    "⚙️ System Telemetry", 
+    "👀 Friend's Watchlist"
+])
 
 # Fetch Active Positions from Broker
 positions_data = []
