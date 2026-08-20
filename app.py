@@ -22,116 +22,195 @@ st.set_page_config(
 # ==========================================
 # APPLE iOS 27 LIQUID GLASS DESIGN SYSTEM
 # ==========================================
+import streamlit as st
+
+# Page Config - Clean, wide layout
+st.set_page_config(
+    page_title="PRV Capital | Markets",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# --- APPLE STOCKS DESIGN SYSTEM CSS ---
 st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-    /* Global Ambient Background */
+<style>
+    /* Global Reset & Dark OLED Background */
     .stApp {
-        background: radial-gradient(circle at 10% 20%, rgba(37, 99, 235, 0.15) 0%, transparent 40%),
-                    radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 40%),
-                    radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.08) 0%, transparent 60%),
-                    #070a13;
-        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
-        color: #f8fafc;
+        background-color: #000000;
+        color: #f5f5f7;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+    
+    /* Hide Streamlit Header & Footer */
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Apple-Style Glass Card */
+    .apple-card {
+        background: rgba(28, 28, 30, 0.65);
+        backdrop-filter: blur(25px);
+        -webkit-backdrop-filter: blur(25px);
+        border: 0.5px solid rgba(255, 255, 255, 0.12);
+        border-radius: 16px;
+        padding: 20px 24px;
+        margin-bottom: 12px;
+        transition: transform 0.2s ease, background 0.2s ease;
+    }
+    .apple-card:hover {
+        background: rgba(44, 44, 46, 0.75);
+    }
+    
+    /* Typography - Apple Scale */
+    .apple-title {
+        font-size: 34px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        color: #ffffff;
+        margin-bottom: 4px;
+    }
+    .apple-subtitle {
+        font-size: 15px;
+        font-weight: 400;
+        color: #86868b;
+        margin-bottom: 24px;
+    }
+    .stock-ticker {
+        font-size: 20px;
+        font-weight: 600;
+        color: #ffffff;
+        letter-spacing: -0.3px;
+    }
+    .stock-name {
+        font-size: 13px;
+        color: #86868b;
+        font-weight: 400;
+    }
+    .stock-price {
+        font-size: 20px;
+        font-weight: 600;
+        color: #ffffff;
+        text-align: right;
+    }
+    
+    /* Apple Pill Badges for Change % */
+    .pill-green {
+        background-color: rgba(48, 209, 88, 0.15);
+        color: #30d158;
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 14px;
+        text-align: right;
+        display: inline-block;
+    }
+    .pill-red {
+        background-color: rgba(255, 69, 58, 0.15);
+        color: #ff453a;
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 14px;
+        text-align: right;
+        display: inline-block;
     }
 
-    /* iOS 27 Specular Frosted Glass Panels */
-    .glass-card {
-        background: rgba(255, 255, 255, 0.035);
-        backdrop-filter: blur(35px) saturate(190%);
-        -webkit-backdrop-filter: blur(35px) saturate(190%);
-        border: 1px solid rgba(255, 255, 255, 0.09);
-        border-top: 1px solid rgba(255, 255, 255, 0.22);
-        border-radius: 24px;
-        padding: 24px;
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4), 
-                    inset 0 1px 1px rgba(255, 255, 255, 0.15);
-        margin-bottom: 20px;
-    }
-
-    /* Metric Cards Glass Styling */
-    div[data-testid="stMetric"] {
-        background: rgba(255, 255, 255, 0.03) !important;
-        backdrop-filter: blur(30px) !important;
-        -webkit-backdrop-filter: blur(30px) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-top: 1px solid rgba(255, 255, 255, 0.2) !important;
-        border-radius: 20px !important;
-        padding: 18px 22px !important;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
-    }
-    div[data-testid="stMetricLabel"] {
-        color: #94a3b8 !important;
-        font-size: 0.85rem !important;
-        font-weight: 500 !important;
-        letter-spacing: 0.5px !important;
-        text-transform: uppercase !important;
-    }
-    div[data-testid="stMetricValue"] {
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        font-size: 1.85rem !important;
-        letter-spacing: -0.5px !important;
-    }
-
-    /* iOS Glass Tabs */
+    /* Custom Apple Tabs */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-        background: rgba(255, 255, 255, 0.02);
-        padding: 6px;
-        border-radius: 18px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        gap: 8px;
+        background-color: rgba(28, 28, 30, 0.4);
+        padding: 4px;
+        border-radius: 12px;
+        border: 0.5px solid rgba(255, 255, 255, 0.08);
     }
     .stTabs [data-baseweb="tab"] {
-        background: transparent !important;
-        color: #94a3b8 !important;
-        border-radius: 14px !important;
+        height: 36px;
+        border-radius: 8px;
+        color: #86868b;
+        font-weight: 500;
+        font-size: 13px;
         border: none !important;
-        padding: 10px 20px !important;
-        font-weight: 500 !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
     .stTabs [aria-selected="true"] {
-        background: rgba(255, 255, 255, 0.12) !important;
-        backdrop-filter: blur(20px) !important;
+        background-color: #2c2c2e !important;
         color: #ffffff !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.25) !important;
-    }
-
-    /* Live Nerve Center Terminal */
-    .glass-terminal {
-        background: rgba(2, 6, 18, 0.55);
-        backdrop-filter: blur(40px);
-        -webkit-backdrop-filter: blur(40px);
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        border-top: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 20px;
-        padding: 18px;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.82rem;
-        height: 380px;
-        overflow-y: auto;
-        box-shadow: inset 0 2px 8px rgba(0,0,0,0.6);
-    }
-    .badge {
-        padding: 3px 8px;
-        border-radius: 6px;
         font-weight: 600;
-        font-size: 0.72rem;
-        letter-spacing: 0.5px;
     }
-    .badge-board { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
-    .badge-risk { background: rgba(244, 63, 94, 0.15); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.3); }
-    .badge-exec { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
-    
-    /* Sleek Scrollbar */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
-    </style>
+</style>
 """, unsafe_allow_html=True)
+
+# --- APP HEADER ---
+st.markdown('<div class="apple-title">Watchlist</div>', unsafe_allow_html=True)
+st.markdown('<div class="apple-subtitle">PRV Capital • Autonomous Terminal</div>', unsafe_allow_html=True)
+
+# Tabs
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "⚡ Nerve Center", 
+    "📊 Execution Ledger", 
+    "🤖 AI Boardroom", 
+    "⚙️ System Telemetry", 
+    "👀 Friend's Watchlist"
+])
+
+# Example layout implementation for Tab 5 (Friend's Watchlist) styled Apple-clean
+with tab5:
+    st.markdown("### Market Tracker", help="External ideas & tracked equities")
+    
+    # Minimalist Apple Input Form
+    with st.form("add_watchlist_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns([2, 3, 1])
+        with col1:
+            new_ticker = st.text_input("Symbol", placeholder="e.g. AAPL, LCID")
+        with col2:
+            new_notes = st.text_input("Note", placeholder="e.g. Breakout watch")
+        with col3:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            submitted = st.form_submit_button("Add Symbol", use_container_width=True)
+            
+        if submitted and new_ticker:
+            from watchlist_manager import WatchlistManager
+            wm = WatchlistManager()
+            success, msg = wm.add_ticker(new_ticker, new_notes)
+            if success:
+                st.success(f"Added {new_ticker.upper()}")
+                st.rerun()
+            else:
+                st.error(msg)
+
+    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+    
+    # Render Watchlist in Apple Stocks Row Format
+    from watchlist_manager import WatchlistManager
+    wm = WatchlistManager()
+    watchlist_items = wm.get_watchlist_data()
+    
+    if watchlist_items:
+        for w in watchlist_items:
+            is_positive = w['change_pct'] >= 0
+            pill_class = "pill-green" if is_positive else "pill-red"
+            sign = "+" if is_positive else ""
+            
+            # Apple Stocks Clean Row Layout
+            st.markdown(f"""
+                <div class="apple-card" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div class="stock-ticker">{w['ticker']}</div>
+                        <div class="stock-name">{w['name']} &bull; <span style="color:#636366;">{w['notes']}</span></div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 24px;">
+                        <div class="stock-price">£{w['price']:,.2f}</div>
+                        <div>
+                            <span class="{pill_class}">{sign}{w['change_pct']:.2f}%</span>
+                        </div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+            <div class="apple-card" style="text-align: center; color: #86868b; padding: 40px;">
+                No symbols tracked yet. Add one above to populate your feed.
+            </div>
+        """, unsafe_allow_html=True)
 
 # Header Section
 col_head1, col_head2 = st.columns([3, 1])
