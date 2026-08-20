@@ -252,48 +252,33 @@ with tab1:
 # ==========================================
 # TAB 2: CAPITAL CURVE & PERFORMANCE CHARTS
 # ==========================================
+ 
 with tab2:
-    st.markdown("### 📈 Capital Trajectory & Historical VaR Envelope")
+    st.markdown("### ⚡ Official Execution Ledger")
+    trades = db.get_execution_history(limit=25)
     
-    # Generate Synthetic/Simulated Curve Anchor
-    dates = [datetime.now() - timedelta(days=i) for i in range(14, -1, -1)]
-    nav_history = [40000.0 + (i * 75.0) - (20.0 if i % 3 == 0 else -40.0) for i in range(len(dates))]
-    var_lower = [v - 800.0 for v in nav_history]
-    
-    df_curve = pd.DataFrame({'Date': dates, 'NAV': nav_history, 'Lower VaR Bound': var_lower})
-    
-    fig_curve = go.Figure()
-    
-    # Upper Bound / Main Area
-    fig_curve.add_trace(go.Scatter(
-        x=df_curve['Date'], y=df_curve['NAV'],
-        mode='lines',
-        name='Portfolio NAV (£)',
-        line=dict(color='#38bdf8', width=3, shape='spline'),
-        fill='tozeroy',
-        fillcolor='rgba(56, 189, 248, 0.08)'
-    ))
-    
-    # VaR 95% Confidence Floor
-    fig_curve.add_trace(go.Scatter(
-        x=df_curve['Date'], y=df_curve['Lower VaR Bound'],
-        mode='lines',
-        name='95% Parametric VaR Floor',
-        line=dict(color='rgba(244, 63, 94, 0.6)', width=1.5, dash='dash')
-    ))
-    
-    fig_curve.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#94a3b8', family='SF Pro Display'),
-        xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', zeroline=False),
-        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', zeroline=False, tickprefix="£"),
-        margin=dict(t=30, b=20, l=20, r=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        height=420
-    )
-    
-    st.plotly_chart(fig_curve, use_container_width=True)
+    if trades:
+        for t in trades:
+            action = t.get('action', 'BUY')
+            badge_color = "#34d399" if action == "BUY" else "#f43f5e"
+            bg_badge = "rgba(52,211,153,0.12)" if action == "BUY" else "rgba(244,63,94,0.12)"
+            border_badge = "rgba(52,211,153,0.3)" if action == "BUY" else "rgba(244,63,94,0.3)"
+            
+            st.markdown(f"""
+                <div class="glass-card" style="padding: 16px 20px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="background:{bg_badge}; color:{badge_color}; border:1px solid {border_badge}; padding:4px 10px; border-radius:8px; font-weight:700; font-size:0.8rem; margin-right:10px;">{action}</span>
+                        <span style="font-weight:700; font-size:1.1rem; color:#ffffff;">{t.get('asset_ticker')}</span>
+                        <span style="color:#64748b; font-size:0.85rem; margin-left:12px;">{t.get('timestamp')[:19]}</span>
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="font-weight:600; color:#f8fafc; font-size:1rem;">{t.get('quantity')} Shares @ £{float(t.get('fill_price', 0)):,.2f}</span>
+                        <div style="color:#94a3b8; font-size:0.8rem;">Stop-Loss: £{float(t.get('dynamic_stop_loss', 0)):,.2f}</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("No executions recorded yet. Standing by for high-conviction orders.")
 
 # ==========================================
 # TAB 3: AI BOARDROOM ARCHIVE
