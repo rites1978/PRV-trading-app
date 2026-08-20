@@ -28,7 +28,7 @@ st.markdown("""
 st.title("🏛️ PRV CAPITAL MANAGEMENT")
 st.caption("Autonomous Quantitative Intelligence Desk • Cloud Synchronized")
 
-tab1, tab2, tab3 = st.tabs(["💼 Portfolio & NAV", "⚡ Execution Ledger", "🏛️ AI Boardroom Transcripts"])
+tab1, tab2, tab3, tab4 = st.tabs(["💼 Portfolio & NAV", "⚡ Execution Ledger", "🏛️ AI Boardroom Transcripts", "🧠 Agent Intelligence"])
 
 with tab1:
     st.subheader("Fund Performance & Risk Console")
