@@ -32,86 +32,165 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- SAFE APPLE STOCKS DESIGN SYSTEM CSS ---
+# --- DEEP APPLE STOCKS OVERHAUL CSS ---
 st.markdown("""
 <style>
-    /* Hide Streamlit Header & Footer */
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
+    /* 1. Global OLED Canvas Reset */
+    .stApp {
+        background-color: #000000 !important;
+        color: #f5f5f7;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    }
     
-    /* Apple-Style Glass Card */
-    .apple-card {
-        background: rgba(28, 28, 30, 0.65);
-        backdrop-filter: blur(25px);
-        -webkit-backdrop-filter: blur(25px);
+    /* Hide Default Streamlit Chrome */
+    header, footer, [data-testid="stHeader"] {
+        visibility: hidden !important;
+        height: 0px !important;
+    }
+    
+    /* Remove default container padding to hug edges like a native app */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 3rem !important;
+        max-width: 1000px !important;
+    }
+
+    /* 2. Apple Typography Scale */
+    h1, h2, h3 {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif !important;
+        color: #ffffff !important;
+        letter-spacing: -0.022em;
+    }
+    
+    p, span, label {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif !important;
+        color: #86868b !important;
+    }
+
+    /* 3. True Frosted Glass Cards (Apple Style) */
+    .apple-glass-card {
+        background: rgba(28, 28, 30, 0.75);
+        backdrop-filter: blur(40px);
+        -webkit-backdrop-filter: blur(40px);
         border: 0.5px solid rgba(255, 255, 255, 0.12);
         border-radius: 16px;
         padding: 20px 24px;
         margin-bottom: 12px;
-    }
-    .apple-card:hover {
-        background: rgba(44, 44, 46, 0.75);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
     }
     
-    /* Typography */
-    .apple-title {
-        font-size: 34px;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-        color: #ffffff;
-        margin-bottom: 4px;
+    .apple-glass-card:hover {
+        background: rgba(44, 44, 46, 0.85);
+        border-color: rgba(255, 255, 255, 0.2);
     }
-    .apple-subtitle {
-        font-size: 15px;
-        font-weight: 400;
-        color: #86868b;
+
+    /* 4. Native Apple Segmented Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: rgba(118, 118, 128, 0.12);
+        padding: 4px;
+        border-radius: 10px;
+        gap: 4px;
+        border: none;
         margin-bottom: 24px;
     }
-    .stock-ticker {
-        font-size: 20px;
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 34px;
+        border-radius: 8px;
+        color: #86868b;
+        font-weight: 500;
+        font-size: 13px;
+        border: none !important;
+        background-color: transparent !important;
+        transition: all 0.2s ease;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: #636366 !important;
+        color: #ffffff !important;
         font-weight: 600;
+        box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+    }
+
+    /* 5. Apple Input Fields */
+    .stTextInput input {
+        background-color: rgba(28, 28, 30, 0.9) !important;
+        color: #ffffff !important;
+        border: 0.5px solid rgba(255, 255, 255, 0.15) !important;
+        border-radius: 10px !important;
+        padding: 10px 14px !important;
+        font-size: 14px !important;
+    }
+    .stTextInput input:focus {
+        border-color: #0a84ff !important;
+        box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25) !important;
+    }
+
+    /* 6. Apple Action Buttons */
+    .stButton button {
+        background-color: #0a84ff !important;
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        border-radius: 10px !important;
+        border: none !important;
+        padding: 10px 20px !important;
+        transition: opacity 0.2s ease;
+    }
+    .stButton button:hover {
+        opacity: 0.85;
+    }
+
+    /* Stock Ticker Typography */
+    .ticker-symbol {
+        font-size: 22px;
+        font-weight: 700;
         color: #ffffff;
         letter-spacing: -0.3px;
     }
-    .stock-name {
+    .ticker-company {
         font-size: 13px;
         color: #86868b;
         font-weight: 400;
     }
-    .stock-price {
-        font-size: 20px;
+    .ticker-price {
+        font-size: 22px;
         font-weight: 600;
         color: #ffffff;
         text-align: right;
+        letter-spacing: -0.2px;
     }
     
     /* Apple Pill Badges */
-    .pill-green {
-        background-color: rgba(48, 209, 88, 0.15);
+    .apple-pill-green {
+        background-color: rgba(48, 209, 88, 0.18);
         color: #30d158;
         padding: 6px 12px;
         border-radius: 8px;
         font-weight: 600;
-        font-size: 14px;
+        font-size: 13px;
         display: inline-block;
     }
-    .pill-red {
-        background-color: rgba(255, 69, 58, 0.15);
+    .apple-pill-red {
+        background-color: rgba(255, 69, 58, 0.18);
         color: #ff453a;
         padding: 6px 12px;
         border-radius: 8px;
         font-weight: 600;
-        font-size: 14px;
+        font-size: 13px;
         display: inline-block;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- APP HEADER ---
-st.markdown('<div class="apple-title">Watchlist</div>', unsafe_allow_html=True)
-st.markdown('<div class="apple-subtitle">PRV Capital • Autonomous Terminal</div>', unsafe_allow_html=True)
+# --- NATIVE MAC HEADER ---
+st.markdown("""
+    <div style="margin-bottom: 24px;">
+        <div style="font-size: 32px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;">Watchlist</div>
+        <div style="font-size: 14px; color: #86868b; font-weight: 400; margin-top: 2px;">PRV Capital &bull; Autonomous Quant Desk</div>
+    </div>
+""", unsafe_allow_html=True)
 
-# Native Streamlit Tabs (Guaranteed to render correctly without breaking)
+# --- TABS ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "⚡ Nerve Center", 
     "📊 Execution Ledger", 
@@ -120,32 +199,35 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "👀 Friend's Watchlist"
 ])
 
-# Example layout for Tab 5 (Friend's Watchlist)
+# --- TAB 5: FRIEND'S WATCHLIST (Fully Overhauled Apple Style) ---
 with tab5:
-    st.markdown("### Market Tracker")
+    st.markdown('<div style="font-size: 18px; font-weight: 600; color: #ffffff; margin-bottom: 16px;">Tracked Equities</div>', unsafe_allow_html=True)
     
-    with st.form(key="watchlist_form", clear_on_submit=True):
-        col1, col2, col3 = st.columns([2, 3, 1])
-        with col1:
-            new_ticker = st.text_input("Symbol", placeholder="e.g. AAPL, LCID")
-        with col2:
-            new_notes = st.text_input("Note", placeholder="e.g. Breakout watch")
-        with col3:
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            submitted = st.form_submit_button("Add Symbol", use_container_width=True)
-            
-        if submitted and new_ticker:
-            from watchlist_manager import WatchlistManager
-            wm = WatchlistManager()
-            success, msg = wm.add_ticker(new_ticker, new_notes)
-            if success:
-                st.success(f"Added {new_ticker.upper()}")
-                st.rerun()
-            else:
-                st.error(msg)
+    # Input Form inside a Frosted Card
+    with st.container():
+        with st.form(key="apple_watchlist_form", clear_on_submit=True):
+            col1, col2, col3 = st.columns([2, 3, 1])
+            with col1:
+                new_ticker = st.text_input("Symbol", placeholder="e.g. AAPL, LCID")
+            with col2:
+                new_notes = st.text_input("Note / Thesis", placeholder="e.g. Swing setup")
+            with col3:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                submitted = st.form_submit_button("Add Symbol", use_container_width=True)
+                
+            if submitted and new_ticker:
+                from watchlist_manager import WatchlistManager
+                wm = WatchlistManager()
+                success, msg = wm.add_ticker(new_ticker, new_notes)
+                if success:
+                    st.success(f"Added {new_ticker.upper()}")
+                    st.rerun()
+                else:
+                    st.error(msg)
 
-    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
     
+    # Render Items in Apple Stocks Row Layout
     from watchlist_manager import WatchlistManager
     wm = WatchlistManager()
     watchlist_items = wm.get_watchlist_data()
@@ -153,17 +235,17 @@ with tab5:
     if watchlist_items:
         for w in watchlist_items:
             is_positive = w['change_pct'] >= 0
-            pill_class = "pill-green" if is_positive else "pill-red"
+            pill_class = "apple-pill-green" if is_positive else "apple-pill-red"
             sign = "+" if is_positive else ""
             
             st.markdown(f"""
-                <div class="apple-card" style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="apple-glass-card" style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <div class="stock-ticker">{w['ticker']}</div>
-                        <div class="stock-name">{w['name']} &bull; <span style="color:#636366;">{w['notes']}</span></div>
+                        <div class="ticker-symbol">{w['ticker']}</div>
+                        <div class="ticker-company">{w['name']} &bull; <span style="color: #636366;">{w['notes']}</span></div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 24px;">
-                        <div class="stock-price">£{w['price']:,.2f}</div>
+                    <div style="display: flex; align-items: center; gap: 28px;">
+                        <div class="ticker-price">£{w['price']:,.2f}</div>
                         <div>
                             <span class="{pill_class}">{sign}{w['change_pct']:.2f}%</span>
                         </div>
@@ -172,40 +254,8 @@ with tab5:
             """, unsafe_allow_html=True)
     else:
         st.markdown("""
-            <div class="apple-card" style="text-align: center; color: #86868b; padding: 40px;">
-                No symbols tracked yet. Add one above to populate your feed.
-            </div>
-        """, unsafe_allow_html=True)    
-    # Render Watchlist in Apple Stocks Row Format
-    from watchlist_manager import WatchlistManager
-    wm = WatchlistManager()
-    watchlist_items = wm.get_watchlist_data()
-    
-    if watchlist_items:
-        for w in watchlist_items:
-            is_positive = w['change_pct'] >= 0
-            pill_class = "pill-green" if is_positive else "pill-red"
-            sign = "+" if is_positive else ""
-            
-            # Apple Stocks Clean Row Layout
-            st.markdown(f"""
-                <div class="apple-card" style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <div class="stock-ticker">{w['ticker']}</div>
-                        <div class="stock-name">{w['name']} &bull; <span style="color:#636366;">{w['notes']}</span></div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 24px;">
-                        <div class="stock-price">£{w['price']:,.2f}</div>
-                        <div>
-                            <span class="{pill_class}">{sign}{w['change_pct']:.2f}%</span>
-                        </div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-            <div class="apple-card" style="text-align: center; color: #86868b; padding: 40px;">
-                No symbols tracked yet. Add one above to populate your feed.
+            <div class="apple-glass-card" style="text-align: center; padding: 40px; color: #86868b;">
+                No symbols tracked yet. Add a ticker above to populate your live feed.
             </div>
         """, unsafe_allow_html=True)
 
