@@ -345,7 +345,7 @@ if st.button("🔄 Sync Glass Telemetry"):
     # Add to your tab definitions
 # tab1, tab2, tab3, tab4, tab5 = st.tabs([... , "👀 Friend's Watchlist"])
 
-wwith tab5:
+with tab5:
     st.markdown("### 👀 Friend's Watchlist & Ideas")
     st.markdown("<p style='color:#64748b;'>Passive tracking for external ideas. Automatically identified via Yahoo Finance.</p>", unsafe_allow_html=True)
     
