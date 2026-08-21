@@ -12,7 +12,7 @@ import random
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Authenticating with Trading 212 Practice API via API Key & Secret..."
+LIVE_COMMENTARY = "AI Trading Floor: Secure connection established with Trading 212 Practice API..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -36,7 +36,6 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
     if "_" not in clean_ticker:
         clean_ticker = f"{clean_ticker}_US_EQ"
 
-    # Official Trading 212 Base64 Basic Auth using Key & Secret
     credentials_string = f"{T212_API_KEY}:{T212_API_SECRET}"
     encoded_creds = base64.b64encode(credentials_string.encode('utf-8')).decode('utf-8')
     
@@ -109,7 +108,7 @@ async def market_scouring_agent():
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Trading Desk online with T212 Key/Secret linkage.", "success")
+    log_activity("PRV Trading Desk online with Trading 212 API linkage.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_trades_from_db():
@@ -320,7 +319,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent is authorized using both your Trading 212 API Key and Secret via Base64 Basic Authentication.
+                    The autonomous agent is authorized using your Trading 212 API Key and Secret via Base64 Basic Authentication.
                 </div>
             </div>
         </div>
