@@ -6,12 +6,13 @@ import asyncio
 from datetime import datetime
 import os
 import requests
+from requests.auth import HTTPBasicAuth
 import random
 
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Agent initialized. Scanning global equities for live momentum shifts..."
+LIVE_COMMENTARY = "AI Trading Floor: Initializing neural market feed & streaming ticker..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -22,23 +23,25 @@ def log_activity(message: str, level: str = "info"):
         SYSTEM_LOGS.pop()
     LIVE_COMMENTARY = f"[{timestamp}] {message}"
 
+# Trading 212 Credentials (Key as username, Secret as password)
 T212_API_KEY = os.getenv("T212_API_KEY", "")
+T212_API_SECRET = os.getenv("T212_API_SECRET", "")
 T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/equity")
 
 def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET"):
-    if not T212_API_KEY or "your_key" in T212_API_KEY:
-        log_activity(f"Execution Engine [Simulated]: Filled {quantity}x {ticker}.", "warning")
+    if not T212_API_KEY or not T212_API_SECRET or "your_key" in T212_API_KEY:
+        log_activity(f"Trading 212 [Paper Stream]: Simulated execution of {quantity}x {ticker}.", "warning")
         return "SIMULATED FILL"
     
-    headers = {"Authorization": T212_API_KEY}
+    auth = HTTPBasicAuth(T212_API_KEY, T212_API_SECRET)
     payload = {"quantity": float(quantity), "ticker": ticker.upper().strip(), "type": order_type}
     try:
-        res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=headers, timeout=10)
+        res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, auth=auth, timeout=10)
         if res.status_code in [200, 201]:
-            log_activity(f"T212 Broker Gateway: LIVE ORDER CONFIRMED for {ticker}!", "success")
+            log_activity(f"Trading 212 Broker: LIVE ORDER EXECUTED for {ticker}!", "success")
             return "LIVE EXECUTED"
         else:
-            log_activity(f"T212 Auth Error. Fallback to Virtual Fill for {ticker}.", "warning")
+            log_activity(f"Trading 212 Auth Refused [Code {res.status_code}]. Using Virtual Fill.", "warning")
             return "SIMULATED FILL"
     except Exception:
         log_activity(f"Broker connection timeout. Virtual Fill for {ticker}.", "warning")
@@ -52,7 +55,7 @@ def get_broad_market_universe():
 
 async def market_scouring_agent():
     while True:
-        log_activity("Market Scouter: Scanning liquid equity pool...", "info")
+        log_activity("Market Floor: Scanning liquid equities for momentum breakouts...", "info")
         universe = get_broad_market_universe()
         
         trades_fired = 0
@@ -81,16 +84,16 @@ async def market_scouring_agent():
                             "status": execution_status
                         }).execute()
                         
-                        log_activity(f"⚡ ACTION: Autonomous {side} {shares}x {ticker} @ £{current_price:,.2f} [{execution_status}]", "success")
+                        log_activity(f"⚡ TICKET FIRED: {side} {shares}x {ticker} @ £{current_price:,.2f} [{execution_status}]", "success")
             except Exception:
                 continue
                 
-        log_activity(f"Market Scouter: Cycle finished. Executed {trades_fired} active transactions.", "info")
+        log_activity(f"Market Floor: Scan cycle complete. Processed {trades_fired} active trades.", "info")
         await asyncio.sleep(120)
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Autonomous Quant Desk online with live commentary ticker.", "success")
+    log_activity("PRV Trading Desk online with live streaming ticker.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_trades_from_db():
@@ -122,8 +125,8 @@ def get_live_valuation():
         
     total_val = baseline_capital + current_notional
     
-    # Add minor organic micro-fluctuation to give it that true live ticking ticker feel
-    jitter = random.uniform(-2.50, 3.50) if trades else 0.0
+    # Live streaming price jitter to simulate live ticker movement
+    jitter = random.uniform(-3.50, 4.50) if trades else 0.0
     final_val = round(total_val + jitter, 2)
     
     return {
@@ -171,7 +174,6 @@ HTML_TEMPLATE = """
         body { background-color: var(--bg-color); color: var(--text-primary); padding: 30px 20px; display: flex; justify-content: center; }
         .container { width: 100%; max-width: 820px; }
         
-        /* Live Commentary Marquee */
         .commentary-ticker { background: rgba(10, 132, 255, 0.12); border: 0.5px solid var(--accent-blue); border-radius: 12px; padding: 10px 16px; margin-bottom: 20px; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 10px; color: var(--text-primary); }
         .ticker-dot { width: 8px; height: 8px; background: var(--accent-blue); border-radius: 50%; animation: pulse 1.2s infinite; flex-shrink: 0; }
         
@@ -216,7 +218,7 @@ HTML_TEMPLATE = """
         <!-- Live Commentary Ticker Marquee -->
         <div class="commentary-ticker">
             <span class="ticker-dot"></span>
-            <span id="liveCommentary">Initializing live market feed...</span>
+            <span id="liveCommentary">Connecting to live trading floor...</span>
         </div>
 
         <div class="header-container">
@@ -238,7 +240,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Streaming Portfolio Valuation</div>
                 <div class="balance-display" id="liveValuation">&pound;Loading...</div>
-                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;" id="valuationSubtext">
+                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">
                     Live Tick-by-Tick Feed Active
                 </div>
             </div>
@@ -253,7 +255,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    Live commentary stream updates every 3 seconds as the autonomous agent analyzes asset ticks across global market feeds.
+                    Live commentary stream updates every 3 seconds as the autonomous agent analyzes asset ticks and routes orders via HTTP Basic Auth.
                 </div>
             </div>
         </div>
@@ -291,7 +293,6 @@ HTML_TEMPLATE = """
 
         let lastValuation = 0;
 
-        // Live Ticker & Valuation Streaming Poller (Updates every 3 seconds)
         async function pollValuation() {
             try {
                 const response = await fetch('/api/valuation');
