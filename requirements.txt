@@ -6,4 +6,5 @@ yfinance
 supabase
 requests
 reportlab
-python-dotenv
+python-dotenvfastapi
+uvicorn
