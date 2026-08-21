@@ -14,7 +14,7 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Live Probe Engine Active (Clock Override)."
+LIVE_COMMENTARY = "AI Trading Floor: Active Capital Deployment Engine (US Session)."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
@@ -22,25 +22,42 @@ BANKED_PROFITS = 0.00
 
 PRICE_MEMORY = {}
 
+# Expanded Top 25 US 500 Giants & Trackers to ensure broad market capture
 TARGET_POOL = [
     "VOO_US_EQ",   # Vanguard S&P 500
     "SPY_US_EQ",   # SPDR S&P 500
+    "QQQ_US_EQ",   # Nasdaq 100 Tracker
     "AAPL_US_EQ",  # Apple
     "MSFT_US_EQ",  # Microsoft
     "NVDA_US_EQ",  # NVIDIA
     "AMZN_US_EQ",  # Amazon
-    "META_US_EQ"   # Meta Platforms
+    "META_US_EQ",  # Meta Platforms
+    "GOOGL_US_EQ", # Alphabet
+    "TSLA_US_EQ",  # Tesla
+    "AMD_US_EQ",   # Advanced Micro Devices
+    "AVGO_US_EQ",  # Broadcom
+    "JPM_US_EQ",   # JPMorgan Chase
+    "V_US_EQ",     # Visa
+    "WMT_US_EQ",   # Walmart
+    "MA_US_EQ",    # Mastercard
+    "PG_US_EQ",    # Procter & Gamble
+    "JNJ_US_EQ",   # Johnson & Johnson
+    "HD_US_EQ",    # Home Depot
+    "COST_US_EQ",  # Costco
+    "NFLX_US_EQ",  # Netflix
+    "PEP_US_EQ",   # PepsiCo
+    "KO_US_EQ",    # Coca-Cola
+    "DIS_US_EQ",   # Disney
+    "CSCO_US_EQ"   # Cisco
 ]
 
 def is_market_open() -> bool:
-    # SERVER CLOCK OVERRIDE: Bypassing the broken Render time check. 
-    # Forcing the AI to recognize the US market is OPEN right now.
+    # Clock Override: Forcing the US market OPEN to capture the current bull session
     return True
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
-    # Grabbing raw server time just so we can see how badly Render's clock is off in the logs
-    raw_time = datetime.now().strftime("%H:%M:%S (Server)")
+    raw_time = datetime.now().strftime("%H:%M:%S")
     entry = {"time": raw_time, "msg": message, "level": level}
     SYSTEM_LOGS.insert(0, entry)
     if len(SYSTEM_LOGS) > 100: SYSTEM_LOGS.pop()
@@ -56,7 +73,7 @@ def get_t212_auth_headers():
     encoded = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
-def execute_live_order(exact_ticker: str, quantity: float, order_type: str = "PROBE"):
+def execute_live_order(exact_ticker: str, quantity: float, order_type: str = "EXECUTION"):
     payload = {"ticker": exact_ticker, "quantity": quantity}
     side = "BUY" if quantity > 0 else "SELL"
     try:
@@ -86,7 +103,7 @@ def fetch_live_data():
 
 async def continuous_intelligence_loop():
     await asyncio.sleep(2)
-    log_activity("Live Probe Engine Online (Clock Override Active). Deploying market seeds...", "success")
+    log_activity("Active Capital Deployment Engine Online. Getting idle cash to work...", "success")
     
     while True:
         if is_market_open():
@@ -94,13 +111,20 @@ async def continuous_intelligence_loop():
             owned_tickers = {pos.get("ticker"): pos for pos in CACHED_PORTFOLIO} if CACHED_PORTFOLIO else {}
             free_cash = float(CACHED_ACCOUNT.get("free", 0))
 
-            # --- PHASE 1: SEEDING PROBES TO FORCE LIVE DATA STREAM ---
-            for target in TARGET_POOL:
-                if target not in owned_tickers and free_cash > 50.0:
-                    execute_live_order(target, 0.05, "DATA PROBE")
-                    await asyncio.sleep(2)
+            # --- PHASE 1: AGGRESSIVE IDLE CASH DEPLOYMENT ---
+            # If we have a lot of cash doing nothing, start taking £1,000 blocks in the top 25 companies
+            if free_cash > 5000.0:
+                for target in TARGET_POOL:
+                    if target not in owned_tickers and free_cash > 1500.0:
+                        # We don't know the exact price until we own it, so we buy a £1.00 seed first,
+                        # OR if we know the market is open, we can just estimate a fractional amount.
+                        # To be perfectly safe with the API, we buy a small 0.1 qty to unlock the price feed immediately.
+                        execute_live_order(target, 0.1, "MARKET SEED")
+                        await asyncio.sleep(2)
+                        fetch_live_data() # Refresh to get the price of the seed we just bought
+                        free_cash = float(CACHED_ACCOUNT.get("free", 0))
 
-            # --- PHASE 2: CALCULATING SPREAD VS MOMENTUM ---
+            # --- PHASE 2: PORTFOLIO MANAGEMENT & INTELLIGENT SCALING ---
             for ticker, pos in owned_tickers.items():
                 if ticker not in TARGET_POOL: continue
                 
@@ -117,29 +141,35 @@ async def continuous_intelligence_loop():
                     if len(PRICE_MEMORY[ticker]) > 20:
                         PRICE_MEMORY[ticker].pop(0)
                 
-                if len(PRICE_MEMORY[ticker]) >= 8:
+                if len(PRICE_MEMORY[ticker]) >= 2:
                     oldest_price = PRICE_MEMORY[ticker][0]
                     momentum_pct = ((cur_price - oldest_price) / oldest_price) * 100.0
                     
-                    if invested < 15.0: # It's just a probe
-                        if momentum_pct >= 0.35 and free_cash > 500.0:
-                            strike_qty = round(500.0 / cur_price, 2)
-                            log_activity(f"🧠 STRIKE: {ticker} (+{momentum_pct:.2f}%). Momentum beats spread cost.", "success")
-                            execute_live_order(ticker, strike_qty, "ALPHA ENTRY")
-                            PRICE_MEMORY[ticker] = []
+                    # If this is just a seed (invested < £10) and we have idle cash, scale it up to a £1000 Core Position!
+                    if invested < 10.0 and free_cash > 1500.0:
+                        target_qty = round(1000.0 / cur_price, 2)
+                        if target_qty > 0:
+                            log_activity(f"💰 DEPLOYING CAPITAL: Scaling {ticker} to £1000 Core Position.", "success")
+                            execute_live_order(ticker, target_qty, "CORE ALLOCATION")
+                            PRICE_MEMORY[ticker] = [] # Reset memory to track the new average
                     
-                    elif invested >= 15.0 and avg_price > 0: # Full position
+                    # If it is a full Core Position, manage it for profit/loss
+                    elif invested >= 500.0 and avg_price > 0: 
                         total_ret_pct = ((cur_price - avg_price) / avg_price) * 100.0
-                        if total_ret_pct >= 0.80:
-                            log_activity(f"🎯 SECURING PROFIT: {ticker} (+{total_ret_pct:.2f}%)", "success")
+                        
+                        # Bank clean daily profits
+                        if total_ret_pct >= 0.90:
+                            log_activity(f"🎯 SECURING PROFIT: {ticker} (+{total_ret_pct:.2f}%). Banking gains.", "success")
                             execute_live_order(ticker, -(qty - 0.05), "TAKE PROFIT")
                             PRICE_MEMORY[ticker] = []
-                        elif total_ret_pct <= -1.25:
-                            log_activity(f"🛡️ CUTTING RISK: {ticker} ({total_ret_pct:.2f}%)", "warning")
+                            
+                        # Cut losers so they don't drag down the portfolio
+                        elif total_ret_pct <= -1.50:
+                            log_activity(f"🛡️ CUTTING RISK: {ticker} ({total_ret_pct:.2f}%). Reallocating capital.", "warning")
                             execute_live_order(ticker, -(qty - 0.05), "STOP LOSS")
                             PRICE_MEMORY[ticker] = []
 
-        await asyncio.sleep(30)
+        await asyncio.sleep(15)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -151,7 +181,7 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    return {"status": "LOCKED", "detail": "Manual disabled. AI is deploying live probes."}
+    return {"status": "LOCKED", "detail": "AI is actively deploying idle capital across the Top 25 US pool."}
 
 @app.api_route("/api/dashboard_data", methods=["GET"])
 def get_dashboard_data():
@@ -162,7 +192,7 @@ def get_dashboard_data():
         "banked_profits": BANKED_PROFITS,
         "portfolio": CACHED_PORTFOLIO,
         "system_logs": SYSTEM_LOGS[:15],
-        "markets": {"UK": False, "US": True} # Forced open for the dashboard
+        "markets": {"UK": False, "US": True}
     }
 
 @app.get("/")
