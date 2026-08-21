@@ -1,4 +1,3 @@
-cat << 'EOF' > main.py
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 import yfinance as yf
@@ -273,8 +272,3 @@ def add_ticker(ticker: str = Form(...), notes: str = Form("")):
     except Exception:
         pass
     return read_root()
-EOF
-
-git add main.py
-git commit -m "Replace main.py with vector-rendered SVG charts and glassmorphism"
-git push origin main
