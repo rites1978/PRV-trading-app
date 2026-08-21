@@ -12,7 +12,7 @@ import random
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Initializing neural market feed & streaming ticker..."
+LIVE_COMMENTARY = "AI Trading Floor: Neural portfolio optimizer active. Calculating 24h rates of return..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -23,7 +23,6 @@ def log_activity(message: str, level: str = "info"):
         SYSTEM_LOGS.pop()
     LIVE_COMMENTARY = f"[{timestamp}] {message}"
 
-# Trading 212 Credentials (Key as username, Secret as password)
 T212_API_KEY = os.getenv("T212_API_KEY", "")
 T212_API_SECRET = os.getenv("T212_API_SECRET", "")
 T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/equity")
@@ -93,7 +92,7 @@ async def market_scouring_agent():
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Trading Desk online with live streaming ticker.", "success")
+    log_activity("PRV Trading Desk online with institutional allocations & live ticker.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_trades_from_db():
@@ -109,28 +108,37 @@ def get_live_valuation():
     trades = get_trades_from_db()
     
     current_notional = 0.0
+    total_24h_pnl = 0.0
+    
     for t in trades:
         ticker = t.get('ticker')
         shares = float(t.get('shares', 0))
         entry_price = float(t.get('price', 0))
+        side = t.get('side', 'BUY')
         
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period="1d")
+            hist = stock.history(period="2d")
             live_price = float(hist['Close'].iloc[-1]) if not hist.empty else entry_price
+            prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else live_price
         except Exception:
             live_price = entry_price
+            prev_close = entry_price
             
-        current_notional += shares * live_price
+        position_val = shares * live_price
+        current_notional += position_val
+        
+        # Calculate 24h PnL change for this position
+        pnl_change = (live_price - prev_close) * shares
+        if side == "SELL":
+            pnl_change = -pnl_change
+        total_24h_pnl += pnl_change
         
     total_val = baseline_capital + current_notional
-    
-    # Live streaming price jitter to simulate live ticker movement
-    jitter = random.uniform(-3.50, 4.50) if trades else 0.0
-    final_val = round(total_val + jitter, 2)
-    
     return {
-        "valuation": final_val,
+        "valuation": round(total_val, 2),
+        "change_24h": round(total_24h_pnl, 2),
+        "return_pct": round((total_24h_pnl / baseline_capital) * 100, 2),
         "commentary": LIVE_COMMENTARY
     }
 
@@ -140,7 +148,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PRV Capital • Live Trading Desk</title>
+    <title>PRV Capital • Institutional Trading Desk</title>
     <style>
         :root[data-theme="dark"] {
             --bg-color: #000000;
@@ -154,6 +162,7 @@ HTML_TEMPLATE = """
             --green: #30d158;
             --green-glow: rgba(48, 209, 88, 0.25);
             --red: #ff453a;
+            --red-glow: rgba(255, 69, 58, 0.25);
             --yellow: #f59e0b;
         }
         :root[data-theme="light"] {
@@ -168,6 +177,7 @@ HTML_TEMPLATE = """
             --green: #248a3d;
             --green-glow: rgba(40, 205, 65, 0.2);
             --red: #d70015;
+            --red-glow: rgba(255, 59, 48, 0.2);
             --yellow: #b45309;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; transition: color 0.2s ease; }
@@ -194,11 +204,17 @@ HTML_TEMPLATE = """
         .stock-name { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
         .stock-price { font-size: 18px; font-weight: 600; }
         
-        .pill { display: inline-block; padding: 6px 12px; border-radius: 10px; font-size: 12px; font-weight: 600; }
-        .pill.green { background-color: var(--green-glow); color: var(--green); border: 0.5px solid var(--green); }
-        .pill.blue { background-color: rgba(10, 132, 255, 0.2); color: var(--accent-blue); border: 0.5px solid var(--accent-blue); }
+        /* Distinct Buy vs Sell Badges */
+        .pill { display: inline-block; padding: 6px 14px; border-radius: 10px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+        .pill.buy { background-color: var(--green-glow); color: var(--green); border: 0.5px solid var(--green); }
+        .pill.sell { background-color: var(--red-glow); color: var(--red); border: 0.5px solid var(--red); }
         
         .balance-display { font-size: 38px; font-weight: 700; margin-top: 4px; letter-spacing: -0.5px; }
+        .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+        .metric-box { background: var(--tab-bg); border-radius: 12px; padding: 14px; border: 0.5px solid var(--card-border); }
+        .metric-label { font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; }
+        .metric-val { font-size: 18px; font-weight: 700; margin-top: 4px; }
+        
         .flash-green { color: var(--green) !important; }
         .flash-red { color: var(--red) !important; }
 
@@ -209,57 +225,88 @@ HTML_TEMPLATE = """
         .log-msg.error { color: var(--red); }
         .log-msg.warning { color: var(--yellow); }
         .log-msg.info { color: var(--text-primary); }
-        
+
+        /* Allocation Pie Chart Layout */
+        .chart-row { display: flex; align-items: center; gap: 24px; margin-top: 14px; }
+        .chart-legend { display: flex; flex-direction: column; gap: 8px; flex: 1; max-height: 160px; overflow-y: auto; }
+        .legend-item { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+        .legend-color { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+
         @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.8; } 50% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.8; } }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Live Commentary Ticker Marquee -->
         <div class="commentary-ticker">
             <span class="ticker-dot"></span>
-            <span id="liveCommentary">Connecting to live trading floor...</span>
+            <span id="liveCommentary">Connecting to institutional execution feed...</span>
         </div>
 
         <div class="header-container">
             <div class="header">
                 <h1>Markets</h1>
-                <p>PRV Capital &bull; Live Trading Desk</p>
+                <p>PRV Capital &bull; Institutional Trading Desk</p>
             </div>
             <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">☀️</button>
         </div>
 
         <div class="tabs-list">
             <button class="tab-btn active" onclick="switchTab(0)">⚡ Nerve Center</button>
-            <button class="tab-btn" onclick="switchTab(1)">📊 Live Transactions Ledger</button>
+            <button class="tab-btn" onclick="switchTab(1)">📊 Transactions & Allocations</button>
             <button class="tab-btn" onclick="switchTab(2)">🤖 AI Boardroom</button>
             <button class="tab-btn" onclick="switchTab(3)">📡 Market Telemetry</button>
         </div>
 
+        <!-- TAB 0: Nerve Center with Pie Chart & 24h Metrics -->
         <div class="tab-pane active">
             <div class="apple-card">
                 <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Streaming Portfolio Valuation</div>
                 <div class="balance-display" id="liveValuation">&pound;Loading...</div>
-                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">
-                    Live Tick-by-Tick Feed Active
+                
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div class="metric-label">Last 24h Change</div>
+                        <div class="metric-val" id="metric24h">&pound;0.00</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Rate of Return</div>
+                        <div class="metric-val" id="metricRoi">0.00%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Portfolio Allocation Pie Chart Card -->
+            <div class="apple-card">
+                <div style="font-size: 15px; font-weight: 600; margin-bottom: 4px;">Portfolio Asset Allocation</div>
+                <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">Live weighting breakdown of active holdings</div>
+                <div class="chart-row">
+                    <div style="width: 140px; height: 140px; flex-shrink: 0;" id="pieChartContainer">
+                        <!-- SVG Donut injected dynamically -->
+                    </div>
+                    <div class="chart-legend" id="chartLegend">
+                        <!-- Legend items injected dynamically -->
+                    </div>
                 </div>
             </div>
         </div>
 
+        <!-- TAB 1: Transactions & Allocations Ledger -->
         <div class="tab-pane">
             <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; text-transform: uppercase;">Verified Transaction Audit Trail</div>
             $TRADES_ITEMS$
         </div>
 
+        <!-- TAB 2: AI Boardroom -->
         <div class="tab-pane">
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    Live commentary stream updates every 3 seconds as the autonomous agent analyzes asset ticks and routes orders via HTTP Basic Auth.
+                    The autonomous agent continuously processes real-time feeds. Buy (Long) positions are highlighted in green and Sell (Short) positions in red across your institutional audit logs.
                 </div>
             </div>
         </div>
 
+        <!-- TAB 3: Market Telemetry -->
         <div class="tab-pane">
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 12px;">Live Market Analysis Log</div>
@@ -300,11 +347,27 @@ HTML_TEMPLATE = """
                 
                 const valEl = document.getElementById('liveValuation');
                 const commentaryEl = document.getElementById('liveCommentary');
+                const metric24h = document.getElementById('metric24h');
+                const metricRoi = document.getElementById('metricRoi');
                 
                 const newVal = data.valuation;
                 valEl.textContent = '£' + newVal.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 commentaryEl.textContent = data.commentary;
                 
+                // 24h metrics
+                const change24h = data.change_24h;
+                const roi = data.return_pct;
+                
+                metric24h.textContent = (change24h >= 0 ? '+£' : '-£') + Math.abs(change24h).toLocaleString('en-GB', {minimumFractionDigits: 2});
+                metric24h.className = "metric-val " + (change24h >= 0 ? "flash-green" : "flash-red");
+                
+                metricRoi.textContent = (roi >= 0 ? '+' : '') + roi.toFixed(2) + '%';
+                metricRoi.className = "metric-val " + (roi >= 0 ? "flash-green" : "flash-red");
+
+                if (data.allocations && data.allocations.length > 0) {
+                    renderPieChart(data.allocations);
+                }
+
                 if (lastValuation > 0) {
                     if (newVal > lastValuation) {
                         valEl.className = "balance-display flash-green";
@@ -318,6 +381,50 @@ HTML_TEMPLATE = """
                 console.error("Valuation poll failed", e);
             }
         }
+
+        function renderPieChart(allocations) {
+            const container = document.getElementById('pieChartContainer');
+            const legend = document.getElementById('chartLegend');
+            
+            const colors = ['#0a84ff', '#30d158', '#f59e0b', '#ff453a', '#bf5af2', '#5e5ce6', '#64d2ff', '#ff9f0a'];
+            
+            let total = allocations.reduce((sum, item) => sum + item.value, 0);
+            if (total === 0) return;
+            
+            let cumulativePercent = 0;
+            let svgSlices = '';
+            let legendHtml = '';
+            
+            allocations.forEach((item, index) => {
+                const percent = (item.value / total) * 100;
+                const color = colors[index % colors.length];
+                
+                // SVG Donut slice calculation
+                const [startX, startY] = getCoordinatesForPercent(cumulativePercent / 100);
+                cumulativePercent += percent;
+                const [endX, endY] = getCoordinatesForPercent(cumulativePercent / 100);
+                const largeArcFlag = percent > 50 ? 1 : 0;
+                
+                svgSlices += `<path d="M 50 50 L ${startX} ${startY} A 40 40 0 ${largeArcFlag} 1 ${endX} ${endY} Z" fill="${color}" />`;
+                
+                legendHtml += `
+                    <div class="legend-item">
+                        <span><span class="legend-color" style="background: ${color};"></span>${item.ticker}</span>
+                        <span style="font-weight: 600;">${percent.toFixed(1)}%</span>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = `<svg viewBox="0 0 100 100" style="width: 100%; height: 100%; transform: rotate(-90deg);">${svgSlices}<circle cx="50" cy="50" r="26" fill="var(--card-bg)" /></svg>`;
+            legend.innerHTML = legendHtml;
+        }
+
+        function getCoordinatesForPercent(percent) {
+            const x = 50 + 40 * Math.cos(2 * Math.PI * percent);
+            const y = 50 + 40 * Math.sin(2 * Math.PI * percent);
+            return [x, y];
+        }
+
         setInterval(pollValuation, 3000);
         pollValuation();
     </script>
@@ -338,17 +445,18 @@ def read_root():
         t_status = trade.get('status', 'SIMULATED FILL')
         t_time = trade.get('created_at', 'Just now')
         
-        pill_class = "green" if t_status == "LIVE EXECUTED" else "blue"
+        # Distinct Buy vs Sell styling
+        pill_class = "buy" if t_side == "BUY" else "sell"
         
         trades_html += f"""
         <div class="apple-card row-flex">
             <div>
-                <div class="stock-ticker">{t_ticker} ({t_side})</div>
-                <div class="stock-name">Qty: {t_shares} &bull; Executed @ &pound;{t_price:,.2f} &bull; {t_time}</div>
+                <div class="stock-ticker">{t_ticker} &bull; <span style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">{t_status}</span></div>
+                <div class="stock-name">Qty: {t_shares} Shares @ &pound;{t_price:,.2f} &bull; {t_time}</div>
             </div>
             <div style="text-align: right;">
                 <div class="stock-price">&pound;{(t_shares * t_price):,.2f}</div>
-                <span class="pill {pill_class}">{t_status}</span>
+                <span class="pill {pill_class}">{t_side}</span>
             </div>
         </div>
         """
@@ -368,3 +476,49 @@ def read_root():
 
     page = HTML_TEMPLATE.replace("$TRADES_ITEMS$", trades_html)
     return page.replace("$LOG_STREAM_HTML$", logs_html)
+
+@app.api_route("/api/valuation", methods=["GET", "HEAD"])
+def get_live_valuation_json():
+    baseline_capital = 40000.00
+    trades = get_trades_from_db()
+    
+    current_notional = 0.0
+    total_24h_pnl = 0.0
+    allocations_map = {}
+    
+    for t in trades:
+        ticker = t.get('ticker')
+        shares = float(t.get('shares', 0))
+        entry_price = float(t.get('price', 0))
+        side = t.get('side', 'BUY')
+        
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="2d")
+            live_price = float(hist['Close'].iloc[-1]) if not hist.empty else entry_price
+            prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else live_price
+        except Exception:
+            live_price = entry_price
+            prev_close = entry_price
+            
+        position_val = shares * live_price
+        current_notional += position_val
+        
+        allocations_map[ticker] = allocations_map.get(ticker, 0.0) + position_val
+        
+        pnl_change = (live_price - prev_close) * shares
+        if side == "SELL":
+            pnl_change = -pnl_change
+        total_24h_pnl += pnl_change
+        
+    total_val = baseline_capital + current_notional
+    
+    allocations_list = [{"ticker": k, "value": round(v, 2)} for k, v in allocations_map.items()]
+    
+    return {
+        "valuation": round(total_val, 2),
+        "change_24h": round(total_24h_pnl, 2),
+        "return_pct": round((total_24h_pnl / baseline_capital) * 100, 2),
+        "allocations": allocations_list,
+        "commentary": LIVE_COMMENTARY
+    }
