@@ -41,6 +41,9 @@ class PRVQuantEngine:
         self.scan_interval: int = settings.SCAN_INTERVAL_SECONDS
         self.notifier = TelegramNotifier()
         
+        # Position Tracking State (Peak Price & High Watermark)
+        self.position_peaks: Dict[str, float] = {}
+        
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._initialized = True
@@ -66,10 +69,11 @@ class PRVQuantEngine:
 
     def run_cycle(self) -> Dict[str, Any]:
         """
-        Execute Phase 5 quantitative trading cycle:
+        Execute Phase 6 Return-Optimized quantitative cycle:
         1. Technical Engine generates entry signal (Buy/No-Buy).
-        2. Fundamentals, Sector Strength & News Sentiment act as Dynamic Position Sizing Multipliers (3% - 8%).
-        3. Event Risk Blackout & Progressive De-Risking Controls.
+        2. Dynamic Multi-Factor Sizing (3% - 8%).
+        3. Asymmetric ATR Trailing Stop (2.5x ATR) + Breakeven Ratchet after +3.0%.
+        4. Progressive De-Risking Controls (Tier 1 @ 3%, Tier 2 @ 5%).
         """
         # 1. Fetch Live Account Summary
         account = broker.get_account_summary()
@@ -110,7 +114,7 @@ class PRVQuantEngine:
             core_capital, active_capital, market_regime
         )
 
-        # 5. Monitor and Manage Open Positions (Stop-Loss & Take-Profit)
+        # 5. Monitor and Manage Open Positions with ATR Trailing Stop & Breakeven Ratchet
         holding_map = {p.get("ticker"): p for p in open_positions}
         closed_trades = []
         active_positions_dfs = {}
@@ -124,11 +128,36 @@ class PRVQuantEngine:
             if avg_price <= 0 or qty <= 0:
                 continue
 
+            # Update High Watermark Peak Price
+            if t212_ticker not in self.position_peaks or cur_price > self.position_peaks[t212_ticker]:
+                self.position_peaks[t212_ticker] = cur_price
+
+            peak_p = self.position_peaks[t212_ticker]
             pnl_pct = (cur_price - avg_price) / avg_price
-            
-            # Stop-Loss Check (-2.5%)
-            if pnl_pct <= -settings.DEFAULT_STOP_LOSS_PCT:
-                exit_msg = f"Stop Loss triggered: {pnl_pct * 100:.2f}% (Limit: -{settings.DEFAULT_STOP_LOSS_PCT * 100:.1f}%)"
+            peak_gain_pct = (peak_p - avg_price) / avg_price
+
+            # Fetch ATR for Trailing Stop
+            yf_ticker = t212_ticker.replace("_US_EQ", "").replace("_EQ", "").replace("l", ".L")
+            snap = market_data.get_market_snapshot(yf_ticker)
+            atr = snap.get("indicators", {}).get("atr", avg_price * 0.02) if snap.get("success") else avg_price * 0.02
+
+            # Exit Rule 1: Breakeven Stop Ratchet after +3.0% Peak Gain
+            effective_stop_pct = -settings.DEFAULT_STOP_LOSS_PCT # Baseline -2.5%
+            if peak_gain_pct >= 0.030:
+                effective_stop_pct = 0.001 # Breakeven (+0.1% covering friction)
+
+            # Exit Rule 2: ATR Trailing Stop (2.5x ATR from Peak once in profit)
+            atr_trailing_triggered = False
+            if peak_gain_pct >= 0.030 and peak_p > 0:
+                trail_distance_pct = (2.5 * atr) / peak_p
+                pullback_from_peak = (peak_p - cur_price) / peak_p
+                if pullback_from_peak >= trail_distance_pct and pnl_pct > 0.01:
+                    atr_trailing_triggered = True
+
+            # Trigger Stop-Loss / Breakeven Stop
+            if pnl_pct <= effective_stop_pct:
+                stop_label = "Breakeven Stop (+0.1%)" if effective_stop_pct > 0 else f"Stop Loss ({pnl_pct * 100:.2f}%)"
+                exit_msg = f"{stop_label} triggered: {pnl_pct * 100:.2f}%"
                 success, msg, realized_pnl = order_router.route_exit_order(
                     symbol=t212_ticker,
                     t212_ticker=t212_ticker,
@@ -142,10 +171,12 @@ class PRVQuantEngine:
                     capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
                     self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, exit_msg, is_paper=self.paper_mode)
                     closed_trades.append(t212_ticker)
+                    if t212_ticker in self.position_peaks:
+                        del self.position_peaks[t212_ticker]
 
-            # Take-Profit Check (+7.5%)
-            elif pnl_pct >= settings.DEFAULT_TAKE_PROFIT_PCT:
-                exit_msg = f"Take Profit triggered: {pnl_pct * 100:+.2f}% (Target: +{settings.DEFAULT_TAKE_PROFIT_PCT * 100:.1f}%)"
+            # Trigger ATR Trailing Stop
+            elif atr_trailing_triggered:
+                exit_msg = f"ATR Trailing Stop triggered at +{pnl_pct * 100:.2f}% (Peak was +{peak_gain_pct * 100:.2f}%)"
                 success, msg, realized_pnl = order_router.route_exit_order(
                     symbol=t212_ticker,
                     t212_ticker=t212_ticker,
@@ -159,8 +190,10 @@ class PRVQuantEngine:
                     capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
                     self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, f"{exit_msg} | Vaulted: £{realized_pnl:+.2f}", is_paper=self.paper_mode)
                     closed_trades.append(t212_ticker)
+                    if t212_ticker in self.position_peaks:
+                        del self.position_peaks[t212_ticker]
 
-        # 6. Quantitative Universe Scanning & Multi-Factor Sizing Execution
+        # 6. Quantitative Universe Scanning & Dynamic Sizing (3% - 8%)
         universe = universe_manager.get_all()
         candidates = []
 
@@ -178,7 +211,6 @@ class PRVQuantEngine:
             if not event_safe:
                 continue
 
-            # Existing holding valuation
             existing_pos = holding_map.get(t212_ticker)
             current_holding_val = 0.0
             if existing_pos and t212_ticker not in closed_trades:
@@ -192,7 +224,7 @@ class PRVQuantEngine:
             atr = snapshot["indicators"]["atr"]
             df_asset = snapshot["dataframe"]
 
-            # Compute Multi-Factor Alpha Score (Used for Sizing Multiplier)
+            # Multi-Factor Sizing Multiplier (3% - 8%)
             composite_alpha_score, alpha_breakdown = alpha_engine.compute_institutional_alpha(
                 symbol=symbol,
                 yf_ticker=yf_ticker,
@@ -203,7 +235,6 @@ class PRVQuantEngine:
                 cost_friction_pct=0.10
             )
 
-            # Phase 5 Dynamic Sizing (3% to 8% based on alpha score)
             units, nominal_cost, sizing_meta = portfolio_constructor.calculate_optimal_position_size(
                 symbol=symbol,
                 price=price,
@@ -254,7 +285,7 @@ class PRVQuantEngine:
                 remaining_regime_allowance=remaining_allowance
             )
 
-            # Boardroom Quorum Deliberation (Technical Entry Signal)
+            # Boardroom Deliberation (Technical Entry Signal)
             approved_by_boardroom, decision_data = boardroom.convene_boardroom(
                 symbol=symbol,
                 factors=tech_factors,
@@ -316,6 +347,7 @@ class PRVQuantEngine:
                 
                 if success:
                     executed_trades.append(cand["symbol"])
+                    self.position_peaks[cand["t212_ticker"]] = cand["price"]
                     self.notifier.notify_trade("BUY", cand["symbol"], cand["units"], cand["price"], route_msg, is_paper=self.paper_mode)
                     available_cash -= cand["cost"]
                     remaining_allowance -= cand["cost"]
