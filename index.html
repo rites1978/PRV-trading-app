@@ -38,7 +38,6 @@
             border: 1px solid #1f2937;
             padding: 20px;
             border-radius: 12px;
-            transition: border-color 0.3s;
         }
         h2 {
             color: #94a3b8;
@@ -109,14 +108,19 @@
             background: #38bdf8;
             color: #0b0f19;
             font-weight: bold;
-            padding: 10px 18px;
+            padding: 9px 16px;
             border: none;
             border-radius: 6px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             transition: 0.2s;
         }
         .btn:hover { background: #0ea5e9; }
+        .btn-secondary {
+            background: #374151;
+            color: #f3f4f6;
+        }
+        .btn-secondary:hover { background: #4b5563; }
         .market-status {
             display: flex;
             gap: 15px;
@@ -133,13 +137,14 @@
     <div class="header">
         <div>
             <h1>PRV CAPITAL QUANTITATIVE FLOOR</h1>
-            <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Autonomous Multi-Agent Algorithmic Trading Platform</div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Dynamic Regime Capital Deployment Engine</div>
         </div>
-        <div style="display: flex; align-items: center; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
             <div class="market-status">
                 <div class="market-indicator" id="ukStatus"><span class="dot" style="background: #6b7280;"></span> UK: LSE</div>
                 <div class="market-indicator" id="usStatus"><span class="dot" style="background: #6b7280;"></span> US: NYSE</div>
             </div>
+            <button class="btn btn-secondary" id="cleanBtn" onclick="cleanDust()">🧹 Clean Dust (< £100)</button>
             <button class="btn" id="scanBtn" onclick="triggerTrade()">⚡ Run Quant Scan</button>
         </div>
     </div>
@@ -167,15 +172,16 @@
     <!-- Main Portfolio Growth Curve -->
     <div class="main-card">
         <h2>Portfolio Equity Curve (£)</h2>
-        <div style="height: 320px; position: relative;">
+        <div style="height: 300px; position: relative;">
             <canvas id="growthChart"></canvas>
         </div>
     </div>
 
-    <!-- Tabbed Section for Logs & Holdings -->
+    <!-- Tabbed Section for Logs, Holdings & Idle Cash Explainer -->
     <div class="main-card">
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab(event, 'holdingsTab')">Live Active Holdings</button>
+            <button class="tab-btn" onclick="switchTab(event, 'idleCashTab')">💰 Idle Cash Audit & Explainer</button>
             <button class="tab-btn" onclick="switchTab(event, 'logsTab')">AI Audit & Execution Stream</button>
         </div>
 
@@ -198,7 +204,29 @@
             </table>
         </div>
 
-        <!-- Tab 2: Logs -->
+        <!-- Tab 2: Idle Cash Explainer -->
+        <div id="idleCashTab" class="tab-content">
+            <div style="margin-bottom: 15px; color: #94a3b8; font-size: 13px;">
+                Detailed mathematical accounting of why uninvested cash is held and the exact condition required to deploy it:
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Capital Bucket</th>
+                        <th>Amount (£)</th>
+                        <th>% of Idle Cash</th>
+                        <th>Status</th>
+                        <th>Holding Rule / Rationalization</th>
+                        <th>Condition to Deploy</th>
+                    </tr>
+                </thead>
+                <tbody id="idleCashTable">
+                    <tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 25px;">Calculating idle capital allocations...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Tab 3: Logs -->
         <div id="logsTab" class="tab-content">
             <div class="log-box" id="logStream">Connecting to PRV Capital core engine...</div>
         </div>
@@ -207,6 +235,7 @@
     <script>
         let lastPortfolioHash = "";
         let lastLogsHash = "";
+        let lastIdleHash = "";
 
         function switchTab(evt, tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -267,6 +296,21 @@
             }
         }
 
+        async function cleanDust() {
+            const btn = document.getElementById('cleanBtn');
+            btn.innerText = "🧹 Cleaning...";
+            btn.disabled = true;
+            try {
+                await fetch('/api/clean-dust', { method: 'POST' });
+                await updateDashboard();
+            } catch(e) {
+                console.error(e);
+            } finally {
+                btn.innerText = "🧹 Clean Dust (< £100)";
+                btn.disabled = false;
+            }
+        }
+
         async function updateDashboard() {
             try {
                 const res = await fetch('/api/dashboard_data');
@@ -278,7 +322,7 @@
                 const banked = typeof data.banked_profits === 'number' ? data.banked_profits : 0.0;
                 const utilPct = typeof data.capital_utilization === 'number' ? data.capital_utilization : 0.0;
                 
-                // Update Top KPI Metrics smoothly
+                // Update Top KPI Metrics
                 document.getElementById('totalEquity').innerText = '£' + totalEq.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 document.getElementById('cashBal').innerText = '£' + cashBal.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 document.getElementById('bankedProfits').innerText = '£' + banked.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -295,11 +339,10 @@
                     document.getElementById('usStatus').innerHTML = `<span class="dot" style="background: ${usOpen ? '#34d399' : '#f87171'};"></span> US: ${usOpen ? 'OPEN' : 'CLOSED'}`;
                 }
 
-                // Growth Curve: append smoothly without dropouts
+                // Smooth Chart Update
                 const timeNow = new Date().toLocaleTimeString();
                 const lastVal = growthChart.data.datasets[0].data.slice(-1)[0];
                 
-                // Only push if time advanced or equity changed
                 if (growthChart.data.labels.length === 0 || Math.abs((lastVal || 0) - totalEq) > 0.01 || growthChart.data.labels.slice(-1)[0] !== timeNow) {
                     if (growthChart.data.labels.length >= 30) {
                         growthChart.data.labels.shift();
@@ -307,10 +350,10 @@
                     }
                     growthChart.data.labels.push(timeNow);
                     growthChart.data.datasets[0].data.push(totalEq);
-                    growthChart.update('none'); // Update without full layout animation to avoid flickering
+                    growthChart.update('none');
                 }
 
-                // AI Execution Logs: Only update if content changed
+                // AI Execution Logs Update (Diff checked)
                 const logsString = JSON.stringify(data.system_logs || []);
                 if (logsString !== lastLogsHash && data.system_logs) {
                     lastLogsHash = logsString;
@@ -321,7 +364,7 @@
                     document.getElementById('logStream').innerHTML = logHtml;
                 }
 
-                // Active Holdings Table: Only update if data changed (eliminates flashing)
+                // Active Holdings Table Update (Diff checked)
                 const portfolioString = JSON.stringify(data.portfolio || []);
                 if (portfolioString !== lastPortfolioHash) {
                     lastPortfolioHash = portfolioString;
@@ -349,6 +392,28 @@
                         }).join('');
                     } else {
                         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 25px;">No active positions open. AI quantitative scanner holding cash.</td></tr>';
+                    }
+                }
+
+                // Idle Cash Explainer Table Update (Diff checked)
+                const idleString = JSON.stringify(data.idle_cash_audit || []);
+                if (idleString !== lastIdleHash) {
+                    lastIdleHash = idleString;
+                    const tbodyIdle = document.getElementById('idleCashTable');
+                    if (data.idle_cash_audit && data.idle_cash_audit.length > 0) {
+                        tbodyIdle.innerHTML = data.idle_cash_audit.map(item => {
+                            const statusColor = item.status === 'LOCKED_RISK_RULE' ? '#f87171' : (item.status === 'MACRO_GATED' ? '#facc15' : '#34d399');
+                            return `
+                            <tr>
+                                <td style="font-weight: bold; color: #f3f4f6;">${item.bucket}</td>
+                                <td>£${item.amount.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                                <td>${item.pct_of_idle}%</td>
+                                <td style="color: ${statusColor}; font-weight: bold;">${item.status}</td>
+                                <td style="color: #94a3b8;">${item.reason}</td>
+                                <td style="color: #38bdf8;">${item.deploy_condition}</td>
+                            </tr>
+                            `;
+                        }).join('');
                     }
                 }
             } catch(e) {

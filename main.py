@@ -17,11 +17,11 @@ os.environ["TRADING212_API_SECRET"] = os.getenv("TRADING212_API_SECRET") or os.g
 from src.config.settings import settings
 from src.core.engine import quant_engine
 from src.portfolio.capital_manager import capital_manager
+from src.portfolio.dust_cleaner import dust_cleaner
 from src.brokers.trading212 import broker
 from src.database.db import db
 from src.risk.risk_engine import risk_engine
 
-# High-reliability in-memory state cache
 CACHE = {
     "last_sync": 0.0,
     "account": {
@@ -35,14 +35,14 @@ CACHE = {
 
 def is_uk_market_open() -> bool:
     now_utc = datetime.now(timezone.utc)
-    if now_utc.weekday() >= 5:  # Saturday/Sunday
+    if now_utc.weekday() >= 5:
         return False
     current_time = now_utc.time()
     return dtime(8, 0) <= current_time <= dtime(16, 30)
 
 def is_us_market_open() -> bool:
     now_utc = datetime.now(timezone.utc)
-    if now_utc.weekday() >= 5:  # Saturday/Sunday
+    if now_utc.weekday() >= 5:
         return False
     current_time = now_utc.time()
     return dtime(14, 30) <= current_time <= dtime(21, 0)
@@ -104,6 +104,7 @@ def get_dashboard_data():
     invested = account["invested"]
     
     cap_state = capital_manager.get_capital_state(total_equity, invested, available_cash)
+    regime, target_pct = capital_manager.determine_market_regime(70.0, 75.0)
     
     # Audit logs for UI stream
     audit_records = db.get_audit_logs(limit=30)
@@ -123,6 +124,14 @@ def get_dashboard_data():
         now_time = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
         formatted_logs.append({"time": now_time, "msg": "PRV Quantitative Engine active. Scanning top 500 UK & US universe.", "level": "info"})
 
+    # Idle Cash Accounting
+    idle_audit = capital_manager.generate_idle_cash_audit(
+        core_capital=cap_state["core_capital"],
+        available_cash=cap_state["idle_core_cash"],
+        active_capital=cap_state["active_capital"],
+        market_regime=regime
+    )
+
     return {
         "total_equity": cap_state["total_broker_nav"],
         "cash_balance": cap_state["idle_core_cash"],
@@ -136,6 +145,9 @@ def get_dashboard_data():
             "UK": is_uk_market_open(),
             "US": is_us_market_open()
         },
+        "market_regime": regime,
+        "target_deployment_pct": round(target_pct * 100, 1),
+        "idle_cash_audit": idle_audit,
         "trading_halted": risk_engine.circuit_breaker_tripped,
         "engine_active": quant_engine.is_running
     }
@@ -145,3 +157,9 @@ def trigger_trade():
     res = quant_engine.run_cycle()
     sync_broker_data(force=True)
     return JSONResponse(content={"status": "executed", "result": res})
+
+@app.api_route("/api/clean-dust", methods=["POST"])
+def clean_dust():
+    res = dust_cleaner.liquidate_dust_positions(is_paper=quant_engine.paper_mode)
+    sync_broker_data(force=True)
+    return JSONResponse(content=res)

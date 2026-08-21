@@ -2,6 +2,7 @@ import time
 import threading
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+import pandas as pd
 
 from src.config.settings import settings
 from src.database.db import db
@@ -9,6 +10,8 @@ from src.brokers.trading212 import broker
 from src.data.universe import universe_manager
 from src.data.market_data import market_data
 from src.portfolio.capital_manager import capital_manager
+from src.portfolio.portfolio_constructor import portfolio_constructor
+from src.portfolio.dust_cleaner import dust_cleaner
 from src.risk.risk_engine import risk_engine
 from src.execution.cost_model import cost_model
 from src.ai.scoring_engine import ai_scoring
@@ -61,9 +64,10 @@ class PRVQuantEngine:
 
     def run_cycle(self) -> Dict[str, Any]:
         """
-        Execute one complete quantitative trading and capital deployment cycle.
+        Execute one complete quantitative trading and capital deployment cycle
+        using ATR-adjusted sizing, correlation awareness, and exposure-based risk controls.
         """
-        # 1. Fetch Live Account Metrics
+        # 1. Fetch Live Account Summary
         account = broker.get_account_summary()
         if not account.get("success"):
             return {"success": False, "error": account.get("error")}
@@ -101,6 +105,7 @@ class PRVQuantEngine:
         open_positions = broker.get_open_positions()
         holding_map = {p.get("ticker"): p for p in open_positions}
         closed_trades = []
+        active_positions_dfs = {}
 
         for pos in open_positions:
             t212_ticker = pos.get("ticker")
@@ -147,7 +152,7 @@ class PRVQuantEngine:
                     self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, f"{exit_msg} | Vaulted: £{realized_pnl:+.2f}", is_paper=self.paper_mode)
                     closed_trades.append(t212_ticker)
 
-        # 6. Quantitative Universe Scanning & Capital Deployment
+        # 6. Quantitative Universe Scanning & ATR-Adjusted Portfolio Construction
         universe = universe_manager.get_all()
         candidates = []
 
@@ -160,35 +165,40 @@ class PRVQuantEngine:
             is_uk = (item["country"] == "UK")
             is_uk_pence = item.get("is_uk_pence", False)
 
-            # Check existing holding value
+            # Existing holding valuation
             existing_pos = holding_map.get(t212_ticker)
             current_holding_val = 0.0
             if existing_pos and t212_ticker not in closed_trades:
                 current_holding_val = float(existing_pos.get("quantity", 0)) * float(existing_pos.get("currentPrice", 0))
-
-            # If already holding full position size (> £2,500), skip
-            if current_holding_val >= (core_capital * settings.TARGET_POSITION_SIZE_PCT * 0.85):
-                continue
 
             snapshot = market_data.get_market_snapshot(yf_ticker, is_uk_pence=is_uk_pence)
             if not snapshot.get("success"):
                 continue
 
             price = snapshot["current_price"]
-            
-            # Sizing calculation (scales into target £3,000 allocation)
-            units = risk_engine.calculate_position_units(
-                price, core_capital, available_cash, remaining_allowance, current_holding_val
+            atr = snapshot["indicators"]["atr"]
+            df_asset = snapshot["dataframe"]
+
+            # Institutional Sizing: ATR-Adjusted + Volatility Scaled + Correlation Aware
+            units, nominal_cost, sizing_meta = portfolio_constructor.calculate_optimal_position_size(
+                symbol=symbol,
+                price=price,
+                atr=atr,
+                df=df_asset,
+                core_capital=core_capital,
+                available_cash=available_cash,
+                remaining_capacity=remaining_allowance,
+                current_holding_val=current_holding_val,
+                active_positions_dfs=active_positions_dfs
             )
-            nominal_cost = units * price
-            
+
             if units <= 0 or nominal_cost < 50.0:
                 continue
 
             stop_loss_price = price * (1.0 - settings.DEFAULT_STOP_LOSS_PCT)
             target_price = price * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT)
             
-            # Cost Model Evaluation
+            # Spread-Aware Cost Model Evaluation
             cost_eval_ok, cost_eval = cost_model.evaluate_net_edge(
                 entry_price=price,
                 target_price=target_price,
@@ -200,7 +210,7 @@ class PRVQuantEngine:
             
             friction_pct = cost_eval.get("friction_breakdown", {}).get("friction_pct", 0.10)
 
-            # 8-Factor Quantitative AI Confidence Score
+            # 8-Factor Quantitative Confidence Score
             confidence_score, factor_breakdown = ai_scoring.compute_composite_confidence(
                 symbol=symbol,
                 snapshot=snapshot,
@@ -209,8 +219,8 @@ class PRVQuantEngine:
                 cost_friction_pct=friction_pct
             )
 
-            # Risk Engine Pre-Approval
-            risk_approved, risk_reason = risk_engine.validate_new_order(
+            # Exposure-Based Risk Validation (No ticker count limit)
+            risk_approved, risk_reason = risk_engine.validate_exposure_order(
                 symbol=symbol,
                 t212_ticker=t212_ticker,
                 sector=sector,
@@ -221,7 +231,7 @@ class PRVQuantEngine:
                 remaining_regime_allowance=remaining_allowance
             )
 
-            # Boardroom Deliberation & Voting
+            # Boardroom Quorum Deliberation
             approved_by_boardroom, decision_data = boardroom.convene_boardroom(
                 symbol=symbol,
                 factors=factor_breakdown,
@@ -243,10 +253,11 @@ class PRVQuantEngine:
                 "approved": approved_by_boardroom,
                 "decision_data": decision_data,
                 "cost_eval": cost_eval,
-                "risk_approved": risk_approved
+                "risk_approved": risk_approved,
+                "sizing_meta": sizing_meta
             })
 
-        # 7. Sort by highest confidence and deploy capital
+        # 7. Sort by highest confidence and systematically deploy capital
         candidates.sort(key=lambda x: x["confidence"], reverse=True)
         executed_trades = []
 
@@ -284,6 +295,15 @@ class PRVQuantEngine:
                     available_cash -= cand["cost"]
                     remaining_allowance -= cand["cost"]
 
+        # Generate Detailed Idle Cash Accounting
+        idle_cash_audit = capital_manager.generate_idle_cash_audit(
+            core_capital=core_capital,
+            available_cash=available_cash,
+            active_capital=active_capital,
+            market_regime=market_regime,
+            rejected_candidates=candidates
+        )
+
         return {
             "success": True,
             "capital_state": capital_state,
@@ -291,6 +311,8 @@ class PRVQuantEngine:
             "target_deployment_pct": target_deployment_pct,
             "scanned_count": len(universe),
             "executed_trades": executed_trades,
+            "candidates_count": len(candidates),
+            "idle_cash_audit": idle_cash_audit,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
