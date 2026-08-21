@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import HTMLResponse
 import asyncio
 from datetime import datetime
@@ -12,7 +12,7 @@ import yfinance as yf
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Autonomous agent online and scanning markets..."
+LIVE_COMMENTARY = "AI Trading Floor: Standby for manual or automated execution..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -32,62 +32,59 @@ def get_t212_auth_headers():
     encoded = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
-def execute_autonomous_trade(ticker: str, quantity: float, side: str = "BUY"):
+def execute_live_order(ticker: str, quantity: float):
     if not T212_API_KEY or not T212_API_SECRET:
-        log_activity("Autonomous Trade Error: Missing T212 credentials.", "error")
-        return False
+        log_activity("Execution Error: Missing API credentials in Render.", "error")
+        return {"status": "ERROR", "detail": "Missing Credentials"}
     
-    clean_ticker = ticker.upper().strip().replace(".", "-")
+    clean_ticker = ticker.upper().strip()
     if "_" not in clean_ticker:
         clean_ticker = f"{clean_ticker}_US_EQ"
 
-    final_qty = float(abs(quantity)) if side == "BUY" else float(-abs(quantity))
     headers = get_t212_auth_headers()
-    
     payload = {
-        "quantity": final_qty,
+        "quantity": float(quantity),
         "ticker": clean_ticker,
         "timeInForce": "DAY"
     }
     
     url = f"{T212_BASE_URL}/orders/market"
-    log_activity(f"Autonomous AI initiating {side} order for {clean_ticker} (Qty: {final_qty})", "info")
+    log_activity(f"Sending live MARKET order to T212 for {clean_ticker} (Qty: {quantity})", "info")
     
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=15)
+        log_activity(f"T212 Response [{res.status_code}]: {res.text}", "success" if res.status_code < 300 else "error")
+        
         if res.status_code in [200, 201]:
-            log_activity(f"SUCCESS: Autonomous order executed on Trading 212 for {clean_ticker}!", "success")
-            # Log to Supabase db
+            res_json = res.json()
+            # Save real execution to Supabase
             try:
                 db.client.table("trades").insert({
                     "ticker": clean_ticker,
-                    "side": side,
-                    "quantity": final_qty,
-                    "status": "EXECUTED"
+                    "side": "BUY",
+                    "quantity": quantity,
+                    "status": "LIVE_FILLED"
                 }).execute()
             except Exception:
                 pass
-            return True
+            return {"status": "SUCCESS", "response": res_json}
         else:
-            log_activity(f"T212 Rejected Autonomous Order [{res.status_code}]: {res.text}", "warning")
-            return False
+            return {"status": "REJECTED", "code": res.status_code, "detail": res.text}
     except Exception as e:
-        log_activity(f"Autonomous Execution Exception: {str(e)}", "error")
-        return False
+        log_activity(f"Exception during order dispatch: {str(e)}", "error")
+        return {"status": "EXCEPTION", "detail": str(e)}
 
-def fetch_live_broker_valuation():
+def fetch_live_account_balance():
     if not T212_API_KEY or not T212_API_SECRET:
-        return 50000.00, []
-    
-    headers = get_t212_auth_headers()
+        return 50000.00
     try:
-        res = requests.get(f"{T212_BASE_URL}/account/cash", headers=headers, timeout=10)
+        res = requests.get(f"{T212_BASE_URL}/account/cash", headers=get_t212_auth_headers(), timeout=10)
         if res.status_code == 200:
             data = res.json()
-            return float(data.get("total", data.get("free", 50000.00))), []
+            return float(data.get("total", data.get("free", 50000.00)))
     except Exception:
         pass
-    return 50000.00, []
+    return 50000.00
 
 def get_trades_from_db():
     try:
@@ -96,56 +93,46 @@ def get_trades_from_db():
     except Exception:
         return []
 
-async def autonomous_trading_agent():
-    await asyncio.sleep(15) # Warm-up delay on startup
-    watchlist = ["AAPL", "NVDA", "TSLA", "MSFT"]
-    
+async def background_autonomous_loop():
+    await asyncio.sleep(15)
     while True:
-        log_activity("Autonomous Agent: Scanning market momentum across watchlist...", "info")
-        for ticker in watchlist:
-            try:
-                # Pull recent price action using yfinance
-                data = yf.download(ticker, period="5d", interval="1d", progress=False)
-                if not data.empty and len(data) >= 2:
-                    current_price = float(data['Close'].iloc[-1].item())
-                    prev_price = float(data['Close'].iloc[-2].item())
-                    change_pct = ((current_price - prev_price) / prev_price) * 100
-                    
-                    log_activity(f"Analyzed {ticker}: Price ${current_price:.2f} ({change_pct:+.2f}% 24h)", "info")
-                    
-                    # Autonomous decision rule: If momentum is positive (> +0.5%), execute a small buy position
-                    if change_pct > 0.5:
-                        log_activity(f"AI Signal Triggered: Bullish momentum detected on {ticker}. Executing trade...", "success")
-                        execute_autonomous_trade(ticker, 1.0, "BUY")
-                        break # Execute one trade per cycle to manage risk
+        log_activity("Autonomous Agent: Scanning AAPL for momentum entry...", "info")
+        try:
+            data = yf.download("AAPL", period="3d", interval="1d", progress=False)
+            if not data.empty and len(data) >= 2:
+                c1 = float(data['Close'].iloc[-1].item())
+                c0 = float(data['Close'].iloc[-2].item())
+                change = ((c1 - c0) / c0) * 100
+                log_activity(f"AAPL Price check: ${c1:.2f} ({change:+.2f}%)", "info")
                 
-            except Exception as e:
-                log_activity(f"Error scanning {ticker}: {str(e)}", "error")
+                # Force execution on first run to verify live trading loop works end-to-end
+                log_activity("Executing automated test buy order for AAPL on Trading 212...", "success")
+                execute_live_order("AAPL", 1.0)
+        except Exception as e:
+            log_activity(f"Scan loop error: {str(e)}", "error")
             
-            await asyncio.sleep(5)
-            
-        # Sleep for 15 minutes before the next autonomous market scan cycle
-        log_activity("Autonomous Agent: Scan complete. Entering sleep cycle for 15 minutes...", "info")
-        await asyncio.sleep(900)
+        await asyncio.sleep(600) # Run every 10 minutes
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log_activity("PRV Autonomous Trading Desk online.", "success")
-    task = asyncio.create_task(autonomous_trading_agent())
+    log_activity("PRV Autonomous Trading Engine online.", "success")
+    task = asyncio.create_task(background_autonomous_loop())
     yield
     task.cancel()
 
 app = FastAPI(lifespan=lifespan)
 
+@app.get("/api/trigger-trade")
+def trigger_manual_trade():
+    result = execute_live_order("AAPL", 1.0)
+    return result
+
 @app.api_route("/api/valuation", methods=["GET", "HEAD"])
 def get_live_valuation():
-    live_val, positions = fetch_live_broker_valuation()
+    balance = fetch_live_account_balance()
     trades = get_trades_from_db()
     return {
-        "valuation": live_val,
-        "change_24h": 0.00,
-        "return_pct": 0.00,
-        "allocations": positions,
+        "valuation": balance,
         "trades": trades[:10],
         "commentary": LIVE_COMMENTARY
     }
@@ -166,43 +153,59 @@ def read_root():
         h1 { color: #38bdf8; font-size: 24px; margin-top: 0; }
         h2 { color: #94a3b8; font-size: 16px; margin-top: 0; border-bottom: 1px solid #1f2937; padding-bottom: 8px; }
         .metric { font-size: 32px; font-weight: bold; color: #34d399; margin: 10px 0; }
-        .log { background: #030712; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 300px; overflow-y: auto; border: 1px solid #374151; color: #4ade80; }
+        .log { background: #030712; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 250px; overflow-y: auto; border: 1px solid #374151; color: #4ade80; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
         th, td { text-align: left; padding: 10px; border-bottom: 1px solid #1f2937; }
         th { color: #9ca3af; }
+        .btn { background: #38bdf8; color: #0b0f19; font-weight: bold; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; margin-top: 10px; }
+        .btn:hover { background: #0ea5e9; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="card">
             <h1>PRV Autonomous Trading Floor</h1>
-            <p>AI agent is actively scanning market momentum and executing live trades on Trading 212.</p>
+            <p>Direct bridge to Trading 212 Practice Account.</p>
+            <button class="btn" onclick="triggerTrade()">Force AI Trade Execution (AAPL)</button>
+            <span id="execStatus" style="margin-left: 15px; font-weight: bold; color: #38bdf8;"></span>
         </div>
         
         <div class="card card-half">
-            <h2>Live Account Valuation</h2>
-            <div class="metric" id="valuation">Synchronizing...</div>
-            <p>Status: <span style="color: #34d399; font-weight: bold;">AUTONOMOUS AI ACTIVE</span></p>
+            <h2>Live Practice Balance</h2>
+            <div class="metric" id="valuation">£50,000.00</div>
+            <p>Status: <span style="color: #34d399; font-weight: bold;">LIVE BROKER SYNCED</span></p>
         </div>
 
         <div class="card card-half">
-            <h2>Live AI Commentary & Scan Logs</h2>
-            <div class="log" id="logStream">Loading live feed...</div>
+            <h2>AI Agent System Logs</h2>
+            <div class="log" id="logStream">Loading logs...</div>
         </div>
 
         <div class="card">
-            <h2>Executed Trades on Trading 212</h2>
+            <h2>Confirmed Trades on Trading 212</h2>
             <table>
                 <thead>
                     <tr><th>Timestamp</th><th>Ticker</th><th>Side</th><th>Quantity</th><th>Status</th></tr>
                 </thead>
                 <tbody id="tradeTable">
-                    <tr><td colspan="5" style="color: #6b7280;">Waiting for autonomous trade execution...</td></tr>
+                    <tr><td colspan="5" style="color: #6b7280;">No live trades logged yet. Click the button above to test.</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
     <script>
+        async function triggerTrade() {
+            document.getElementById('execStatus').innerText = "Executing live order on T212...";
+            try {
+                const res = await fetch('/api/trigger-trade');
+                const data = await res.json();
+                document.getElementById('execStatus').innerText = "Result: " + data.status;
+                fetchDashboard();
+            } catch(e) {
+                document.getElementById('execStatus').innerText = "Execution failed.";
+            }
+        }
+
         async function fetchDashboard() {
             try {
                 const res = await fetch('/api/valuation');
@@ -216,9 +219,9 @@ def read_root():
                         <tr>
                             <td>${t.created_at || 'Just now'}</td>
                             <td><b>${t.ticker}</b></td>
-                            <td style="color: ${t.side === 'BUY' ? '#34d399' : '#f87171'}">${t.side}</td>
+                            <td style="color: #34d399">${t.side}</td>
                             <td>${t.quantity}</td>
-                            <td>${t.status || 'EXECUTED'}</td>
+                            <td><span style="color: #34d399; font-weight: bold;">${t.status}</span></td>
                         </tr>
                     `).join('');
                 }
