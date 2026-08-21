@@ -13,8 +13,9 @@ from src.portfolio.capital_manager import capital_manager
 from src.portfolio.portfolio_constructor import portfolio_constructor
 from src.portfolio.dust_cleaner import dust_cleaner
 from src.risk.risk_engine import risk_engine
+from src.risk.event_risk import event_risk_engine
+from src.research.alpha_engine import alpha_engine
 from src.execution.cost_model import cost_model
-from src.ai.scoring_engine import ai_scoring
 from src.agents.boardroom import boardroom
 from src.execution.order_router import order_router
 from telegram_notifier import TelegramNotifier
@@ -64,8 +65,8 @@ class PRVQuantEngine:
 
     def run_cycle(self) -> Dict[str, Any]:
         """
-        Execute one complete quantitative trading and capital deployment cycle
-        using ATR-adjusted sizing, correlation awareness, and exposure-based risk controls.
+        Execute one complete quantitative trading, alpha research, event risk,
+        and capital deployment cycle with progressive de-risking.
         """
         # 1. Fetch Live Account Summary
         account = broker.get_account_summary()
@@ -75,12 +76,17 @@ class PRVQuantEngine:
         total_nav = account["total_value"]
         available_cash = account["available_cash"]
         invested = account["invested"]
+        open_positions = broker.get_open_positions()
 
-        # 2. Risk Circuit Breaker Check (5% daily drawdown limit)
-        safe, circuit_msg = risk_engine.check_circuit_breaker(total_nav)
+        # 2. Progressive Circuit Breaker & Active De-Risking Check (Tier 1 @ 3%, Tier 2 @ 5%)
+        safe, circuit_msg, derisked = risk_engine.evaluate_active_derisking(
+            current_nav=total_nav,
+            open_positions=open_positions,
+            is_paper=self.paper_mode
+        )
         if not safe:
-            self.notifier.notify_alert("CIRCUIT BREAKER TRIGGERED", circuit_msg)
-            return {"success": False, "circuit_breaker": True, "message": circuit_msg}
+            self.notifier.notify_alert("CRITICAL CIRCUIT BREAKER TRIPPED", f"{circuit_msg} | Derisked: {derisked}")
+            return {"success": False, "circuit_breaker": True, "message": circuit_msg, "derisked": derisked}
 
         # 3. Capital State Assessment
         capital_state = capital_manager.get_capital_state(total_nav, invested, available_cash)
@@ -102,7 +108,6 @@ class PRVQuantEngine:
         )
 
         # 5. Monitor and Manage Open Positions (Stop-Loss & Take-Profit)
-        open_positions = broker.get_open_positions()
         holding_map = {p.get("ticker"): p for p in open_positions}
         closed_trades = []
         active_positions_dfs = {}
@@ -152,7 +157,7 @@ class PRVQuantEngine:
                     self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, f"{exit_msg} | Vaulted: £{realized_pnl:+.2f}", is_paper=self.paper_mode)
                     closed_trades.append(t212_ticker)
 
-        # 6. Quantitative Universe Scanning & ATR-Adjusted Portfolio Construction
+        # 6. Quantitative Alpha Research & Event-Gated Universe Scanning
         universe = universe_manager.get_all()
         candidates = []
 
@@ -164,6 +169,11 @@ class PRVQuantEngine:
             is_foreign = (item["currency"] != "GBP")
             is_uk = (item["country"] == "UK")
             is_uk_pence = item.get("is_uk_pence", False)
+
+            # Event Risk Blackout Gate (Blocks entry within 48h of Earnings)
+            event_safe, event_reason, event_meta = event_risk_engine.evaluate_event_blackout(symbol, yf_ticker)
+            if not event_safe:
+                continue
 
             # Existing holding valuation
             existing_pos = holding_map.get(t212_ticker)
@@ -210,16 +220,18 @@ class PRVQuantEngine:
             
             friction_pct = cost_eval.get("friction_breakdown", {}).get("friction_pct", 0.10)
 
-            # 8-Factor Quantitative Confidence Score
-            confidence_score, factor_breakdown = ai_scoring.compute_composite_confidence(
+            # Multi-Pillar Alpha Synthesis (Technical 40%, Fundamental 25%, Sector 20%, Sentiment 15%)
+            composite_alpha_score, alpha_breakdown = alpha_engine.compute_institutional_alpha(
                 symbol=symbol,
+                yf_ticker=yf_ticker,
+                sector=sector,
                 snapshot=snapshot,
                 market_regime=market_regime,
                 portfolio_exposure_pct=exposure_pct,
                 cost_friction_pct=friction_pct
             )
 
-            # Exposure-Based Risk Validation (No ticker count limit)
+            # Exposure-Based Risk Validation
             risk_approved, risk_reason = risk_engine.validate_exposure_order(
                 symbol=symbol,
                 t212_ticker=t212_ticker,
@@ -232,10 +244,11 @@ class PRVQuantEngine:
             )
 
             # Boardroom Quorum Deliberation
+            tech_factors = alpha_breakdown.get("technical_factors", {})
             approved_by_boardroom, decision_data = boardroom.convene_boardroom(
                 symbol=symbol,
-                factors=factor_breakdown,
-                composite_confidence=confidence_score,
+                factors=tech_factors,
+                composite_confidence=composite_alpha_score,
                 market_regime=market_regime,
                 risk_approved=risk_approved,
                 cost_approved=cost_eval_ok
@@ -245,7 +258,7 @@ class PRVQuantEngine:
                 "symbol": symbol,
                 "t212_ticker": t212_ticker,
                 "sector": sector,
-                "confidence": confidence_score,
+                "confidence": composite_alpha_score,
                 "reward_risk": cost_eval.get("net_reward_risk", 3.0),
                 "price": price,
                 "units": units,
@@ -254,10 +267,11 @@ class PRVQuantEngine:
                 "decision_data": decision_data,
                 "cost_eval": cost_eval,
                 "risk_approved": risk_approved,
-                "sizing_meta": sizing_meta
+                "sizing_meta": sizing_meta,
+                "alpha_breakdown": alpha_breakdown
             })
 
-        # 7. Sort by highest confidence and systematically deploy capital
+        # 7. Sort by highest alpha score and deploy capital
         candidates.sort(key=lambda x: x["confidence"], reverse=True)
         executed_trades = []
 
@@ -295,7 +309,7 @@ class PRVQuantEngine:
                     available_cash -= cand["cost"]
                     remaining_allowance -= cand["cost"]
 
-        # Generate Detailed Idle Cash Accounting
+        # Generate Idle Cash Breakdown
         idle_cash_audit = capital_manager.generate_idle_cash_audit(
             core_capital=core_capital,
             available_cash=available_cash,

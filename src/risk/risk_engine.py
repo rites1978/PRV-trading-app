@@ -1,54 +1,108 @@
 from typing import Dict, Any, List, Tuple
 from src.config.settings import settings
 from src.database.db import db
+from src.brokers.trading212 import broker
 
 class ExposureBasedRiskEngine:
     """
-    Exposure-Based Quantitative Risk Engine:
-    Replaces arbitrary ticker count limits with:
-    1. 5% Hard Daily Drawdown Circuit Breaker
-    2. Portfolio Capital at Risk (Total VaR Budget <= 5.0% of Core Capital)
-    3. Single Position Capital Cap (Max 8.0% = ~£4,000)
-    4. Sector Concentration Exposure Cap (Max 30.0% = ~£15,000)
-    5. Dynamic Market Regime Deployment Capacity
+    Institutional Risk Engine with Progressive Active De-Risking:
+    1. Tier 1 Drawdown (3.0%): Halts new buying & evaluates trimming losing/high-beta positions by 50%.
+    2. Tier 2 Hard Circuit Breaker (5.0%): Enforces Full Capital Protection & active liquidation of losing risk assets.
+    3. Portfolio Value-at-Risk (VaR) Budgeting (Max 5.0% Core Capital).
+    4. Position & Sector Concentration Exposure Caps.
     """
     def __init__(
         self,
+        tier1_drawdown_pct: float = 0.03,
         max_daily_drawdown: float = settings.MAX_DAILY_DRAWDOWN_PCT,
         max_position_cap_pct: float = settings.MAX_POSITION_SIZE_PCT,
         max_sector_pct: float = settings.MAX_SECTOR_EXPOSURE_PCT,
         max_portfolio_risk_budget_pct: float = 0.05
     ):
+        self.tier1_drawdown_pct = tier1_drawdown_pct
         self.max_daily_drawdown = max_daily_drawdown
         self.max_position_cap_pct = max_position_cap_pct
         self.max_sector_pct = max_sector_pct
         self.max_portfolio_risk_budget_pct = max_portfolio_risk_budget_pct
         self.day_start_nav: float = 0.0
+        self.tier1_triggered: bool = False
         self.circuit_breaker_tripped: bool = False
 
     def initialize_day(self, starting_nav: float):
         self.day_start_nav = starting_nav
+        self.tier1_triggered = False
         self.circuit_breaker_tripped = False
 
     def check_circuit_breaker(self, current_nav: float) -> Tuple[bool, str]:
-        """Check if 5% Daily Drawdown Circuit Breaker is triggered."""
+        """Check circuit breaker (backwards compatibility)."""
+        safe, msg, _ = self.evaluate_active_derisking(current_nav, [])
+        return safe, msg
+
+    def evaluate_active_derisking(
+        self,
+        current_nav: float,
+        open_positions: List[Dict[str, Any]],
+        is_paper: bool = False
+    ) -> Tuple[bool, str, List[str]]:
+        """
+        Progressive Circuit Breaker:
+        Actively sheds risk and reduces portfolio exposure when drawdown thresholds are breached.
+        """
         if self.day_start_nav <= 0:
             self.day_start_nav = current_nav
-            return True, "Session initialized."
+            return True, "Session initialized.", []
 
         drawdown = (self.day_start_nav - current_nav) / self.day_start_nav
+        derisked_tickers = []
+
+        # Tier 2: Hard Circuit Breaker (5.0% Drawdown) -> Liquidate losing positions & lock down
         if drawdown >= self.max_daily_drawdown:
             self.circuit_breaker_tripped = True
             db.record_risk_event(
-                event_type="CIRCUIT_BREAKER_TRIPPED",
+                event_type="CIRCUIT_BREAKER_TIER_2",
                 severity="CRITICAL",
-                description=f"Daily drawdown reached {drawdown * 100:.2f}% (Limit: {self.max_daily_drawdown * 100:.1f}%). All buying halted.",
+                description=f"Hard daily drawdown limit reached {drawdown * 100:.2f}% (Limit: {self.max_daily_drawdown * 100:.1f}%). Liquidating losing holdings and engaging full capital protection.",
                 portfolio_value=current_nav,
-                action_taken="ENTER_CAPITAL_PROTECTION_MODE"
+                action_taken="FULL_CAPITAL_PROTECTION"
             )
-            return False, f"🚨 5% DAILY DRAWDOWN LIMIT REACHED: Drawdown is {drawdown * 100:.2f}%. Trading permanently blocked."
-        
-        return True, f"Risk parameters nominal. Daily drawdown: {drawdown * 100:+.2f}%."
+
+            # Actively liquidate losing positions to preserve capital
+            for pos in open_positions:
+                ticker = pos.get("ticker")
+                qty = float(pos.get("quantity", 0))
+                ppl = float(pos.get("ppl", 0))
+                if ppl < 0 and qty > 0:
+                    if not is_paper:
+                        broker.place_market_order(ticker, -qty)
+                    derisked_tickers.append(ticker)
+
+            return False, f"🚨 TIER 2 CIRCUIT BREAKER: Drawdown {drawdown * 100:.2f}% breached 5.0% limit. Active de-risking executed.", derisked_tickers
+
+        # Tier 1: Warning Drawdown (3.0%) -> Trim losing positions by 50% to reduce gross exposure
+        elif drawdown >= self.tier1_drawdown_pct and not self.tier1_triggered:
+            self.tier1_triggered = True
+            db.record_risk_event(
+                event_type="CIRCUIT_BREAKER_TIER_1",
+                severity="WARNING",
+                description=f"Drawdown reached Tier 1 threshold of {drawdown * 100:.2f}%. Trimming losing positions by 50% to reduce gross portfolio exposure.",
+                portfolio_value=current_nav,
+                action_taken="TRIM_EXPOSURE_50_PCT"
+            )
+
+            for pos in open_positions:
+                ticker = pos.get("ticker")
+                qty = float(pos.get("quantity", 0))
+                ppl = float(pos.get("ppl", 0))
+                if ppl < 0 and qty > 0:
+                    trim_qty = round(qty * 0.5, 2) if qty >= 1.0 else round(qty * 0.5, 4)
+                    if trim_qty > 0:
+                        if not is_paper:
+                            broker.place_market_order(ticker, -trim_qty)
+                        derisked_tickers.append(f"{ticker} (-50%)")
+
+            return True, f"⚠️ TIER 1 RISK SHEDDING: Drawdown {drawdown * 100:.2f}%. Trimmed 50% exposure on losing positions.", derisked_tickers
+
+        return True, f"Drawdown nominal ({drawdown * 100:+.2f}%).", []
 
     def calculate_portfolio_capital_at_risk(self, current_positions: List[Dict[str, Any]]) -> float:
         """Calculate total capital at risk if all open positions hit their stop-losses."""
@@ -75,6 +129,9 @@ class ExposureBasedRiskEngine:
         """Pure exposure and risk validation without position count constraints."""
         if self.circuit_breaker_tripped:
             return False, "VETO: Circuit breaker active. Capital protection mode engaged."
+
+        if self.tier1_triggered:
+            return False, "VETO: Tier 1 drawdown active. New buying paused until recovery."
 
         min_cash_required = core_capital * settings.MIN_CASH_BUFFER_PCT
         if (available_cash - order_cost) < min_cash_required:
@@ -108,6 +165,6 @@ class ExposureBasedRiskEngine:
 
         return True, "Risk validation approved."
 
-# Backward compatibility alias
+# Aliases
 RiskEngine = ExposureBasedRiskEngine
 risk_engine = ExposureBasedRiskEngine()
