@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 import asyncio
 from datetime import datetime
@@ -25,42 +25,6 @@ def log_activity(message: str, level: str = "info"):
 T212_API_KEY = os.getenv("T212_API_KEY", "").strip()
 T212_API_SECRET = os.getenv("T212_API_SECRET", "").strip()
 T212_BASE_URL = "https://demo.trading212.com/api/v0/equity"
-
-def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
-    if not T212_API_KEY or not T212_API_SECRET:
-        log_activity("T212 Error: Missing API credentials.", "error")
-        return "MISSING CREDS"
-    
-    clean_ticker = ticker.upper().strip().replace(".", "-")
-    if "_" not in clean_ticker:
-        clean_ticker = f"{clean_ticker}_US_EQ"
-
-    final_qty = float(abs(quantity)) if side == "BUY" else float(-abs(quantity))
-
-    raw_credentials = f"{T212_API_KEY}:{T212_API_SECRET}"
-    encoded_credentials = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
-    
-    headers = {
-        "Authorization": f"Basic {encoded_credentials}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "quantity": final_qty,
-        "ticker": clean_ticker,
-        "timeInForce": "DAY"
-    }
-    
-    url = f"{T212_BASE_URL}/orders/market"
-    log_activity(f"Executing MARKET order on T212 for {clean_ticker} (Qty: {final_qty})", "info")
-    
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=15)
-        log_activity(f"T212 Order Response [{res.status_code}]: {res.text}", "success" if res.status_code < 300 else "warning")
-        return "LIVE EXECUTED" if res.status_code < 300 else f"REJECTED {res.status_code}"
-    except Exception as e:
-        log_activity(f"T212 Order Exception: {str(e)}", "error")
-        return "API ERROR"
 
 def get_trades_from_db():
     try:
@@ -106,7 +70,9 @@ def get_live_valuation():
         "commentary": LIVE_COMMENTARY
     }
 
-HTML_TEMPLATE = """
+@app.get("/", response_class=HTMLResponse)
+def read_root():
+    return """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -162,7 +128,7 @@ HTML_TEMPLATE = """
                 const res = await fetch('/api/valuation');
                 const data = await res.json();
                 document.getElementById('logStream').innerHTML = data.commentary;
-                document.getElementById('valuation').innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2});
+                document.getElementById('valuation'].innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2});
                 
                 const tbody = document.getElementById('tradeTable');
                 if (data.trades && data.trades.length > 0) {
@@ -183,3 +149,4 @@ HTML_TEMPLATE = """
     </script>
 </body>
 </html>
+"""
