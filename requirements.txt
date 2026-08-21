@@ -1,8 +1,6 @@
-streamlit>=1.30.0
+fastapi
+uvicorn
 yfinance
 supabase
 pandas
 requests
-streamlit-option-menu
-streamlit-extras
-streamlit-extras
