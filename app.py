@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 from watchlist_manager import WatchlistManager
 from db_manager import db
+from streamlit_extras.metric_cards import style_metric_cards
 
 # Page Configuration
 st.set_page_config(
@@ -11,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Professional Clean Styling (No broken wrappers, native Streamlit compatibility)
+# Professional OLED Dark Mode Styling
 st.markdown("""
 <style>
     .stApp {
@@ -19,15 +20,6 @@ st.markdown("""
         color: #f5f5f7;
     }
     header {visibility: hidden;}
-    
-    /* Clean Metric Cards */
-    .metric-card {
-        background: #1c1c1e;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 10px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -44,37 +36,26 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "👀 Watchlist"
 ])
 
-# --- TAB 1: NERVE CENTER (Real £40,000 Capital & Portfolio Overview) ---
+# --- TAB 1: NERVE CENTER (Real £40,000 Capital & Professional Metrics) ---
 with tab1:
     st.markdown("### Portfolio Overview")
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("""
-            <div class="metric-card">
-                <div style="color: #86868b; font-size: 13px; font-weight: 500;">ACCOUNT BALANCE</div>
-                <div style="font-size: 28px; font-weight: 700; color: #ffffff; margin-top: 4px;">£40,000.00</div>
-                <div style="color: #30d158; font-size: 13px; margin-top: 4px;">Baseline Capital Active</div>
-            </div>
-        """, unsafe_allow_html=True)
-        
+        st.metric(label="ACCOUNT BALANCE", value="£40,000.00", delta="Baseline Capital")
     with col2:
-        st.markdown("""
-            <div class="metric-card">
-                <div style="color: #86868b; font-size: 13px; font-weight: 500;">ACTIVE EXPOSURE</div>
-                <div style="font-size: 28px; font-weight: 700; color: #ffffff; margin-top: 4px;">£0.00</div>
-                <div style="color: #86868b; font-size: 13px; margin-top: 4px;">Awaiting Market Open</div>
-            </div>
-        """, unsafe_allow_html=True)
-        
+        st.metric(label="ACTIVE EXPOSURE", value="£0.00", delta="Awaiting Open")
     with col3:
-        st.markdown("""
-            <div class="metric-card">
-                <div style="color: #86868b; font-size: 13px; font-weight: 500;">RISK STATUS</div>
-                <div style="font-size: 28px; font-weight: 700; color: #30d158; margin-top: 4px;">NOMINAL</div>
-                <div style="color: #86868b; font-size: 13px; margin-top: 4px;">ATR Limits Enforced</div>
-            </div>
-        """, unsafe_allow_html=True)
+        st.metric(label="RISK STATUS", value="NOMINAL", delta="ATR Enforced")
+    
+    # Automatically style the metrics with clean dark-mode borders and shadows
+    style_metric_cards(
+        background_color="#1c1c1e",
+        border_size_px=1,
+        border_color="rgba(255, 255, 255, 0.1)",
+        border_radius_px=12,
+        border_left_color="#30d158"
+    )
 
     st.markdown("---")
     st.markdown("### System Status")
@@ -100,7 +81,6 @@ with tab4:
 with tab5:
     st.markdown("### Market Watchlist")
     
-    # Form with unique key to prevent duplicate form errors
     with st.form(key="watchlist_form", clear_on_submit=True):
         col1, col2, col3 = st.columns([2, 3, 1])
         with col1:
@@ -122,7 +102,6 @@ with tab5:
 
     st.markdown("---")
     
-    # Load and display live database items
     wm = WatchlistManager()
     watchlist_items = wm.get_watchlist_data()
     
@@ -133,7 +112,7 @@ with tab5:
             sign = "+" if is_positive else ""
             
             st.markdown(f"""
-                <div class="metric-card" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="background: #1c1c1e; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <div style="font-size: 20px; font-weight: 700; color: #ffffff;">{w['ticker']}</div>
                         <div style="font-size: 13px; color: #86868b;">{w.get('name', 'Equity')} &bull; {w.get('notes', '')}</div>
