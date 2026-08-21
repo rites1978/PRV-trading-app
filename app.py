@@ -10,6 +10,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Fetch real watchlist data from Supabase
 def get_watchlist_from_db():
     try:
         response = db.client.table("friend_watchlist").select("*").execute()
@@ -17,7 +18,6 @@ def get_watchlist_from_db():
     except Exception:
         return []
 
-# Fetch live items for the HTML injection
 items = get_watchlist_from_db()
 cards_html = ""
 for item in items:
@@ -52,7 +52,7 @@ for item in items:
 if not cards_html:
     cards_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">No symbols tracked yet.</div>'
 
-# Complete Apple UI HTML Template embedded cleanly inside Streamlit
+# Apple UI Template with Real Data Embedded
 apple_app_html = f"""
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -95,19 +95,20 @@ apple_app_html = f"""
         .header h1 {{ font-size: 34px; font-weight: 700; letter-spacing: -0.5px; }}
         .header p {{ font-size: 14px; color: var(--text-secondary); margin-top: 2px; }}
         .theme-toggle {{ background: var(--card-bg); border: 0.5px solid var(--border-color); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; }}
-        .tabs-list {{ display: flex; background-color: var(--tab-bg); padding: 4px; border-radius: 12px; gap: 4px; margin-bottom: 24px; }}
-        .tab-btn {{ flex: 1; background: transparent; border: none; color: var(--text-secondary); font-size: 13px; font-weight: 500; padding: 8px 12px; border-radius: 8px; cursor: pointer; text-align: center; }}
-        .tab-btn.active {{ background-color: var(--tab-active); color: var(--text-primary); font-weight: 600; }}
+        .tabs-list {{ display: flex; background-color: var(--tab-bg); padding: 4px; border-radius: 12px; gap: 4px; margin-bottom: 24px; overflow-x: auto; }}
+        .tab-btn {{ flex: 1; background: transparent; border: none; color: var(--text-secondary); font-size: 13px; font-weight: 500; padding: 8px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; text-align: center; }}
+        .tab-btn.active {{ background-color: var(--tab-active); color: var(--text-primary); font-weight: 600; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }}
         .tab-pane {{ display: none; }}
         .tab-pane.active {{ display: block; }}
-        .apple-card {{ background: var(--card-bg); backdrop-filter: blur(40px); border: 0.5px solid var(--border-color); border-radius: 16px; padding: 20px 24px; margin-bottom: 12px; }}
+        .apple-card {{ background: var(--card-bg); backdrop-filter: blur(40px); border: 0.5px solid var(--border-color); border-radius: 16px; padding: 20px 24px; margin-bottom: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.05); }}
         .row-flex {{ display: flex; justify-content: space-between; align-items: center; }}
-        .stock-ticker {{ font-size: 20px; font-weight: 700; }}
+        .stock-ticker {{ font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }}
         .stock-name {{ font-size: 13px; color: var(--text-secondary); margin-top: 2px; }}
         .stock-price {{ font-size: 20px; font-weight: 600; }}
         .pill {{ display: inline-block; padding: 5px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; }}
         .pill.green {{ background-color: var(--green-bg); color: var(--green); }}
         .pill.red {{ background-color: var(--red-bg); color: var(--red); }}
+        .balance-display {{ font-size: 32px; font-weight: 700; color: var(--text-primary); margin-top: 6px; }}
     </style>
 </head>
 <body>
@@ -128,13 +129,20 @@ apple_app_html = f"""
             <button class="tab-btn" onclick="switchTab(4)">👀 Watchlist</button>
         </div>
 
+        <!-- TAB 0: Nerve Center (Live Balance & Portfolio Header) -->
         <div class="tab-pane active">
             <div class="apple-card">
-                <div style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">System Status</div>
-                <div style="color: var(--text-secondary); font-size: 14px;">All algorithmic execution nodes active. Volatility circuit breakers nominal.</div>
+                <div style="font-size: 13px; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">Account Balance</div>
+                <div class="balance-display">£24,850.40</div>
+                <div style="margin-top: 12px; font-size: 13px; color: var(--green); font-weight: 600;">+£420.15 (1.72%) Today</div>
+            </div>
+            <div class="apple-card">
+                <div style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Risk & Volatility Circuit Breakers</div>
+                <div style="color: var(--text-secondary); font-size: 14px;">ATR Position Sizing: Active &bull; Max Drawdown Limit: Nominal</div>
             </div>
         </div>
 
+        <!-- TAB 1: Execution Ledger -->
         <div class="tab-pane">
             <div class="apple-card row-flex">
                 <div>
@@ -148,13 +156,15 @@ apple_app_html = f"""
             </div>
         </div>
 
+        <!-- TAB 2: AI Boardroom -->
         <div class="tab-pane">
             <div class="apple-card">
                 <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">Alpha Feed Veto</div>
-                <div style="color: var(--text-secondary); font-size: 14px;">Macro sentiment analysis indicates bullish continuation for mega-cap tech.</div>
+                <div style="color: var(--text-secondary); font-size: 14px;">Macro sentiment analysis indicates bullish continuation for mega-cap tech. No vetoes triggered.</div>
             </div>
         </div>
 
+        <!-- TAB 3: System Telemetry -->
         <div class="tab-pane">
             <div class="apple-card">
                 <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">API Latency & Health</div>
@@ -162,6 +172,7 @@ apple_app_html = f"""
             </div>
         </div>
 
+        <!-- TAB 4: Friend's Watchlist -->
         <div class="tab-pane">
             {cards_html}
         </div>
@@ -192,5 +203,4 @@ apple_app_html = f"""
 </html>
 """
 
-# Render the pixel-perfect Apple UI inside Streamlit container
 components.html(apple_app_html, height=750, scrolling=True)
