@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: £10k HEAVY STRIKE ENGINE ACTIVE."
+LIVE_COMMENTARY = "AI Trading Floor: £10k HEAVY STRIKE ENGINE (API Compliant)."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
@@ -20,16 +20,16 @@ STARTING_CAPITAL = 50000.00
 BANKED_PROFITS = 0.00
 PRICE_MEMORY = {}
 
-# High-Beta, Maximum Volatility Targets for Fast Intraday Moves
+# FIXED POOL: UK-compliant ETFs and legacy T212 API tickers applied
 HEAVY_STRIKE_POOL = [
     "NVDA_US_EQ",  # NVIDIA
     "TSLA_US_EQ",  # Tesla
     "MSTR_US_EQ",  # MicroStrategy (Extreme Beta)
     "COIN_US_EQ",  # Coinbase
-    "META_US_EQ",  # Meta
+    "FB_US_EQ",    # Meta Platforms (T212 API strictly requires the legacy 'FB' ticker)
     "AMD_US_EQ",   # AMD
-    "QQQ_US_EQ",   # Nasdaq 100 Leverage
-    "AAPL_US_EQ"   # Apple (Liquidity Anchor)
+    "EQQQl_EQ",    # Invesco EQQQ Nasdaq-100 (UK/EU Compliant UCITS version)
+    "AAPL_US_EQ"   # Apple
 ]
 
 FX_ROUNDTRIP_FEE_PCT = 0.30 
@@ -153,7 +153,6 @@ async def heavy_strike_engine():
                         execute_live_order(ticker, -qty, "STOP LOSS")
                         PRICE_MEMORY[ticker] = []
 
-        # Hyper-fast 4-second loop to catch immediate volatility
         await asyncio.sleep(4)
 
 @asynccontextmanager
