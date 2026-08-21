@@ -10,7 +10,7 @@ import base64
 from contextlib import asynccontextmanager
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Authenticating with T212 API..."
+LIVE_COMMENTARY = "AI Trading Floor: Connecting to T212 with correct schema..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -44,10 +44,12 @@ def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
         "Content-Type": "application/json"
     }
     
+    # Official Trading 212 Market Order schema uses timeInForce instead of timeValidity
     payload = {
         "quantity": final_qty,
         "ticker": clean_ticker,
-        "timeValidity": "DAY"
+        "timeInForce": "DAY",
+        "extendedHours": True
     }
     
     url = f"{T212_BASE_URL}/orders/market"
