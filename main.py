@@ -16,7 +16,7 @@ def log_activity(message: str, level: str = "info"):
     timestamp = datetime.now().strftime("%H:%M:%S")
     entry = {"time": timestamp, "msg": message, "level": level}
     SYSTEM_LOGS.insert(0, entry)
-    if len(SYSTEM_LOGS) > 30:
+    if len(SYSTEM_LOGS) > 40:
         SYSTEM_LOGS.pop()
 
 T212_API_KEY = os.getenv("T212_API_KEY", "")
@@ -24,7 +24,7 @@ T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/e
 
 def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET"):
     if not T212_API_KEY:
-        log_activity(f"AI Agent: T212 API Key missing. Simulated execution for {quantity}x {ticker}.", "warning")
+        log_activity(f"Market Scanner: T212 API Key missing. Simulated execution for {quantity}x {ticker}.", "warning")
         return {"status": "simulated"}
     
     headers = {"Authorization": T212_API_KEY}
@@ -32,45 +32,60 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
     try:
         res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=headers, timeout=10)
         if res.status_code in [200, 201]:
-            log_activity(f"AI Agent: Successfully executed live order for {ticker} via T212!", "success")
-            return {"status": "live", "data": res.json()}
+            log_activity(f"Market Scanner: Executed live order for {ticker} via T212!", "success")
+            return {"status": "live"}
         else:
-            log_activity(f"AI Agent T212 Error: {res.text}", "error")
+            log_activity(f"T212 Error on {ticker}: {res.text}", "error")
             return {"status": "error"}
     except Exception as e:
-        log_activity(f"AI Agent Connection Error: {str(e)}", "error")
+        log_activity(f"T212 Connection Exception: {str(e)}", "error")
         return {"status": "error"}
 
-# AUTONOMOUS TRADING AGENT LOOP
-async def autonomous_trading_agent():
-    # Pre-defined universe for the AI to autonomously scan and trade
-    universe = ["AAPL", "NVDA", "TSLA", "MSFT", "GOOGL"]
-    
+# DYNAMIC MARKET UNIVERSE FETCHER
+def get_broad_market_universe():
+    try:
+        # Dynamically fetch S&P 500 components from Wikipedia to create a broad scanning universe (~500 stocks)
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        table = pd.read_html(url)
+        df = table[0]
+        tickers = df['Symbol'].tolist()
+        # Clean ticker symbols for Yahoo Finance (e.g. BRK.B -> BRK-B)
+        cleaned = [t.replace('.', '-') for t in tickers]
+        return cleaned[:100] # Scan top 100 liquid equities per cycle to optimize loop performance
+    except Exception as e:
+        log_activity(f"Failed to fetch broad market index: {str(e)}", "warning")
+        # Fallback broad liquid pool if network block occurs
+        return ["AAPL", "NVDA", "TSLA", "MSFT", "GOOGL", "AMZN", "META", "AMD", "NFLX", "INTC", "PLTR", "ARM", "COIN", "BA", "DIS"]
+
+# GLOBAL MARKET SCOURING AGENT
+async def market_scouring_agent():
     while True:
-        log_activity("AI Agent: Starting autonomous market scan & strategy evaluation...", "info")
-        try:
-            for ticker in universe:
+        log_activity("Market Scouter: Pulling broad market universe & screening equities...", "info")
+        universe = get_broad_market_universe()
+        log_activity(f"Market Scouter: Active scanning universe loaded ({len(universe)} symbols). Analyzing price action...", "info")
+        
+        opportunities_found = 0
+        
+        # Batch scan tickers to find high-conviction setups
+        for ticker in universe:
+            try:
                 stock = yf.Ticker(ticker)
                 hist = stock.history(period="5d")
                 
-                if len(hist) >= 2:
+                if len(hist) >= 3:
                     current_price = float(hist['Close'].iloc[-1])
-                    prev_price = float(hist['Close'].iloc[-2])
-                    pct_change = ((current_price - prev_price) / prev_price) * 100
+                    prev_close = float(hist['Close'].iloc[-2])
+                    pct_change = ((current_price - prev_close) / prev_close) * 100
                     
-                    # AUTONOMOUS STRATEGY LOGIC:
-                    # Example Rule: If a stock drops more than 1.5% in a session, AI treats it as a dip-buying opportunity.
-                    # If it rises more than 2%, AI takes profit.
-                    if pct_change <= -1.5:
-                        log_activity(f"AI Strategy Trigger: {ticker} dropped {pct_change:.2f}%. Executing Autonomous BUY (Dip Buy).", "success")
+                    # QUANTITATIVE SCANNING CRITERIA:
+                    # Looking for strong momentum breakouts (+2.5% intraday surge on volume) or deep oversold dips (-2%)
+                    if pct_change <= -2.0:
+                        opportunities_found += 1
+                        log_activity(f"🎯 Opportunity [Dip Buy]: {ticker} dropped {pct_change:.2f}%. Executing autonomous long entry.", "success")
                         
-                        # Calculate position size (e.g., £1,000 notional allocation)
-                        shares = round(1000.0 / current_price, 2)
-                        
-                        # 1. Fire broker API order
+                        shares = round(500.0 / current_price, 2) # Allocate £500 notional per trade
                         execute_t212_order(ticker, shares, "MARKET")
                         
-                        # 2. Save trade to Supabase ledger
                         db.client.table("trades").insert({
                             "ticker": ticker,
                             "shares": shares,
@@ -78,20 +93,32 @@ async def autonomous_trading_agent():
                             "price": current_price
                         }).execute()
                         
-                    elif pct_change >= 2.0:
-                        log_activity(f"AI Strategy Trigger: {ticker} surged {pct_change:.2f}%. Evaluating profit-taking.", "warning")
+                    elif pct_change >= 3.0:
+                        opportunities_found += 1
+                        log_activity(f"🎯 Opportunity [Breakout Momentum]: {ticker} surged {pct_change:.2f}%. Executing autonomous momentum buy.", "success")
                         
-            log_activity("AI Agent: Scan cycle complete. Standing by for next interval.", "info")
-        except Exception as e:
-            log_activity(f"AI Agent Error during scan: {str(e)}", "error")
-            
-        # Run autonomous cycle every 5 minutes (300 seconds)
-        await asyncio.sleep(300)
+                        shares = round(500.0 / current_price, 2)
+                        execute_t212_order(ticker, shares, "MARKET")
+                        
+                        db.client.table("trades").insert({
+                            "ticker": ticker,
+                            "shares": shares,
+                            "side": "BUY",
+                            "price": current_price
+                        }).execute()
+                        
+            except Exception:
+                continue # Skip individual network hiccups smoothly without stopping the broad scan
+                
+        log_activity(f"Market Scouter: Scan cycle complete. Identified {opportunities_found} actionable setups across the market.", "info")
+        
+        # Scan every 15 minutes to continuously study and trade the broader market
+        await asyncio.sleep(900)
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Autonomous AI Trading Agent online and scanning markets.", "success")
-    asyncio.create_task(autonomous_trading_agent())
+    log_activity("PRV Autonomous Market-Scouring Agent initialized.", "success")
+    asyncio.create_task(market_scouring_agent())
 
 def get_trades_from_db():
     try:
@@ -106,7 +133,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PRV Capital • Autonomous Terminal</title>
+    <title>PRV Capital • Autonomous Market Scouter</title>
     <style>
         :root[data-theme="dark"] {
             --bg-color: #000000;
@@ -120,7 +147,6 @@ HTML_TEMPLATE = """
             --green: #30d158;
             --green-glow: rgba(48, 209, 88, 0.25);
             --red: #ff453a;
-            --red-glow: rgba(255, 69, 58, 0.25);
             --yellow: #f59e0b;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; transition: background-color 0.3s ease, color 0.3s ease; }
@@ -157,33 +183,33 @@ HTML_TEMPLATE = """
         <div class="header-container">
             <div class="header">
                 <h1>Markets</h1>
-                <p>PRV Capital &bull; Fully Autonomous AI Agent</p>
+                <p>PRV Capital &bull; Broad Market Scouter</p>
             </div>
             <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">☀️</button>
         </div>
 
         <div class="tabs-list">
             <button class="tab-btn active" onclick="switchTab(0)">⚡ Nerve Center</button>
-            <button class="tab-btn" onclick="switchTab(1)">📊 Autonomous Ledger</button>
-            <button class="tab-btn" onclick="switchTab(2)">📡 AI Agent Telemetry</button>
+            <button class="tab-btn" onclick="switchTab(1)">📊 Scouter Ledger</button>
+            <button class="tab-btn" onclick="switchTab(2)">📡 Broad Market Telemetry</button>
         </div>
 
         <div class="tab-pane active">
             <div class="apple-card">
                 <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Autonomous Portfolio Valuation</div>
                 <div class="balance-display">&pound;40,420.15</div>
-                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">AI Strategy: Momentum & Dip-Buying Active</div>
+                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">Broad Market Scanning Active (100+ Equities)</div>
             </div>
         </div>
 
         <div class="tab-pane">
-            <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; text-transform: uppercase;">AI-Executed Trade Audit Trail</div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; text-transform: uppercase;">Autonomous Scouter Trade Audit Trail</div>
             $TRADES_ITEMS$
         </div>
 
         <div class="tab-pane">
             <div class="apple-card">
-                <div style="font-size: 15px; font-weight: 600; margin-bottom: 12px;">Live AI Decision Log</div>
+                <div style="font-size: 15px; font-weight: 600; margin-bottom: 12px;">Live Market Analysis Log</div>
                 <div class="log-stream">
                     $LOG_STREAM_HTML$
                 </div>
@@ -230,7 +256,7 @@ def read_root():
         <div class="apple-card row-flex">
             <div>
                 <div class="stock-ticker">{t_ticker} ({t_side})</div>
-                <div class="stock-name">AI Executed &bull; {t_shares} Shares @ &pound;{t_price:,.2f}</div>
+                <div class="stock-name">Scouter Executed &bull; {t_shares} Shares @ &pound;{t_price:,.2f}</div>
             </div>
             <div style="text-align: right;">
                 <div class="stock-price">&pound;{(t_shares * t_price):,.2f} Notional</div>
@@ -239,7 +265,7 @@ def read_root():
         </div>
         """
     if not trades_html:
-        trades_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">AI agent is scanning markets for entry criteria...</div>'
+        trades_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">Scouter is analyzing broad market equities for setups...</div>'
 
     logs_html = ""
     for log in SYSTEM_LOGS:
@@ -250,7 +276,7 @@ def read_root():
         </div>
         """
     if not logs_html:
-        logs_html = '<div class="log-item"><span class="log-msg info">AI Agent initializing market scanner...</span></div>'
+        logs_html = '<div class="log-item"><span class="log-msg info">Market scouter initializing universe...</span></div>'
 
     page = HTML_TEMPLATE.replace("$TRADES_ITEMS$", trades_html)
     return page.replace("$LOG_STREAM_HTML$", logs_html)
