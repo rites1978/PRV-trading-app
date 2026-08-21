@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: UK & US Top 500 Alpha Engine Active."
+LIVE_COMMENTARY = "AI Trading Floor: UK & US 500 Index Alpha Engine Active."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
@@ -27,7 +27,7 @@ BANKED_PROFITS = 0.00
 AI_BUY_COOLDOWN = {}
 AI_SELL_COOLDOWN = {}
 
-# Comprehensive UK Top Blue-Chip & FTSE Index Pool on Trading 212
+# 1. UK FTSE Top 500 / Index Pool
 UK_TOP_POOL = [
     "VUKGl_EQ",  # Vanguard FTSE 100 Index Acc
     "ISFl_EQ",   # iShares FTSE 100 UCITS ETF
@@ -38,41 +38,22 @@ UK_TOP_POOL = [
     "BP.l_EQ",   # BP plc
     "GSKl_EQ",   # GSK
     "RIO_EQ",    # Rio Tinto
-    "DGE_EQ",    # Diageo
-    "RELl_EQ",   # RELX
     "LLOYl_EQ",  # Lloyds Banking Group
     "BARCl_EQ",  # Barclays
-    "RR.l_EQ",   # Rolls-Royce Holdings
-    "NWGl_EQ",   # NatWest Group
-    "VODl_EQ",   # Vodafone Group
-    "NG.l_EQ",   # National Grid
-    "AALl_EQ",   # Anglo American
-    "EXPl_EQ",   # Experian
-    "IMAl_EQ"    # Imperial Brands
+    "RR.l_EQ"    # Rolls-Royce Holdings
 ]
 
-# Comprehensive US Top 500 Mega-Cap & S&P 500 Pool on Trading 212
+# 2. US 500 Index & Mega-Cap Pool (Strictly S&P 500 Trackers & Market Giants)
 US_TOP_POOL = [
-    "AAPL_US_EQ",  # Apple
-    "MSFT_US_EQ",  # Microsoft
-    "NVDA_US_EQ",  # NVIDIA
-    "AMZN_US_EQ",  # Amazon
-    "GOOGL_US_EQ", # Alphabet (Google)
-    "META_US_EQ",  # Meta Platforms
-    "TSLA_US_EQ",  # Tesla
-    "BRK.B_US_EQ", # Berkshire Hathaway
-    "JPM_US_EQ",   # JPMorgan Chase
-    "V_US_EQ",     # Visa
-    "XOM_US_EQ",   # Exxon Mobil
-    "UNH_US_EQ",   # UnitedHealth Group
-    "JNJ_US_EQ",   # Johnson & Johnson
-    "AVGO_US_EQ",  # Broadcom
-    "LLY_US_EQ",   # Eli Lilly
-    "WMT_US_EQ",   # Walmart
-    "MA_US_EQ",    # Mastercard
-    "PG_US_EQ",    # Procter & Gamble
-    "NFLX_US_EQ",  # Netflix
-    "AMD_US_EQ"    # Advanced Micro Devices
+    "VUSA_US_EQ",  # Vanguard S&P 500 ETF (LSE/US cross-listing or US equivalent)
+    "VOO_US_EQ",   # Vanguard S&P 500 ETF
+    "SPY_US_EQ",   # SPDR S&P 500 ETF Trust
+    "IVV_US_EQ",   # iShares Core S&P 500 ETF
+    "AAPL_US_EQ",  # Apple (Top S&P 500 Component)
+    "MSFT_US_EQ",  # Microsoft (Top S&P 500 Component)
+    "NVDA_US_EQ",  # NVIDIA (Top S&P 500 Component)
+    "AMZN_US_EQ",  # Amazon (Top S&P 500 Component)
+    "GOOGL_US_EQ"  # Alphabet (Top S&P 500 Component)
 ]
 
 def is_market_open(market_code: str) -> bool:
@@ -146,7 +127,7 @@ def fetch_live_data():
 
 async def autonomous_ai_brain():
     await asyncio.sleep(2)
-    log_activity("Cross-Continental Top 500 Engine Online. Tracking UK & US giants.", "success")
+    log_activity("Cross-Continental US 500 & UK Index Engine Online.", "success")
     
     while True:
         try:
@@ -175,7 +156,7 @@ async def autonomous_ai_brain():
                         execute_live_order(t212_ticker, -qty)
                         AI_SELL_COOLDOWN[t212_ticker] = time.time()
             
-            # --- PHASE 2: ACTIVE DUAL-MARKET TOP 500 SELECTION ---
+            # --- PHASE 2: ACTIVE DUAL-MARKET US 500 & UK SELECTION ---
             active_pool = []
             if is_market_open("UK"): active_pool.extend([(t, "UK") for t in UK_TOP_POOL])
             if is_market_open("US"): active_pool.extend([(t, "US") for t in US_TOP_POOL])
@@ -210,7 +191,6 @@ async def autonomous_ai_brain():
                         
                         momentum = ((recent_avg - baseline_avg) / baseline_avg) * 100.0
                         
-                        # Institutional Multi-Factor Scoring
                         if momentum > 0.08 and latest_vol >= (avg_vol * 0.8) and current_price > 0:
                             target_spend = min(1000.0, free_cash)
                             
@@ -220,7 +200,7 @@ async def autonomous_ai_brain():
                                 qty = round(target_spend / current_price, 2)
                                 if qty <= 0: continue
                             
-                            log_activity(f"🧠 {market_type} TOP 500 ENTRY: {yf_sym} (Score: +{momentum:.3f}%, Vol Confirmed)", "success")
+                            log_activity(f"🧠 {market_type} US/UK 500 ENTRY: {yf_sym} (Score: +{momentum:.3f}%, Vol Confirmed)", "success")
                             execute_live_order(target_ticker, qty)
                             AI_BUY_COOLDOWN[target_ticker] = time.time()
                             await asyncio.sleep(2.0)
@@ -240,8 +220,8 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    if is_market_open("US"): return execute_live_order("AAPL_US_EQ", round(500.0 / 180.0, 2))
-    elif is_market_open("UK"): return execute_live_order("SHELl_EQ", 500.0)
+    if is_market_open("US"): return execute_live_order("VOO_US_EQ", round(500.0 / 450.0, 2))
+    elif is_market_open("UK"): return execute_live_order("VUKGl_EQ", 500.0)
     return {"status": "ERROR", "detail": "Markets are closed."}
 
 @app.api_route("/api/dashboard_data", methods=["GET"])
