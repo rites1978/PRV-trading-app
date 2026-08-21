@@ -24,7 +24,7 @@ T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/e
 
 def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET"):
     if not T212_API_KEY:
-        log_activity(f"Market Scanner: T212 API Key missing. Simulated execution for {quantity}x {ticker}.", "warning")
+        log_activity(f"Market Scouter: Simulated execution for {quantity}x {ticker}.", "warning")
         return {"status": "simulated"}
     
     headers = {"Authorization": T212_API_KEY}
@@ -32,7 +32,7 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
     try:
         res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=headers, timeout=10)
         if res.status_code in [200, 201]:
-            log_activity(f"Market Scanner: Executed live order for {ticker} via T212!", "success")
+            log_activity(f"Market Scouter: Executed live order for {ticker} via T212!", "success")
             return {"status": "live"}
         else:
             log_activity(f"T212 Error on {ticker}: {res.text}", "error")
@@ -41,32 +41,24 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
         log_activity(f"T212 Connection Exception: {str(e)}", "error")
         return {"status": "error"}
 
-# DYNAMIC MARKET UNIVERSE FETCHER
 def get_broad_market_universe():
     try:
-        # Dynamically fetch S&P 500 components from Wikipedia to create a broad scanning universe (~500 stocks)
         url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
         table = pd.read_html(url)
         df = table[0]
         tickers = df['Symbol'].tolist()
-        # Clean ticker symbols for Yahoo Finance (e.g. BRK.B -> BRK-B)
         cleaned = [t.replace('.', '-') for t in tickers]
-        return cleaned[:100] # Scan top 100 liquid equities per cycle to optimize loop performance
+        return cleaned[:100]
     except Exception as e:
         log_activity(f"Failed to fetch broad market index: {str(e)}", "warning")
-        # Fallback broad liquid pool if network block occurs
         return ["AAPL", "NVDA", "TSLA", "MSFT", "GOOGL", "AMZN", "META", "AMD", "NFLX", "INTC", "PLTR", "ARM", "COIN", "BA", "DIS"]
 
-# GLOBAL MARKET SCOURING AGENT
 async def market_scouring_agent():
     while True:
-        log_activity("Market Scouter: Pulling broad market universe & screening equities...", "info")
+        log_activity("Market Scouter: Scanning broad market universe across equities...", "info")
         universe = get_broad_market_universe()
-        log_activity(f"Market Scouter: Active scanning universe loaded ({len(universe)} symbols). Analyzing price action...", "info")
         
         opportunities_found = 0
-        
-        # Batch scan tickers to find high-conviction setups
         for ticker in universe:
             try:
                 stock = yf.Ticker(ticker)
@@ -77,25 +69,10 @@ async def market_scouring_agent():
                     prev_close = float(hist['Close'].iloc[-2])
                     pct_change = ((current_price - prev_close) / prev_close) * 100
                     
-                    # QUANTITATIVE SCANNING CRITERIA:
-                    # Looking for strong momentum breakouts (+2.5% intraday surge on volume) or deep oversold dips (-2%)
-                    if pct_change <= -2.0:
+                    if pct_change <= -2.0 or pct_change >= 3.0:
                         opportunities_found += 1
-                        log_activity(f"🎯 Opportunity [Dip Buy]: {ticker} dropped {pct_change:.2f}%. Executing autonomous long entry.", "success")
-                        
-                        shares = round(500.0 / current_price, 2) # Allocate £500 notional per trade
-                        execute_t212_order(ticker, shares, "MARKET")
-                        
-                        db.client.table("trades").insert({
-                            "ticker": ticker,
-                            "shares": shares,
-                            "side": "BUY",
-                            "price": current_price
-                        }).execute()
-                        
-                    elif pct_change >= 3.0:
-                        opportunities_found += 1
-                        log_activity(f"🎯 Opportunity [Breakout Momentum]: {ticker} surged {pct_change:.2f}%. Executing autonomous momentum buy.", "success")
+                        side = "BUY" if pct_change <= -2.0 else "SELL"
+                        log_activity(f"🎯 Opportunity [{ticker}]: Moved {pct_change:.2f}%. Executing autonomous {side}.", "success")
                         
                         shares = round(500.0 / current_price, 2)
                         execute_t212_order(ticker, shares, "MARKET")
@@ -103,22 +80,26 @@ async def market_scouring_agent():
                         db.client.table("trades").insert({
                             "ticker": ticker,
                             "shares": shares,
-                            "side": "BUY",
+                            "side": side,
                             "price": current_price
                         }).execute()
-                        
             except Exception:
-                continue # Skip individual network hiccups smoothly without stopping the broad scan
+                continue
                 
-        log_activity(f"Market Scouter: Scan cycle complete. Identified {opportunities_found} actionable setups across the market.", "info")
-        
-        # Scan every 15 minutes to continuously study and trade the broader market
+        log_activity(f"Market Scouter: Scan cycle complete. Found {opportunities_found} actionable setups.", "info")
         await asyncio.sleep(900)
 
 @app.on_event("startup")
 async def startup_event():
     log_activity("PRV Autonomous Market-Scouring Agent initialized.", "success")
     asyncio.create_task(market_scouring_agent())
+
+def get_watchlist_from_db():
+    try:
+        response = db.client.table("friend_watchlist").select("*").execute()
+        return response.data if response.data else []
+    except Exception:
+        return []
 
 def get_trades_from_db():
     try:
@@ -147,17 +128,35 @@ HTML_TEMPLATE = """
             --green: #30d158;
             --green-glow: rgba(48, 209, 88, 0.25);
             --red: #ff453a;
+            --red-glow: rgba(255, 69, 58, 0.25);
             --yellow: #f59e0b;
+            --svg-grid: rgba(255, 255, 255, 0.05);
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; transition: background-color 0.3s ease, color 0.3s ease; }
+        :root[data-theme="light"] {
+            --bg-color: #f5f5f7;
+            --card-bg: rgba(255, 255, 255, 0.8);
+            --card-border: rgba(0, 0, 0, 0.08);
+            --text-primary: #1d1d1f;
+            --text-secondary: #86868b;
+            --accent-blue: #0071e3;
+            --tab-bg: rgba(118, 118, 128, 0.08);
+            --tab-active: #ffffff;
+            --green: #248a3d;
+            --green-glow: rgba(40, 205, 65, 0.2);
+            --red: #d70015;
+            --red-glow: rgba(255, 59, 48, 0.2);
+            --yellow: #b45309;
+            --svg-grid: rgba(0, 0, 0, 0.04);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease; }
         body { background-color: var(--bg-color); color: var(--text-primary); padding: 40px 20px; display: flex; justify-content: center; }
         .container { width: 100%; max-width: 820px; }
         .header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
         .header h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; }
         .header p { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
         .theme-toggle { background: var(--card-bg); border: 0.5px solid var(--card-border); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; backdrop-filter: blur(20px); }
-        .tabs-list { display: flex; background-color: var(--tab-bg); padding: 4px; border-radius: 14px; gap: 4px; margin-bottom: 24px; }
-        .tab-btn { flex: 1; background: transparent; border: none; color: var(--text-secondary); font-size: 13px; font-weight: 500; padding: 10px 14px; border-radius: 10px; cursor: pointer; text-align: center; }
+        .tabs-list { display: flex; background-color: var(--tab-bg); padding: 4px; border-radius: 14px; gap: 4px; margin-bottom: 24px; overflow-x: auto; }
+        .tab-btn { flex: 1; background: transparent; border: none; color: var(--text-secondary); font-size: 13px; font-weight: 500; padding: 10px 14px; border-radius: 10px; cursor: pointer; text-align: center; white-space: nowrap; }
         .tab-btn.active { background-color: var(--tab-active); color: var(--text-primary); font-weight: 600; }
         .tab-pane { display: none; }
         .tab-pane.active { display: block; }
@@ -168,7 +167,12 @@ HTML_TEMPLATE = """
         .stock-price { font-size: 18px; font-weight: 600; }
         .pill { display: inline-block; padding: 6px 12px; border-radius: 10px; font-size: 12px; font-weight: 600; }
         .pill.green { background-color: var(--green-glow); color: var(--green); border: 0.5px solid var(--green); }
+        .pill.red { background-color: var(--red-glow); color: var(--red); border: 0.5px solid var(--red); }
         .balance-display { font-size: 36px; font-weight: 700; margin-top: 4px; }
+        .form-group { display: flex; gap: 12px; }
+        .apple-input { flex: 1; background: var(--tab-bg); border: 0.5px solid var(--card-border); border-radius: 12px; padding: 12px 16px; color: var(--text-primary); font-size: 14px; outline: none; }
+        .apple-input:focus { border-color: var(--accent-blue); }
+        .apple-btn { background: var(--accent-blue); color: #ffffff; border: none; border-radius: 12px; padding: 0 24px; font-weight: 600; cursor: pointer; }
         .log-stream { background: rgba(0,0,0,0.3); border: 0.5px solid var(--card-border); border-radius: 12px; padding: 14px; font-family: ui-monospace, monospace; font-size: 12px; max-height: 280px; overflow-y: auto; }
         .log-item { margin-bottom: 6px; display: flex; gap: 10px; }
         .log-time { color: var(--text-secondary); }
@@ -183,7 +187,7 @@ HTML_TEMPLATE = """
         <div class="header-container">
             <div class="header">
                 <h1>Markets</h1>
-                <p>PRV Capital &bull; Broad Market Scouter</p>
+                <p>PRV Capital &bull; Autonomous Market Scouter</p>
             </div>
             <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">☀️</button>
         </div>
@@ -191,14 +195,15 @@ HTML_TEMPLATE = """
         <div class="tabs-list">
             <button class="tab-btn active" onclick="switchTab(0)">⚡ Nerve Center</button>
             <button class="tab-btn" onclick="switchTab(1)">📊 Scouter Ledger</button>
-            <button class="tab-btn" onclick="switchTab(2)">📡 Broad Market Telemetry</button>
+            <button class="tab-btn" onclick="switchTab(2)">📡 Market Telemetry</button>
+            <button class="tab-btn" onclick="switchTab(3)">👀 Watchlist</button>
         </div>
 
         <div class="tab-pane active">
             <div class="apple-card">
                 <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Autonomous Portfolio Valuation</div>
                 <div class="balance-display">&pound;40,420.15</div>
-                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">Broad Market Scanning Active (100+ Equities)</div>
+                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">Broad Market Scanning Active (S&P 500 Equities)</div>
             </div>
         </div>
 
@@ -214,6 +219,17 @@ HTML_TEMPLATE = """
                     $LOG_STREAM_HTML$
                 </div>
             </div>
+        </div>
+
+        <div class="tab-pane">
+            <div class="apple-card" style="margin-bottom: 16px;">
+                <form action="/add" method="post" class="form-group">
+                    <input type="text" name="ticker" class="apple-input" placeholder="Symbol (e.g. AAPL)" required />
+                    <input type="text" name="notes" class="apple-input" placeholder="Thesis / Note" />
+                    <button type="submit" class="apple-btn">Add Symbol</button>
+                </form>
+            </div>
+            $WATCHLIST_ITEMS$
         </div>
     </div>
 
@@ -244,6 +260,41 @@ HTML_TEMPLATE = """
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
+    # Watchlist items
+    items = get_watchlist_from_db()
+    watchlist_html = ""
+    for item in items:
+        ticker = item.get('ticker', '').upper()
+        notes = item.get('notes', '')
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="2d")
+            price = float(hist['Close'].iloc[-1]) if not hist.empty else 0.0
+            prev = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else price
+            change = ((price - prev) / prev) * 100 if prev > 0 else 0.0
+        except Exception:
+            price, change = 0.0, 0.0
+        
+        is_pos = change >= 0
+        pill_class = "green" if is_pos else "red"
+        sign = "+" if is_pos else ""
+        
+        watchlist_html += f"""
+        <div class="apple-card row-flex">
+            <div>
+                <div class="stock-ticker">{ticker}</div>
+                <div class="stock-name">{notes}</div>
+            </div>
+            <div style="text-align: right;">
+                <div class="stock-price">&pound;{price:,.2f}</div>
+                <span class="pill {pill_class}">{sign}{change:.2f}%</span>
+            </div>
+        </div>
+        """
+    if not watchlist_html:
+        watchlist_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">No custom watchlist symbols added yet.</div>'
+
+    # Trades items
     trades = get_trades_from_db()
     trades_html = ""
     for trade in trades:
@@ -251,6 +302,7 @@ def read_root():
         t_shares = trade.get('shares', 0)
         t_side = trade.get('side', 'BUY')
         t_price = trade.get('price', 0.0)
+        pill_class = "green" if t_side == "BUY" else "red"
         
         trades_html += f"""
         <div class="apple-card row-flex">
@@ -260,13 +312,14 @@ def read_root():
             </div>
             <div style="text-align: right;">
                 <div class="stock-price">&pound;{(t_shares * t_price):,.2f} Notional</div>
-                <span class="pill green">Active Position</span>
+                <span class="pill {pill_class}">Active</span>
             </div>
         </div>
         """
     if not trades_html:
         trades_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">Scouter is analyzing broad market equities for setups...</div>'
 
+    # Logs items
     logs_html = ""
     for log in SYSTEM_LOGS:
         logs_html += f"""
@@ -278,5 +331,19 @@ def read_root():
     if not logs_html:
         logs_html = '<div class="log-item"><span class="log-msg info">Market scouter initializing universe...</span></div>'
 
-    page = HTML_TEMPLATE.replace("$TRADES_ITEMS$", trades_html)
+    page = HTML_TEMPLATE.replace("$WATCHLIST_ITEMS$", watchlist_html)
+    page = page.replace("$TRADES_ITEMS$", trades_html)
     return page.replace("$LOG_STREAM_HTML$", logs_html)
+
+@app.post("/add", response_class=HTMLResponse)
+def add_ticker(ticker: str = Form(...), notes: str = Form("")):
+    try:
+        clean_ticker = ticker.upper().strip()
+        db.client.table("friend_watchlist").insert({
+            "ticker": clean_ticker,
+            "notes": notes.strip()
+        }).execute()
+        log_activity(f"Added symbol {clean_ticker} to personal watchlist.", "success")
+    except Exception as e:
+        log_activity(f"Failed to insert {ticker}: {str(e)}", "error")
+    return read_root()
