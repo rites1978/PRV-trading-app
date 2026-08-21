@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Unrestricted Market Hunter Online."
+LIVE_COMMENTARY = "AI Trading Floor: Heavy Volume Hunter Online."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
@@ -92,21 +92,21 @@ def fetch_live_data():
 async def autonomous_ai_brain():
     await asyncio.sleep(2)
     
-    # 1. Sync ALL valid tickers checking correct Trading 212 suffix format
     try:
         res = requests.get(f"{T212_BASE_URL}/metadata/instruments", headers=get_t212_auth_headers(), timeout=15)
         if res.status_code == 200:
             for inst in res.json():
                 ticker = inst.get("ticker", "")
-                if ticker.endswith("_US_EQ"):
+                ticker_upper = ticker.upper()
+                if "_US_EQ" in ticker_upper:
                     ALL_US_TICKERS.append(ticker)
-                elif ticker.endswith("l_EQ"): # Corrected to look for lowercase l without underscore
+                elif "_L_EQ" in ticker_upper or "_UK_EQ" in ticker_upper or "_GB_EQ" in ticker_upper:
                     ALL_UK_TICKERS.append(ticker)
             log_activity(f"Brain Loaded: {len(ALL_UK_TICKERS)} UK Stocks | {len(ALL_US_TICKERS)} US Stocks.", "success")
     except Exception: pass
 
     await asyncio.sleep(3)
-    log_activity("AI Roaming Mode Active: Hunting across massive dataset...", "success")
+    log_activity("AI Hyper-Scan Active: Testing 50 stocks per cycle...", "success")
     
     while True:
         try:
@@ -133,7 +133,7 @@ async def autonomous_ai_brain():
                         break 
             
             if action_taken:
-                await asyncio.sleep(5)
+                await asyncio.sleep(3)
                 continue 
                 
             # --- PHASE 2: UNRESTRICTED MARKET EXPLORATION ---
@@ -142,13 +142,13 @@ async def autonomous_ai_brain():
             if is_market_open("US"): available_pool.extend(ALL_US_TICKERS)
             
             if available_pool:
-                batch = random.sample(available_pool, min(10, len(available_pool)))
+                # INCREASED BATCH SIZE: Analyze 50 random stocks per loop instead of 10
+                batch = random.sample(available_pool, min(50, len(available_pool)))
                 
                 for t212_ticker in batch:
                     if t212_ticker in owned_tickers or (time.time() - AI_BUY_COOLDOWN.get(t212_ticker, 0) < 120):
                         continue
                         
-                    # Translate T212 ticker to Yahoo Finance dynamically
                     if t212_ticker.endswith("l_EQ"):
                         yf_ticker = t212_ticker.replace("l_EQ", ".L")
                     elif t212_ticker.endswith("_US_EQ"):
@@ -165,19 +165,22 @@ async def autonomous_ai_brain():
                         momentum = ((recent_avg - older_avg) / older_avg) * 100.0
                         
                         if momentum > 0.005: 
-                            log_activity(f"🚀 UNEXPECTED OPPORTUNITY: {yf_ticker} rising ({momentum:+.3f}%). AI Striking...", "success")
-                            qty = 20.0 if t212_ticker.endswith("l_EQ") else 1.0
+                            log_activity(f"🚀 OPPORTUNITY: {yf_ticker} ({momentum:+.3f}%). AI Striking with HEAVY volume...", "success")
+                            
+                            # HEAVY VOLUME FIX: Buy 1500 shares for LSE penny stocks, 10 for US to bypass API minimums
+                            qty = 1500.0 if t212_ticker.endswith("l_EQ") else 10.0
+                            
                             execute_live_order(t212_ticker, qty)
                             AI_BUY_COOLDOWN[t212_ticker] = time.time()
                             action_taken = True
                             break 
                     
-                    await asyncio.sleep(1) 
+                    await asyncio.sleep(0.5) # Faster polling
                 
         except Exception as e:
             log_activity(f"AI Brain error: {str(e)}", "error")
             
-        await asyncio.sleep(5)
+        await asyncio.sleep(2) # Faster restart cycle
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -189,8 +192,8 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    if is_market_open("UK"): return execute_live_order("BARCl_EQ", 10.0)
-    elif is_market_open("US"): return execute_live_order("AAPL_US_EQ", 1.0)
+    if is_market_open("UK"): return execute_live_order("BARCl_EQ", 1500.0)
+    elif is_market_open("US"): return execute_live_order("AAPL_US_EQ", 10.0)
     return {"status": "ERROR", "detail": "Both UK and US markets are closed."}
 
 @app.api_route("/api/dashboard_data", methods=["GET"])
