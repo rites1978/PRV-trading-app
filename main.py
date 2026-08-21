@@ -12,7 +12,7 @@ import yfinance as yf
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Ready for validated equity order execution..."
+LIVE_COMMENTARY = "AI Trading Floor: Engine updated with official T212 API schema..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -32,7 +32,7 @@ def get_t212_auth_headers():
     encoded = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
-def execute_live_order(ticker: str, quantity: float):
+def execute_live_order(ticker: str, quantity: int = 1):
     if not T212_API_KEY or not T212_API_SECRET:
         log_activity("Execution Error: Missing API credentials.", "error")
         return {"status": "ERROR", "detail": "Missing Credentials"}
@@ -43,15 +43,15 @@ def execute_live_order(ticker: str, quantity: float):
 
     headers = get_t212_auth_headers()
     
-    # Official T212 Equity Market Order payload format
+    # Official Trading 212 Equity Market Order Schema
     payload = {
-        "quantity": float(quantity),
+        "quantity": int(quantity),
         "ticker": clean_ticker,
-        "timeInForce": "DAY"
+        "timeValidity": "DAY"
     }
     
     url = f"{T212_BASE_URL}/orders/market"
-    log_activity(f"Sending verified market order for {clean_ticker} (Qty: {quantity})", "info")
+    log_activity(f"Sending official market order schema for {clean_ticker} (Qty: {quantity})", "info")
     
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=15)
@@ -63,7 +63,7 @@ def execute_live_order(ticker: str, quantity: float):
                 db.client.table("trades").insert({
                     "ticker": clean_ticker,
                     "side": "BUY",
-                    "quantity": quantity,
+                    "quantity": float(quantity),
                     "status": "LIVE_FILLED"
                 }).execute()
             except Exception:
@@ -94,11 +94,9 @@ def get_trades_from_db():
     except Exception:
         return []
 
-app = FastAPI()
-
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    result = execute_live_order("AAPL", 1.0)
+    result = execute_live_order("AAPL", 1)
     return result
 
 @app.api_route("/api/valuation", methods=["GET", "HEAD"])
@@ -169,7 +167,7 @@ def read_root():
     </div>
     <script>
         async function triggerTrade() {
-            document.getElementById('execStatus').innerText = "Executing live order on T212...";
+            document.getElementById('execStatus').innerText = "Executing official market order on T212...";
             try {
                 const res = await fetch('/api/trigger-trade');
                 const data = await res.json();
@@ -185,7 +183,7 @@ def read_root():
                 const res = await fetch('/api/valuation');
                 const data = await res.json();
                 document.getElementById('logStream').innerHTML = data.commentary;
-                document.getElementById('valuation').innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                document.getElementById('valuation'].innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 
                 const tbody = document.getElementById('tradeTable');
                 if (data.trades && data.trades.length > 0) {
