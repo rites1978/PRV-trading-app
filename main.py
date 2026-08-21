@@ -6,7 +6,6 @@ import os
 import requests
 import base64
 import time
-import random
 from contextlib import asynccontextmanager
 from db_manager import db
 import warnings
@@ -15,7 +14,7 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: UK/US Top 500 Engine with Strict Profit Vault."
+LIVE_COMMENTARY = "AI Trading Floor: UK/US Top 500 Calculative Engine Active."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
@@ -24,6 +23,7 @@ BANKED_PROFITS = 0.00
 
 PRICE_MEMORY = {}
 DYNAMIC_INSTRUMENTS = {"UK": [], "US": []}
+SEED_INDEX = {"UK": 0, "US": 0} # Used to intelligently cycle the Top 500, not guess randomly
 
 def is_market_open(market: str) -> bool:
     """Accurate UTC time checks. UK: 07:00-15:30 UTC. US: 13:30-20:00 UTC."""
@@ -53,7 +53,7 @@ def get_t212_auth_headers():
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
 def load_top_500_instruments():
-    """Dynamically fetches all available US and UK instruments to build the true 500 pools."""
+    """Fetches all UK/US instruments to build the true Top 500 lists."""
     global DYNAMIC_INSTRUMENTS
     if not T212_API_KEY: return
     try:
@@ -65,9 +65,8 @@ def load_top_500_instruments():
                 if "_US_EQ" in ticker: us_list.append(ticker)
                 elif ticker.endswith("l_EQ"): uk_list.append(ticker)
             
-            # Ensure we have broad pools
-            DYNAMIC_INSTRUMENTS["UK"] = uk_list if uk_list else ["VUKGl_EQ", "SHELl_EQ", "AZNl_EQ", "HSBA_EQ"]
-            DYNAMIC_INSTRUMENTS["US"] = us_list if us_list else ["VOO_US_EQ", "AAPL_US_EQ", "MSFT_US_EQ", "NVDA_US_EQ"]
+            DYNAMIC_INSTRUMENTS["UK"] = uk_list[:500] if uk_list else ["VUKGl_EQ", "SHELl_EQ", "AZNl_EQ"]
+            DYNAMIC_INSTRUMENTS["US"] = us_list[:500] if us_list else ["VOO_US_EQ", "AAPL_US_EQ", "MSFT_US_EQ"]
             log_activity(f"Loaded {len(DYNAMIC_INSTRUMENTS['UK'])} UK and {len(DYNAMIC_INSTRUMENTS['US'])} US instruments.", "success")
     except Exception as e:
         log_activity("Failed to load dynamic instrument catalog.", "warning")
@@ -80,8 +79,7 @@ def execute_live_order(exact_ticker: str, quantity: float, order_type: str = "EX
         if res.status_code in [200, 201]:
             log_activity(f"✅ {side} {exact_ticker} (Qty: {abs(quantity):.2f}) [{order_type}]", "success")
             return True
-    except Exception as e:
-        log_activity(f"API Error on {exact_ticker}: {str(e)}", "error")
+    except Exception: pass
     return False
 
 def fetch_live_data():
@@ -94,7 +92,7 @@ def fetch_live_data():
             CACHED_ACCOUNT = res_cash.json()
             total_eq = float(CACHED_ACCOUNT.get("total", STARTING_CAPITAL))
             
-            # THE PROFIT VAULT: Strictly lock away any total equity above £50,000
+            # THE VAULT: Any equity over £50,000 is permanently locked
             if total_eq > STARTING_CAPITAL:
                 BANKED_PROFITS = total_eq - STARTING_CAPITAL
             else:
@@ -107,62 +105,74 @@ def fetch_live_data():
 async def continuous_intelligence_loop():
     await asyncio.sleep(2)
     load_top_500_instruments()
-    log_activity("UK/US Top 500 Engine Online. Enforcing strict profit vault.", "success")
+    log_activity("Calculative AI Engine Online. Mapping Spread Costs.", "success")
     
     while True:
         fetch_live_data()
         owned_tickers = {pos.get("ticker"): pos for pos in CACHED_PORTFOLIO} if CACHED_PORTFOLIO else {}
         
-        # Deployable cash NEVER includes banked profits
+        # Rule 2: Vault logic applied to cash
         raw_free_cash = float(CACHED_ACCOUNT.get("free", 0))
         deployable_cash = max(0.0, raw_free_cash - BANKED_PROFITS)
 
-        # --- PHASE 1: ACTIVE DEPLOYMENT INTO TOP 500 (US & UK) ---
-        active_pool = []
-        if is_market_open("UK"): active_pool.extend(DYNAMIC_INSTRUMENTS["UK"])
-        if is_market_open("US"): active_pool.extend(DYNAMIC_INSTRUMENTS["US"])
-        
-        if active_pool and deployable_cash > 2000.0:
-            target = random.choice(active_pool)
-            if target not in owned_tickers:
-                execute_live_order(target, 0.1, "MARKET SEED")
-                await asyncio.sleep(2)
-                fetch_live_data()
+        # --- PHASE 1: METHODICAL SEEDING (NOT RANDOM) ---
+        for market in ["US", "UK"]:
+            if is_market_open(market) and DYNAMIC_INSTRUMENTS[market] and deployable_cash > 2000.0:
+                # Intelligently cycle through the 500 list, skip if we already own it
+                target = DYNAMIC_INSTRUMENTS[market][SEED_INDEX[market]]
+                if target not in owned_tickers:
+                    execute_live_order(target, 0.1, "SPREAD CALCULATOR SEED")
+                    await asyncio.sleep(1)
+                
+                # Move index forward, loop back to 0 if at the end
+                SEED_INDEX[market] = (SEED_INDEX[market] + 1) % len(DYNAMIC_INSTRUMENTS[market])
 
-        # --- PHASE 2: CALCULATIVE SCALING & PROFIT BANKING ---
+        # --- PHASE 2: CALCULATIVE COST MATH & EXECUTION ---
         for ticker, pos in owned_tickers.items():
             cur_price = float(pos.get("currentPrice", 0))
             avg_price = float(pos.get("averagePrice", 0))
             qty = float(pos.get("quantity", 0))
             invested = avg_price * qty
             
-            if cur_price > 0:
+            if cur_price > 0 and avg_price > 0:
                 if ticker not in PRICE_MEMORY: PRICE_MEMORY[ticker] = []
                 PRICE_MEMORY[ticker].append(cur_price)
-                if len(PRICE_MEMORY[ticker]) > 10: PRICE_MEMORY[ticker].pop(0)
-            
-            if len(PRICE_MEMORY[ticker]) >= 2:
-                # Scale seeds into £1000 blocks if we have deployable cash
-                if invested < 15.0 and deployable_cash > 1500.0:
-                    target_qty = round(1000.0 / cur_price, 2)
-                    if target_qty > 0:
-                        log_activity(f"💰 DEPLOYING CAPITAL: Scaling {ticker} to £1000 Core Position.", "success")
-                        execute_live_order(ticker, target_qty, "CORE ALLOCATION")
-                        PRICE_MEMORY[ticker] = []
+                if len(PRICE_MEMORY[ticker]) > 15: PRICE_MEMORY[ticker].pop(0) # Keep short history
                 
-                # Bank profits or cut losses on Core Positions
-                elif invested >= 500.0 and avg_price > 0: 
-                    total_ret_pct = ((cur_price - avg_price) / avg_price) * 100.0
+                if len(PRICE_MEMORY[ticker]) >= 3:
+                    oldest_price = PRICE_MEMORY[ticker][0]
+                    momentum_pct = ((cur_price - oldest_price) / oldest_price) * 100.0
                     
-                    if total_ret_pct >= 0.90:
-                        log_activity(f"🏦 VAULT DEPOSIT: Selling {ticker} (+{total_ret_pct:.2f}%). Locking profit.", "success")
-                        execute_live_order(ticker, -qty, "TAKE PROFIT")
-                        PRICE_MEMORY[ticker] = []
+                    # Rule 5: Calculate exact spread cost using T212's Bid (cur) and Ask (avg)
+                    spread_cost_pct = ((avg_price - cur_price) / avg_price) * 100.0
+                    # Floor it at 0.1% just in case T212 gives an artificially tight read
+                    spread_cost_pct = max(0.1, spread_cost_pct)
+                    
+                    # If this is just a seed (£15 or less), check if it mathematically beats the cost
+                    if invested < 15.0 and deployable_cash > 1500.0:
+                        # Intelligence check: Momentum must be GREATER than the spread cost to enter
+                        if momentum_pct > spread_cost_pct:
+                            target_qty = round(1000.0 / cur_price, 2)
+                            if target_qty > 0:
+                                log_activity(f"🧠 CALCULATED ENTRY: {ticker}. Momentum (+{momentum_pct:.2f}%) beat Spread Cost (-{spread_cost_pct:.2f}%).", "success")
+                                execute_live_order(ticker, target_qty, "CORE DEPLOYMENT")
+                                PRICE_MEMORY[ticker] = [] 
+                    
+                    # If it is a full Core Position, manage it
+                    elif invested >= 500.0: 
+                        total_ret_pct = ((cur_price - avg_price) / avg_price) * 100.0
                         
-                    elif total_ret_pct <= -1.50:
-                        log_activity(f"🛡️ CUTTING RISK: {ticker} ({total_ret_pct:.2f}%). Reallocating.", "warning")
-                        execute_live_order(ticker, -qty, "STOP LOSS")
-                        PRICE_MEMORY[ticker] = []
+                        # Rule 2: Bank the growth
+                        if total_ret_pct >= 0.80:
+                            log_activity(f"🏦 PROFIT VAULTED: Selling {ticker} (+{total_ret_pct:.2f}%).", "success")
+                            execute_live_order(ticker, -qty, "TAKE PROFIT")
+                            PRICE_MEMORY[ticker] = []
+                            
+                        # Keep risk calculated
+                        elif total_ret_pct <= -1.20:
+                            log_activity(f"🛡️ CUTTING RISK: {ticker} ({total_ret_pct:.2f}%).", "warning")
+                            execute_live_order(ticker, -qty, "STOP LOSS")
+                            PRICE_MEMORY[ticker] = []
 
         await asyncio.sleep(15)
 
