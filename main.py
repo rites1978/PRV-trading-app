@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 import requests
 import base64
+import time
 from contextlib import asynccontextmanager
 from db_manager import db
 import yfinance as yf
@@ -14,25 +15,45 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: HFT Engine online. Bug-fixes applied."
-TICKER_MAP = {} 
+LIVE_COMMENTARY = "AI Trading Floor: Multi-Market Engine Online. Tracking Global Hours."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
+AI_COOLDOWN_MEMORY = {} 
+VALID_T212_TICKERS = set()
 
-# Expanded UK Blue-Chip Universe for High Volume Trading
+# Unified Global Market Universe
 MARKET_UNIVERSE = {
-    "BARC.L": "BARC",
-    "LLOY.L": "LLOY",
-    "BP.L": "BP",
-    "VOD.L": "VOD",
-    "TSCO.L": "TSCO",
-    "SHEL.L": "SHEL",
-    "RIO.L": "RIO",
-    "ULVR.L": "ULVR",
-    "HSBA.L": "HSBA",
-    "BATS.L": "BATS"
+    # UK STOCKS (LSE)
+    "BARC.L": {"t212": "BARC_l_EQ", "market": "UK", "qty": 25.0},
+    "LLOY.L": {"t212": "LLOY_l_EQ", "market": "UK", "qty": 50.0},
+    "BP.L": {"t212": "BP_l_EQ", "market": "UK", "qty": 10.0},
+    "VOD.L": {"t212": "VOD_l_EQ", "market": "UK", "qty": 50.0},
+    "TSCO.L": {"t212": "TSCO_l_EQ", "market": "UK", "qty": 15.0},
+    "SHEL.L": {"t212": "SHEL_l_EQ", "market": "UK", "qty": 5.0},
+    # US STOCKS (NASDAQ/NYSE)
+    "AAPL": {"t212": "AAPL_US_EQ", "market": "US", "qty": 1.0},
+    "NVDA": {"t212": "NVDA_US_EQ", "market": "US", "qty": 1.0},
+    "TSLA": {"t212": "TSLA_US_EQ", "market": "US", "qty": 1.0},
+    "MSFT": {"t212": "MSFT_US_EQ", "market": "US", "qty": 1.0},
+    "AMZN": {"t212": "AMZN_US_EQ", "market": "US", "qty": 1.0},
+    "META": {"t212": "META_US_EQ", "market": "US", "qty": 1.0}
 }
+
+def is_market_open(market_code: str) -> bool:
+    """Checks if a specific market is currently open based on UTC time."""
+    now = datetime.utcnow()
+    if now.weekday() >= 5: return False # Markets closed on weekends
+    
+    time_decimal = now.hour + (now.minute / 60.0)
+    
+    if market_code == "UK":
+        # London Stock Exchange: 07:00 to 15:30 UTC
+        return 7.0 <= time_decimal < 15.5
+    elif market_code == "US":
+        # NYSE / NASDAQ: 13:30 to 20:00 UTC
+        return 13.5 <= time_decimal < 20.0
+    return False
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -56,8 +77,6 @@ def execute_live_order(exact_ticker: str, quantity: float):
     payload = {"ticker": exact_ticker, "quantity": quantity}
     side = "BUY" if quantity > 0 else "SELL"
     
-    log_activity(f"AI Dispatched {side} order for {exact_ticker} (Qty: {abs(quantity)})", "info")
-    
     try:
         res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=get_t212_auth_headers(), timeout=15)
         if res.status_code in [200, 201]:
@@ -71,44 +90,41 @@ def execute_live_order(exact_ticker: str, quantity: float):
             return {"status": "SUCCESS", "detail": status}
         else:
             log_activity(f"Order Rejected [{res.status_code}]: {res.text}", "error")
-            return {"status": "REJECTED", "detail": res.text}
+            return {"status": "REJECTED"}
     except Exception as e:
         log_activity(f"Order Exception: {str(e)}", "error")
-        return {"status": "EXCEPTION", "detail": str(e)}
+        return {"status": "EXCEPTION"}
 
 def fetch_live_data():
     global CACHED_PORTFOLIO, CACHED_ACCOUNT
     if not T212_API_KEY: return
     headers = get_t212_auth_headers()
     
-    # 1. Fetch exact cash and total equity directly from broker (No manual addition needed)
     try:
         res_cash = requests.get(f"{T212_BASE_URL}/account/cash", headers=headers, timeout=10)
-        if res_cash.status_code == 200:
-            CACHED_ACCOUNT = res_cash.json()
+        if res_cash.status_code == 200: CACHED_ACCOUNT = res_cash.json()
     except Exception: pass
     
-    # 2. Fetch live portfolio positions
     try:
         res_port = requests.get(f"{T212_BASE_URL}/portfolio", headers=headers, timeout=10)
-        if res_port.status_code == 200:
-            CACHED_PORTFOLIO = res_port.json()
+        if res_port.status_code == 200: CACHED_PORTFOLIO = res_port.json()
     except Exception: pass
 
 async def autonomous_ai_brain():
     await asyncio.sleep(2)
     
+    # 1. Sync valid tickers from T212
     try:
         res = requests.get(f"{T212_BASE_URL}/metadata/instruments", headers=get_t212_auth_headers(), timeout=15)
         if res.status_code == 200:
             for inst in res.json():
-                if inst.get("shortName") and inst.get("ticker"):
-                    TICKER_MAP[inst["shortName"].upper()] = inst["ticker"]
-            log_activity(f"Successfully mapped {len(TICKER_MAP)} official tickers.", "success")
+                if inst.get("ticker"):
+                    VALID_T212_TICKERS.add(inst["ticker"])
+            log_activity(f"Synced {len(VALID_T212_TICKERS)} official instrument codes.", "success")
     except Exception: pass
 
     await asyncio.sleep(3)
-    log_activity("HFT Brain Online: Commencing rapid buy/sell cycles...", "success")
+    log_activity("HFT Global Brain Online: Scanning actively open markets...", "success")
     
     while True:
         try:
@@ -134,28 +150,36 @@ async def autonomous_ai_brain():
                 await asyncio.sleep(5)
                 continue 
                 
-            # --- PHASE 2: EVALUATE BUYS ---
-            for yf_ticker, short_name in MARKET_UNIVERSE.items():
-                exact_ticker = TICKER_MAP.get(short_name)
+            # --- PHASE 2: EVALUATE BUYS ACROSS OPEN MARKETS ---
+            for yf_ticker, info in MARKET_UNIVERSE.items():
+                market_code = info["market"]
+                t212_ticker = info["t212"]
                 
-                if not exact_ticker or exact_ticker in owned_tickers:
+                # Check 1: Is this specific market exchange currently open?
+                if not is_market_open(market_code):
+                    continue
+                    
+                # Check 2: Did the API confirm this ticker exists?
+                if t212_ticker not in VALID_T212_TICKERS:
+                    continue
+                
+                # Check 3: Do we already own it or did we just buy it?
+                if t212_ticker in owned_tickers or (time.time() - AI_COOLDOWN_MEMORY.get(t212_ticker, 0) < 60):
                     continue 
                 
+                # Check 4: Momentum Analysis
                 data = yf.download(yf_ticker, period="1d", interval="1m", progress=False)
                 
                 if not data.empty and len(data) >= 3:
-                    # FIX: Force extraction into pure Python floats to prevent numpy format crash
                     closes = [float(x) for x in data['Close'].values.flatten()]
-                    
-                    current_price = closes[-1]
                     recent_avg = sum(closes[-2:]) / 2.0
                     older_avg = sum(closes[-4:-2]) / 2.0 if len(closes) >= 4 else closes[0]
                     momentum = ((recent_avg - older_avg) / older_avg) * 100.0
                     
                     if momentum > 0.005: 
                         log_activity(f"🚀 RAPID MOMENTUM on {yf_ticker} ({momentum:+.3f}%). Executing BUY...", "success")
-                        qty = 25.0 if "GB_EQ" in exact_ticker or "UK" in exact_ticker or "L_EQ" in exact_ticker else 1.0
-                        execute_live_order(exact_ticker, qty)
+                        execute_live_order(t212_ticker, info["qty"])
+                        AI_COOLDOWN_MEMORY[t212_ticker] = time.time()
                         action_taken = True
                         break 
                 
@@ -176,14 +200,15 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    exact_ticker = TICKER_MAP.get("BARC")
-    if not exact_ticker: return {"status": "ERROR"}
-    return execute_live_order(exact_ticker, 10.0)
+    if is_market_open("UK"):
+        return execute_live_order("BARC_l_EQ", 10.0)
+    elif is_market_open("US"):
+        return execute_live_order("AAPL_US_EQ", 1.0)
+    return {"status": "ERROR", "detail": "Both UK and US markets are closed."}
 
 @app.api_route("/api/dashboard_data", methods=["GET"])
 def get_dashboard_data():
     fetch_live_data()
-    # Pull exact values directly from broker response, no manual equity addition
     total_equity = float(CACHED_ACCOUNT.get("total", 50000.00))
     cash_balance = float(CACHED_ACCOUNT.get("free", 50000.00))
     
@@ -191,7 +216,11 @@ def get_dashboard_data():
         "total_equity": total_equity,
         "cash_balance": cash_balance,
         "portfolio": CACHED_PORTFOLIO,
-        "system_logs": SYSTEM_LOGS[:15]
+        "system_logs": SYSTEM_LOGS[:15],
+        "markets": {
+            "UK": is_market_open("UK"),
+            "US": is_market_open("US")
+        }
     }
 
 @app.get("/", response_class=HTMLResponse)
@@ -223,18 +252,21 @@ def read_root():
         .log-success { color: #34d399; font-weight: bold; }
         .log-error { color: #f87171; font-weight: bold; }
         .log-warning { color: #facc15; font-weight: bold; }
-        .btn { background: #38bdf8; color: #0b0f19; font-weight: bold; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn { background: #38bdf8; color: #0b0f19; font-weight: bold; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-right: 15px; }
         .btn:hover { background: #0ea5e9; }
+        .market-status { display: flex; gap: 15px; padding: 8px 12px; background: #1f2937; border-radius: 6px; border: 1px solid #374151;}
+        .market-indicator { font-size: 12px; font-weight: bold; display: flex; align-items: center; gap: 5px; }
+        .dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>PRV HFT Autonomous AI Engine</h1>
-        <div style="text-align: right; display: flex; align-items: center; gap: 15px;">
-            <button class="btn" onclick="triggerTrade()">Force Verified Trade (BARC)</button>
-            <div>
-                <div style="color: #94a3b8; font-size: 12px;">SYSTEM STATUS</div>
-                <div style="color: #34d399; font-weight: bold; font-size: 14px;">● HIGH-FREQUENCY HFT ACTIVE</div>
+        <div style="display: flex; align-items: center;">
+            <button class="btn" onclick="triggerTrade()">Force Open Market Trade</button>
+            <div class="market-status">
+                <div class="market-indicator" id="ukStatus"><span class="dot" style="background: #6b7280;"></span> UK: LSE</div>
+                <div class="market-indicator" id="usStatus"><span class="dot" style="background: #6b7280;"></span> US: NYSE</div>
             </div>
         </div>
     </div>
@@ -247,8 +279,8 @@ def read_root():
         </div>
 
         <div class="card">
-            <h2>AI HFT Execution Logs</h2>
-            <div class="log-box" id="logStream">Initializing connection...</div>
+            <h2>AI Global Execution Logs</h2>
+            <div class="log-box" id="logStream">Initializing market routing...</div>
         </div>
 
         <div class="card full-width">
@@ -264,7 +296,7 @@ def read_root():
                     </tr>
                 </thead>
                 <tbody id="portfolioTable">
-                    <tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 30px;">HFT Scanner starting. Awaiting targets...</td></tr>
+                    <tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 30px;">HFT Scanner starting. Awaiting targets on open markets...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -286,6 +318,16 @@ def read_root():
                 document.getElementById('totalEquity').innerText = '£' + data.total_equity.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 document.getElementById('cashBal').innerText = '£' + data.cash_balance.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 
+                // Update Market Hours Indicators
+                const ukOpen = data.markets.UK;
+                const usOpen = data.markets.US;
+                
+                document.getElementById('ukStatus').innerHTML = `<span class="dot" style="background: ${ukOpen ? '#34d399' : '#f87171'};"></span> UK: ${ukOpen ? 'OPEN' : 'CLOSED'}`;
+                document.getElementById('ukStatus').style.color = ukOpen ? '#34d399' : '#94a3b8';
+                
+                document.getElementById('usStatus').innerHTML = `<span class="dot" style="background: ${usOpen ? '#34d399' : '#f87171'};"></span> US: ${usOpen ? 'OPEN' : 'CLOSED'}`;
+                document.getElementById('usStatus').style.color = usOpen ? '#34d399' : '#94a3b8';
+
                 const logHtml = data.system_logs.map(log => {
                     let colorClass = log.level === 'success' ? 'log-success' : (log.level === 'error' ? 'log-error' : (log.level === 'warning' ? 'log-warning' : 'log-info'));
                     return `<div class="log-entry"><span class="log-time">[${log.time}]</span><span class="${colorClass}">${log.msg}</span></div>`;
@@ -300,10 +342,11 @@ def read_root():
                         const retPct = ((cur - avg) / avg) * 100;
                         const retClass = retPct >= 0 ? 'pos' : 'neg';
                         const retSign = retPct >= 0 ? '+' : '';
+                        const cleanTicker = pos.ticker.replace('_l_EQ', '').replace('_US_EQ', '');
                         
                         return `
                         <tr>
-                            <td style="font-weight: bold;">${pos.ticker.replace('_EQ', '').replace('_', '.')}</td>
+                            <td style="font-weight: bold;">${cleanTicker}</td>
                             <td>${pos.quantity}</td>
                             <td>${pos.averagePrice.toFixed(4)}</td>
                             <td>${pos.currentPrice.toFixed(4)}</td>
@@ -312,7 +355,7 @@ def read_root():
                         `;
                     }).join('');
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 20px;">No active positions. AI is hunting for the right entry point.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 20px;">No active positions. Scanning open markets for entry point...</td></tr>';
                 }
             } catch(e) {}
         }
@@ -322,4 +365,3 @@ def read_root():
     </script>
 </body>
 </html>
-"""
