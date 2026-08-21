@@ -1,162 +1,112 @@
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
-import asyncio
-from datetime import datetime, timezone
 import os
-import requests
-import base64
-import warnings
+import asyncio
+from datetime import datetime, timezone, time as dtime
 from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
-warnings.filterwarnings("ignore")
+load_dotenv()
 
-app = FastAPI()
+# Load credentials from any environment variable standard
+os.environ["TRADING212_API_KEY"] = os.getenv("TRADING212_API_KEY") or os.getenv("T212_API_KEY", "")
+os.environ["TRADING212_API_SECRET"] = os.getenv("TRADING212_API_SECRET") or os.getenv("T212_API_SECRET", "")
 
-SYSTEM_LOGS = []
-LIVE_COMMENTARY = "PRV Capital: Core Engine Active."
+from src.config.settings import settings
+from src.core.engine import quant_engine
+from src.portfolio.capital_manager import capital_manager
+from src.brokers.trading212 import broker
+from src.database.db import db
+from src.risk.risk_engine import risk_engine
 
-STARTING_CAPITAL = 50000.00
-MAX_DAILY_LOSS_PCT = 0.05
-FX_ROUNDTRIP_FEE_PCT = 0.30
+def is_uk_market_open() -> bool:
+    now_utc = datetime.now(timezone.utc)
+    if now_utc.weekday() >= 5:  # Saturday/Sunday
+        return False
+    # LSE open: 08:00 - 16:30 London (UTC in winter / UTC+1 in summer)
+    current_time = now_utc.time()
+    return dtime(8, 0) <= current_time <= dtime(16, 30)
 
-CACHED_PORTFOLIO = []
-CACHED_ACCOUNT = {"total": STARTING_CAPITAL, "free": STARTING_CAPITAL}
-BANKED_PROFITS = 0.00
-TRADING_HALTED = False
-
-# Core liquid blue-chip pool
-CORE_POOL = [
-    "AAPL_US_EQ", "MSFT_US_EQ", "NVDA_US_EQ", "AMZN_US_EQ", "GOOGL_US_EQ",
-    "TSLA_US_EQ", "VUKGl_EQ", "SHELl_EQ", "AZNl_EQ", "HSBA_EQ"
-]
-
-def log_activity(message: str, level: str = "info"):
-    global LIVE_COMMENTARY
-    raw_time = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-    entry = {"time": raw_time, "msg": message, "level": level}
-    SYSTEM_LOGS.insert(0, entry)
-    if len(SYSTEM_LOGS) > 100: SYSTEM_LOGS.pop()
-    LIVE_COMMENTARY = f"[{raw_time}] {message}"
-    print(f"[{level.upper()}] {raw_time} - {message}")
-
-T212_API_KEY = os.getenv("T212_API_KEY", "").strip()
-T212_API_SECRET = os.getenv("T212_API_SECRET", "").strip()
-T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/equity")
-
-def get_auth_headers():
-    raw_creds = f"{T212_API_KEY}:{T212_API_SECRET}"
-    encoded = base64.b64encode(raw_creds.encode('utf-8')).decode('utf-8')
-    return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
-
-def execute_order(ticker: str, quantity: float) -> bool:
-    payload = {"ticker": ticker, "quantity": quantity}
-    side = "BUY" if quantity > 0 else "SELL"
-    try:
-        res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=get_auth_headers(), timeout=10)
-        if res.status_code in [200, 201]:
-            log_activity(f"ORDER FILLED: {side} {ticker} (Qty: {abs(quantity):.2f})", "success")
-            return True
-        else:
-            err_text = res.text
-            if "Max position" not in err_text and "insufficient" not in err_text.lower():
-                log_activity(f"ORDER REJECTED ({ticker}): {err_text}", "warning")
-    except Exception as e:
-        log_activity(f"API EXCEPTION ({ticker}): {str(e)}", "error")
-    return False
-
-def sync_state():
-    global CACHED_PORTFOLIO, CACHED_ACCOUNT, BANKED_PROFITS, TRADING_HALTED
-    if not T212_API_KEY: return
-    headers = get_auth_headers()
-    try:
-        res_cash = requests.get(f"{T212_BASE_URL}/account/cash", headers=headers, timeout=10)
-        if res_cash.status_code == 200:
-            CACHED_ACCOUNT = res_cash.json()
-            total_eq = float(CACHED_ACCOUNT.get("total", STARTING_CAPITAL))
-            
-            # 5% Daily Loss Kill Switch
-            if (STARTING_CAPITAL - total_eq) >= (STARTING_CAPITAL * MAX_DAILY_LOSS_PCT):
-                if not TRADING_HALTED:
-                    log_activity("CRITICAL: 5% Daily Loss Limit Reached. Trading HALTED.", "error")
-                TRADING_HALTED = True
-            
-            # Profit Vaulting
-            if total_eq > STARTING_CAPITAL:
-                BANKED_PROFITS = total_eq - STARTING_CAPITAL
-            else:
-                BANKED_PROFITS = 0.00
-
-        res_port = requests.get(f"{T212_BASE_URL}/portfolio", headers=headers, timeout=10)
-        if res_port.status_code == 200:
-            CACHED_PORTFOLIO = res_port.json()
-    except Exception as e:
-        log_activity(f"State sync error: {str(e)}", "error")
-
-async def trading_loop():
-    await asyncio.sleep(2)
-    log_activity("PRV Capital Engine Online.", "success")
-    
-    while True:
-        sync_state()
-        
-        if TRADING_HALTED:
-            await asyncio.sleep(30)
-            continue
-
-        owned = {p.get("ticker"): p for p in CACHED_PORTFOLIO}
-        free_cash = float(CACHED_ACCOUNT.get("free", STARTING_CAPITAL))
-        deployable_cash = max(0.0, free_cash - BANKED_PROFITS)
-
-        # Capital Deployment: If cash is sitting idle, methodically scale into the core pool
-        if deployable_cash > 2000.0:
-            for target in CORE_POOL:
-                if target not in owned:
-                    log_activity(f"Deploying capital into {target}...", "info")
-                    success = execute_order(target, 1.0)
-                    if success:
-                        break
-                    await asyncio.sleep(1)
-
-        # Position Management (Take Profit & Stop Loss)
-        for pos in CACHED_PORTFOLIO:
-            ticker = pos.get("ticker")
-            cur = float(pos.get("currentPrice", 0))
-            avg = float(pos.get("averagePrice", 0))
-            qty = float(pos.get("quantity", 0))
-            
-            if cur > 0 and avg > 0:
-                gross_ret = ((cur - avg) / avg) * 100.0
-                net_ret = gross_ret - FX_ROUNDTRIP_FEE_PCT
-                
-                if net_ret >= 0.50:
-                    log_activity(f"TAKE PROFIT: {ticker} (+{net_ret:.2f}% net). Vaulting gains.", "success")
-                    execute_order(ticker, -qty)
-                elif gross_ret <= -1.50:
-                    log_activity(f"STOP LOSS: {ticker} ({gross_ret:.2f}%).", "warning")
-                    execute_order(ticker, -qty)
-
-        await asyncio.sleep(15)
+def is_us_market_open() -> bool:
+    now_utc = datetime.now(timezone.utc)
+    if now_utc.weekday() >= 5:  # Saturday/Sunday
+        return False
+    # NYSE/NASDAQ open: 14:30 - 21:00 UTC
+    current_time = now_utc.time()
+    return dtime(14, 30) <= current_time <= dtime(21, 0)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(trading_loop())
+    # Start the autonomous quant engine in the background
+    quant_engine.start()
     yield
-    task.cancel()
+    quant_engine.stop()
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="PRV Capital Autonomous AI Trading Floor",
+    lifespan=lifespan
+)
 
-@app.api_route("/api/dashboard_data", methods=["GET"])
-def get_dashboard_data():
-    sync_state()
-    return {
-        "total_equity": float(CACHED_ACCOUNT.get("total", STARTING_CAPITAL)),
-        "cash_balance": float(CACHED_ACCOUNT.get("free", STARTING_CAPITAL)),
-        "banked_profits": BANKED_PROFITS,
-        "portfolio": CACHED_PORTFOLIO,
-        "system_logs": SYSTEM_LOGS[:15],
-        "trading_halted": TRADING_HALTED
-    }
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def read_root():
     return FileResponse("index.html")
+
+@app.get("/api/dashboard_data")
+def get_dashboard_data():
+    account = broker.get_account_summary()
+    positions = broker.get_open_positions()
+    
+    total_equity = account.get("total_value", settings.STARTING_CAPITAL) if account.get("success") else settings.STARTING_CAPITAL
+    available_cash = account.get("available_cash", settings.STARTING_CAPITAL) if account.get("success") else settings.STARTING_CAPITAL
+    invested = account.get("invested", 0.0) if account.get("success") else 0.0
+    
+    cap_state = capital_manager.get_capital_state(total_equity, invested, available_cash)
+    
+    # Audit logs for UI stream
+    audit_records = db.get_audit_logs(limit=25)
+    formatted_logs = []
+    for log in audit_records:
+        ts = log.get("timestamp", "")
+        time_part = ts.split(" ")[-1] if " " in ts else ts
+        evt = log.get("event_type", "INFO")
+        sym = log.get("symbol", "")
+        reason = log.get("trade_reason", "")
+        
+        level = "success" if "BUY" in evt or "PROFIT" in evt else ("error" if "VETO" in evt or "CIRCUIT" in evt else ("warning" if "SELL" in evt else "info"))
+        msg = f"{evt} ({sym}): {reason}" if sym else f"{evt}: {reason}"
+        formatted_logs.append({"time": time_part, "msg": msg, "level": level})
+
+    if not formatted_logs:
+        now_time = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        formatted_logs.append({"time": now_time, "msg": "PRV Quantitative Engine active. Scanning top 500 UK & US universe.", "level": "info"})
+
+    return {
+        "total_equity": cap_state["total_broker_nav"],
+        "cash_balance": cap_state["idle_core_cash"],
+        "banked_profits": cap_state["profit_vault_balance"],
+        "core_capital": cap_state["core_capital"],
+        "active_capital": cap_state["active_capital"],
+        "capital_utilization": cap_state["capital_utilization_pct"],
+        "portfolio": positions,
+        "system_logs": formatted_logs,
+        "markets": {
+            "UK": is_uk_market_open(),
+            "US": is_us_market_open()
+        },
+        "trading_halted": risk_engine.circuit_breaker_tripped,
+        "engine_active": quant_engine.is_running
+    }
+
+@app.api_route("/api/trigger-trade", methods=["GET", "POST"])
+def trigger_trade():
+    res = quant_engine.run_cycle()
+    return JSONResponse(content={"status": "executed", "result": res})
