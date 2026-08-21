@@ -1,16 +1,13 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-import yfinance as yf
-from db_manager import db
 import asyncio
 from datetime import datetime
 import os
 import requests
-import base64
 from contextlib import asynccontextmanager
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Connecting to T212 with correct schema..."
+LIVE_COMMENTARY = "AI Trading Floor: Initializing direct token connection..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -22,12 +19,11 @@ def log_activity(message: str, level: str = "info"):
     print(f"[{level.upper()}] {timestamp} - {message}")
 
 T212_API_KEY = os.getenv("T212_API_KEY", "").strip()
-T212_API_SECRET = os.getenv("T212_API_SECRET", "").strip()
 T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/equity")
 
 def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
-    if not T212_API_KEY or not T212_API_SECRET:
-        log_activity("T212 Error: Missing API Key or Secret.", "error")
+    if not T212_API_KEY:
+        log_activity("T212 Error: T212_API_KEY is missing.", "error")
         return "MISSING CREDS"
     
     clean_ticker = ticker.upper().strip().replace(".", "-")
@@ -36,20 +32,16 @@ def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
 
     final_qty = float(abs(quantity)) if side == "BUY" else float(-abs(quantity))
 
-    creds = f"{T212_API_KEY}:{T212_API_SECRET}"
-    encoded = base64.b64encode(creds.encode('utf-8')).decode('utf-8').strip()
-    
+    # Single-token authorization header (used when generated directly from T212 settings)
     headers = {
-        "Authorization": f"Basic {encoded}",
+        "Authorization": T212_API_KEY,
         "Content-Type": "application/json"
     }
     
-    # Official Trading 212 Market Order schema uses timeInForce instead of timeValidity
     payload = {
         "quantity": final_qty,
         "ticker": clean_ticker,
-        "timeInForce": "DAY",
-        "extendedHours": True
+        "timeInForce": "DAY"
     }
     
     url = f"{T212_BASE_URL}/orders/market"
