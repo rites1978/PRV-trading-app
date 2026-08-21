@@ -6,13 +6,13 @@ import asyncio
 from datetime import datetime
 import os
 import requests
-from requests.auth import HTTPBasicAuth
+import base64
 import random
 
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Recalibrating cash-equity ledgers and correcting portfolio accounting..."
+LIVE_COMMENTARY = "AI Trading Floor: Secure connection established with Trading 212 Practice API..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -29,22 +29,41 @@ T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/e
 
 def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET"):
     if not T212_API_KEY or not T212_API_SECRET or "your_key" in T212_API_KEY:
-        log_activity(f"Trading 212 [Paper Stream]: Simulated execution of {quantity}x {ticker}.", "warning")
+        log_activity(f"T212 [Paper Sandbox]: Simulated fill for {quantity}x {ticker}.", "warning")
         return "SIMULATED FILL"
     
-    auth = HTTPBasicAuth(T212_API_KEY, T212_API_SECRET)
-    payload = {"quantity": float(quantity), "ticker": ticker.upper().strip(), "type": order_type}
+    # Format Trading 212 specific equity ticker (e.g. AAPL -> AAPL_US_EQ)
+    clean_ticker = ticker.upper().strip().replace(".", "-")
+    if "_" not in clean_ticker:
+        clean_ticker = f"{clean_ticker}_US_EQ"
+
+    # Base64 encode API Key and Secret for Trading 212 API Header
+    credentials_string = f"{T212_API_KEY}:{T212_API_SECRET}"
+    encoded_creds = base64.b64encode(credentials_string.encode('utf-8')).decode('utf-8')
+    
+    headers = {
+        "Authorization": f"Basic {encoded_creds}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "quantity": float(quantity),
+        "ticker": clean_ticker,
+        "targetValue": None,
+        "type": order_type
+    }
+    
     try:
-        res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, auth=auth, timeout=10)
+        res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=headers, timeout=10)
         if res.status_code in [200, 201]:
-            log_activity(f"Trading 212 Broker: LIVE ORDER EXECUTED for {ticker}!", "success")
+            log_activity(f"🚀 T212 PRACTICE API: SUCCESS! Order placed for {clean_ticker}", "success")
             return "LIVE EXECUTED"
         else:
-            log_activity(f"Trading 212 Auth Refused. Using Virtual Fill.", "warning")
-            return "SIMULATED FILL"
-    except Exception:
-        log_activity(f"Broker connection timeout. Virtual Fill for {ticker}.", "warning")
-        return "SIMULATED FILL"
+            log_activity(f"T212 API Refused [{res.status_code}]: {res.text}", "error")
+            return "API REJECTED"
+    except Exception as e:
+        log_activity(f"T212 Connection Exception: {str(e)}", "error")
+        return "API ERROR"
 
 def get_broad_market_universe():
     return [
@@ -54,7 +73,7 @@ def get_broad_market_universe():
 
 async def market_scouring_agent():
     while True:
-        log_activity("Market Floor: Scanning liquid equities for momentum breakouts...", "info")
+        log_activity("Market Floor: Scanning liquid equities for live execution setups...", "info")
         universe = get_broad_market_universe()
         
         trades_fired = 0
@@ -71,7 +90,7 @@ async def market_scouring_agent():
                     if pct_change <= -1.8 or pct_change >= 2.0:
                         trades_fired += 1
                         side = "BUY" if pct_change <= -1.8 else "SELL"
-                        shares = round(500.0 / current_price, 2)
+                        shares = round(100.0 / current_price, 2) # Controlled position size for testing
                         
                         execution_status = execute_t212_order(ticker, shares, "MARKET")
                         
@@ -83,16 +102,16 @@ async def market_scouring_agent():
                             "status": execution_status
                         }).execute()
                         
-                        log_activity(f"⚡ TICKET FIRED: {side} {shares}x {ticker} @ £{current_price:,.2f} [{execution_status}]", "success")
+                        log_activity(f"⚡ AGENT ACTION: {side} {shares}x {ticker} @ £{current_price:,.2f} [{execution_status}]", "success")
             except Exception:
                 continue
                 
-        log_activity(f"Market Floor: Scan cycle complete. Processed {trades_fired} active trades.", "info")
+        log_activity(f"Market Floor: Scan complete. Processed {trades_fired} active tickets.", "info")
         await asyncio.sleep(120)
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Trading Desk online with accurate cash-equity ledger.", "success")
+    log_activity("PRV Trading Desk online with Trading 212 API linkage.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_trades_from_db():
@@ -132,7 +151,6 @@ def get_live_valuation():
             
         position_val = shares * live_price
         current_market_value += position_val
-        
         allocations_map[ticker] = allocations_map.get(ticker, 0.0) + position_val
         
         pnl_change = (live_price - prev_close) * shares
@@ -140,13 +158,8 @@ def get_live_valuation():
             pnl_change = -pnl_change
         total_24h_pnl += pnl_change
         
-    # CORRECT ACCOUNTING: Remaining Cash = Baseline - Cash spent on trades
     remaining_cash = baseline_capital - total_cost_basis
-    
-    # Total Portfolio Valuation = Cash + Current Market Value of Open Positions
     total_val = remaining_cash + current_market_value
-    
-    # Total Profit/Loss = Total Valuation - Baseline Capital
     total_pnl = total_val - baseline_capital
     return_pct = (total_pnl / baseline_capital) * 100
 
@@ -255,7 +268,7 @@ HTML_TEMPLATE = """
     <div class="container">
         <div class="commentary-ticker">
             <span class="ticker-dot"></span>
-            <span id="liveCommentary">Connecting to institutional execution feed...</span>
+            <span id="liveCommentary">Connecting to Trading 212 API gateway...</span>
         </div>
 
         <div class="header-container">
@@ -309,7 +322,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent continuously processes real-time feeds with strict cash-equity ledger balancing.
+                    The autonomous agent communicates securely via Base64 Basic Auth directly with your Trading 212 Practice API endpoint.
                 </div>
             </div>
         </div>
