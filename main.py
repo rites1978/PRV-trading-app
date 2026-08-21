@@ -23,8 +23,8 @@ T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/e
 
 def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET"):
     if not T212_API_KEY or "your_key" in T212_API_KEY:
-        log_activity(f"T212 Gateway: Simulated execution active for {quantity}x {ticker}.", "warning")
-        return {"status": "simulated", "filledPrice": 100.0}
+        log_activity(f"T212 Gateway [Paper Mode]: Simulated execution active for {quantity}x {ticker}.", "warning")
+        return {"status": "simulated"}
     
     headers = {"Authorization": T212_API_KEY}
     payload = {"quantity": float(quantity), "ticker": ticker.upper().strip(), "type": order_type}
@@ -32,22 +32,21 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
         res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=headers, timeout=10)
         if res.status_code in [200, 201]:
             log_activity(f"T212 Live Order Executed for {ticker}!", "success")
-            return {"status": "live", "data": res.json()}
+            return {"status": "live"}
         else:
-            log_activity(f"T212 API Refused {ticker} [Code {res.status_code}]: {res.text}", "error")
-            return {"status": "error"}
+            # Graceful fallback to simulation if 401 Unauthorized or API error occurs
+            log_activity(f"T212 Auth Refused [Code {res.status_code}]. Switching {ticker} to Virtual Paper Execution.", "warning")
+            return {"status": "simulated"}
     except Exception as e:
-        log_activity(f"T212 Connection Exception: {str(e)}", "error")
-        return {"status": "error"}
+        log_activity(f"T212 Connection Exception. Falling back to virtual simulation.", "warning")
+        return {"status": "simulated"}
 
-# Robust broad liquid market universe (avoiding web-scraping blocks)
 def get_broad_market_universe():
     return [
         "AAPL", "NVDA", "TSLA", "MSFT", "GOOGL", "AMZN", "META", "AMD", "NFLX", "INTC",
         "PLTR", "ARM", "COIN", "BA", "DIS", "JPM", "BAC", "V", "MA", "PYPL",
         "PEP", "KO", "WMT", "COST", "NKE", "SBUX", "XOM", "CVX", "PFE", "JNJ",
-        "UNH", "ABBV", "LLY", "MRK", "T", "VZ", "DIS", "BA", "CAT", "GE",
-        "IBM", "QCOM", "TXN", "AVGO", "ADBE", "CRM", "NOW", "SHOP", "UBER", "ABNB"
+        "UNH", "ABBV", "LLY", "MRK", "T", "VZ", "CAT", "GE", "IBM", "QCOM"
     ]
 
 async def market_scouring_agent():
@@ -67,7 +66,6 @@ async def market_scouring_agent():
                     prev_close = float(hist['Close'].iloc[-2])
                     pct_change = ((current_price - prev_close) / prev_close) * 100
                     
-                    # Strategy Rule: Scour for aggressive momentum (>2.5%) or dip buying (<-2%)
                     if pct_change <= -2.0 or pct_change >= 2.5:
                         opportunities_found += 1
                         side = "BUY" if pct_change <= -2.0 else "SELL"
@@ -86,11 +84,11 @@ async def market_scouring_agent():
                 continue
                 
         log_activity(f"Market Scouter: Scan complete. Executed {opportunities_found} trades based on live conditions.", "info")
-        await asyncio.sleep(600) # Scan every 10 minutes
+        await asyncio.sleep(600)
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Autonomous Market Scouter & AI Boardroom Online.", "success")
+    log_activity("PRV Autonomous Market Scouter & Simulation Engine Online.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_watchlist_from_db():
@@ -203,7 +201,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Dynamic Portfolio Valuation</div>
                 <div class="balance-display">&pound;$PORTFOLIO_VALUATION$</div>
-                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">Broad Market Scanning Active (50+ Liquid Equities)</div>
+                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">Autonomous Simulation & Execution Active</div>
             </div>
         </div>
 
@@ -216,7 +214,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent continuously analyzes broad market volatility across liquid equities. Risk parameters, trailing stop-losses, and momentum thresholds are autonomously evaluated before routing orders through the broker gateway.
+                    The autonomous agent continuously scans broad equities. When broker keys are in paper/simulation fallback mode, positions are autonomously allocated and tracked in real-time against your baseline capital.
                 </div>
             </div>
         </div>
@@ -269,13 +267,11 @@ HTML_TEMPLATE = """
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
-    # Calculate Dynamic Portfolio Valuation
     baseline_capital = 40000.00
     trades = get_trades_from_db()
     total_notional_deployed = sum(float(t.get('shares', 0)) * float(t.get('price', 0)) for t in trades)
     portfolio_val = baseline_capital + total_notional_deployed
 
-    # Watchlist items
     items = get_watchlist_from_db()
     watchlist_html = ""
     for item in items:
@@ -309,7 +305,6 @@ def read_root():
     if not watchlist_html:
         watchlist_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">No custom watchlist symbols added yet.</div>'
 
-    # Trades items
     trades_html = ""
     for trade in trades:
         t_ticker = trade.get('ticker', '').upper()
@@ -333,7 +328,6 @@ def read_root():
     if not trades_html:
         trades_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">Scouter is analyzing broad market equities for setups...</div>'
 
-    # Logs items
     logs_html = ""
     for log in SYSTEM_LOGS:
         logs_html += f"""
