@@ -4,11 +4,10 @@ import asyncio
 from datetime import datetime
 import os
 import requests
-import base64
 from contextlib import asynccontextmanager
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Authenticating with T212 via Basic Auth (Key:Secret)..."
+LIVE_COMMENTARY = "AI Trading Floor: Testing account connectivity..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -20,51 +19,31 @@ def log_activity(message: str, level: str = "info"):
     print(f"[{level.upper()}] {timestamp} - {message}")
 
 T212_API_KEY = os.getenv("T212_API_KEY", "").strip()
-T212_API_SECRET = os.getenv("T212_API_SECRET", "").strip()
 T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/equity")
 
-def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
-    if not T212_API_KEY or not T212_API_SECRET:
-        log_activity("T212 Error: Missing API Key or Secret environment variables.", "error")
-        return 401
-    
-    clean_ticker = ticker.upper().strip().replace(".", "-")
-    if "_" not in clean_ticker:
-        clean_ticker = f"{clean_ticker}_US_EQ"
-
-    final_qty = float(abs(quantity)) if side == "BUY" else float(-abs(quantity))
-
-    # Correct HTTP Basic Authentication encoding
-    creds = f"{T212_API_KEY}:{T212_API_SECRET}"
-    encoded = base64.b64encode(creds.encode('utf-8')).decode('utf-8').strip()
+def test_t212_connection():
+    if not T212_API_KEY:
+        log_activity("T212 Error: T212_API_KEY environment variable is missing.", "error")
+        return
     
     headers = {
-        "Authorization": f"Basic {encoded}",
+        "Authorization": T212_API_KEY,
         "Content-Type": "application/json"
     }
     
-    payload = {
-        "quantity": final_qty,
-        "ticker": clean_ticker,
-        "timeInForce": "DAY"
-    }
-    
-    url = f"{T212_BASE_URL}/orders/market"
-    log_activity(f"Sending Basic Auth MARKET order for {clean_ticker} (Qty: {final_qty})", "info")
+    url = f"{T212_BASE_URL}/account/info"
+    log_activity(f"Testing GET request to {url}", "info")
     
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=15)
-        log_activity(f"T212 Response [{res.status_code}]: {res.text}", "success" if res.status_code < 300 else "warning")
-        return res.status_code
+        res = requests.get(url, headers=headers, timeout=15)
+        log_activity(f"T212 Account Info Response [{res.status_code}]: {res.text}", "success" if res.status_code == 200 else "error")
     except Exception as e:
-        log_activity(f"Exception: {str(e)}", "error")
-        return 0
+        log_activity(f"Connection Exception: {str(e)}", "error")
 
 async def market_scouring_agent():
     await asyncio.sleep(5)
     while True:
-        log_activity("Testing authenticated order placement against T212...", "info")
-        execute_t212_order("AAPL", 1.0, "BUY")
+        test_t212_connection()
         await asyncio.sleep(300)
 
 @asynccontextmanager
@@ -81,4 +60,4 @@ def get_live_valuation():
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
-    return f"<html><body style='background:#111;color:#fff;font-family:sans-serif;padding:40px;'><h1>T212 Diagnostic Console</h1><pre>{LIVE_COMMENTARY}</pre></body></html>"
+    return f"<html><body style='background:#111;color:#fff;font-family:sans-serif;padding:40px;'><h1>T212 Account Test</h1><pre>{LIVE_COMMENTARY}</pre></body></html>"
