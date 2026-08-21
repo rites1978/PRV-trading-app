@@ -5,20 +5,20 @@ from datetime import datetime, timezone
 import os
 import requests
 import base64
-from contextlib import asynccontextmanager
 import warnings
+from contextlib import asynccontextmanager
 warnings.filterwarnings("ignore")
 
 app = FastAPI()
 
 # --- SYSTEM CONFIGURATION & STATE ---
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "PRV Capital Engine: Initializing..."
+LIVE_COMMENTARY = "PRV Capital Engine: Dynamic Allocation Engine Online."
 
 STARTING_CAPITAL = 50000.00
-MAX_DAILY_LOSS_PCT = 0.05  # 5% Kill Switch
-MIN_CONFIDENCE = 0.80      # 80% Confidence Threshold
+MAX_DAILY_LOSS_PCT = 0.05
 FX_ROUNDTRIP_FEE_PCT = 0.30
+MAX_PORTFOLIO_EXPOSURE_PCT = 0.80  # Max 80% capital deployed at any time
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": STARTING_CAPITAL, "free": STARTING_CAPITAL}
@@ -26,7 +26,7 @@ BANKED_PROFITS = 0.00
 TRADING_HALTED = False
 PRICE_MEMORY = {}
 
-# Strict Top 500 US/UK Liquidity Pool
+# UK/US Liquidity Anchors
 APPROVED_UNIVERSE = [
     "VOO_US_EQ", "SPY_US_EQ", "QQQ_US_EQ", "AAPL_US_EQ", "MSFT_US_EQ",
     "NVDA_US_EQ", "AMZN_US_EQ", "FB_US_EQ", "GOOGL_US_EQ", "TSLA_US_EQ",
@@ -77,7 +77,7 @@ def sync_broker_state():
             CACHED_ACCOUNT = res_cash.json()
             total_eq = float(CACHED_ACCOUNT.get("total", STARTING_CAPITAL))
             
-            # Rule 5: 5% Daily Loss Kill Switch
+            # Risk Control: 5% Daily Loss Kill Switch
             max_allowed_loss = STARTING_CAPITAL * MAX_DAILY_LOSS_PCT
             current_drawdown = STARTING_CAPITAL - total_eq
             if current_drawdown >= max_allowed_loss:
@@ -85,7 +85,7 @@ def sync_broker_state():
                     log_activity(f"CRITICAL: 5% Loss Limit Reached. Trading HALTED. Drawdown: £{current_drawdown:.2f}", "error")
                 TRADING_HALTED = True
             
-            # Rule 2: Profit Vault
+            # Risk Control: Profit Vault
             if total_eq > STARTING_CAPITAL:
                 BANKED_PROFITS = total_eq - STARTING_CAPITAL
             else:
@@ -97,9 +97,32 @@ def sync_broker_state():
     except Exception as e:
         log_activity(f"State Sync Error: {str(e)}", "error")
 
+def calculate_dynamic_allocation(deployable_cash: float, current_exposure: float, alpha_edge: float) -> float:
+    """
+    Dynamically allocates capital based on edge strength.
+    Preserves 20% minimum cash at all times.
+    """
+    max_allowed_exposure = STARTING_CAPITAL * MAX_PORTFOLIO_EXPOSURE_PCT
+    available_allocation_headroom = max_allowed_exposure - current_exposure
+    
+    if available_allocation_headroom <= 0:
+        return 0.0
+
+    # Sizing matrix based on Alpha Edge magnitude
+    if alpha_edge > 0.50:
+        target_allocation = deployable_cash * 0.30  # Hyper-conviction: 30% of cash
+    elif alpha_edge > 0.25:
+        target_allocation = deployable_cash * 0.20  # Strong conviction: 20% of cash
+    elif alpha_edge > 0.10:
+        target_allocation = deployable_cash * 0.10  # Baseline edge: 10% of cash
+    else:
+        return 0.0
+        
+    return min(target_allocation, available_allocation_headroom)
+
 async def prv_quantitative_engine():
     await asyncio.sleep(2)
-    log_activity("PRV Capital Quantitative Engine Online. Enforcing Risk Mandates.", "success")
+    log_activity("PRV Capital Engine Online. Dynamic Allocation Matrix Active.", "success")
     
     while True:
         sync_broker_state()
@@ -111,18 +134,18 @@ async def prv_quantitative_engine():
         owned_tickers = {pos.get("ticker"): pos for pos in CACHED_PORTFOLIO} if CACHED_PORTFOLIO else {}
         
         raw_free_cash = float(CACHED_ACCOUNT.get("free", 0))
-        # Rule 2: Profit Vault funds can NEVER be reinvested
         deployable_cash = max(0.0, raw_free_cash - BANKED_PROFITS)
+        
+        current_total_exposure = sum([(float(pos.get("averagePrice", 0)) * float(pos.get("quantity", 0))) for pos in owned_tickers.values()])
 
-        # SEEDING FOR LIVE BID/ASK DATA
+        # SEEDING (Live Bid/Ask Matrix)
         if deployable_cash > 5000.0:
             for target in APPROVED_UNIVERSE:
                 if target not in owned_tickers:
                     execute_live_order(target, 0.05, "DATA PROBE")
-                    await asyncio.sleep(1)
-                    break # Seed one at a time to prevent API flooding
+                    await asyncio.sleep(0.5)
 
-        # COST-AWARE SCORING & EXECUTION
+        # DYNAMIC ALLOCATION & PROFIT HARVESTING
         trades_executed = 0
         for ticker, pos in owned_tickers.items():
             if ticker not in APPROVED_UNIVERSE: continue
@@ -135,48 +158,46 @@ async def prv_quantitative_engine():
             if cur_price > 0 and avg_price > 0:
                 if ticker not in PRICE_MEMORY: PRICE_MEMORY[ticker] = []
                 PRICE_MEMORY[ticker].append(cur_price)
-                if len(PRICE_MEMORY[ticker]) > 6: PRICE_MEMORY[ticker].pop(0)
+                # Expand memory to 30 ticks (5-minute rolling window at 10s intervals) to capture true trend
+                if len(PRICE_MEMORY[ticker]) > 30: PRICE_MEMORY[ticker].pop(0)
                 
-                # Rule 4: Cost Calculation
                 live_spread_pct = max(0.05, ((avg_price - cur_price) / avg_price) * 100.0)
                 total_friction_pct = live_spread_pct + FX_ROUNDTRIP_FEE_PCT
                 
-                # EVALUATE ENTRY (Confidence > 80%)
-                if invested < 50.0 and deployable_cash >= 5000.0 and len(PRICE_MEMORY[ticker]) >= 3:
+                # ENTRY LOGIC (5-minute window maturation)
+                if invested < 50.0 and len(PRICE_MEMORY[ticker]) >= 15:
                     oldest_price = PRICE_MEMORY[ticker][0]
                     momentum_pct = ((cur_price - oldest_price) / oldest_price) * 100.0
                     
-                    # Net Expected Return must be strongly positive
-                    net_expected_return = momentum_pct - total_friction_pct
+                    alpha_edge = momentum_pct - total_friction_pct
                     
-                    if net_expected_return > 0.15: # Proxy for >80% confidence edge
-                        target_spend = min(5000.0, deployable_cash)
-                        target_qty = round(target_spend / cur_price, 2)
-                        if target_qty > 0:
-                            log_activity(f"CONFIDENCE > 80%: {ticker}. Net Edge: +{net_expected_return:.2f}%. Deploying Capital.", "success")
+                    if alpha_edge > 0.10:
+                        allocation = calculate_dynamic_allocation(deployable_cash, current_total_exposure, alpha_edge)
+                        if allocation > 100.0:
+                            target_qty = round(allocation / cur_price, 2)
+                            log_activity(f"DYNAMIC SCALING: {ticker}. Edge: +{alpha_edge:.2f}%. Allocating £{allocation:,.2f}.", "success")
                             execute_live_order(ticker, target_qty, "CORE ALLOCATION")
-                            deployable_cash -= target_spend
+                            deployable_cash -= allocation
+                            current_total_exposure += allocation
                             trades_executed += 1
-                            PRICE_MEMORY[ticker] = []
+                            PRICE_MEMORY[ticker] = [] # Reset after scaling
 
-                # RISK MANAGEMENT ON OPEN POSITIONS
-                elif invested >= 1000.0:
+                # RISK & EXIT LOGIC (For Core Positions)
+                elif invested >= 500.0:
                     gross_ret_pct = ((cur_price - avg_price) / avg_price) * 100.0
                     net_ret_pct = gross_ret_pct - total_friction_pct
                     
-                    # Secure Profit
-                    if net_ret_pct >= 0.50:
-                        log_activity(f"PROFIT SECURED: {ticker} (Net: +{net_ret_pct:.2f}%). Vaulting Cash.", "success")
+                    if net_ret_pct >= 0.60:
+                        log_activity(f"HARVESTING ALPHA: {ticker} (Net: +{net_ret_pct:.2f}%). Vaulting Cash.", "success")
                         execute_live_order(ticker, -qty, "TAKE PROFIT")
                         
-                    # Stop Loss
-                    elif gross_ret_pct <= -1.25:
-                        log_activity(f"RISK LIMIT: Liquidating {ticker} ({gross_ret_pct:.2f}%).", "warning")
+                    elif gross_ret_pct <= -1.50:
+                        log_activity(f"RISK LIMIT ENFORCED: Liquidating {ticker} ({gross_ret_pct:.2f}%).", "warning")
                         execute_live_order(ticker, -qty, "STOP LOSS")
 
-        # Rule 8: HOLD CASH Directive
+        # HOLD CASH DIRECTIVE
         if trades_executed == 0 and deployable_cash > 5000.0:
-            log_activity("No high-probability setups clear friction costs. ACTION = HOLD CASH.", "info")
+            log_activity(f"Hold Cash Directive Active. Deployable Cash: £{deployable_cash:,.2f}. Awaiting Alpha.", "info")
 
         await asyncio.sleep(10)
 
