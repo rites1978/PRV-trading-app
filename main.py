@@ -16,45 +16,17 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: UK & US 500 Index Alpha Engine Active."
+LIVE_COMMENTARY = "AI Trading Floor: Dynamic Global Top 500 Engine Active."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
+DYNAMIC_INSTRUMENTS = {"UK": [], "US": []}
 
 BASE_CAPITAL_TARGET = 50000.00
 BANKED_PROFITS = 0.00
 
 AI_BUY_COOLDOWN = {}
 AI_SELL_COOLDOWN = {}
-
-# 1. UK FTSE Top 500 / Index Pool
-UK_TOP_POOL = [
-    "VUKGl_EQ",  # Vanguard FTSE 100 Index Acc
-    "ISFl_EQ",   # iShares FTSE 100 UCITS ETF
-    "SHELl_EQ",  # Shell plc
-    "AZNl_EQ",   # AstraZeneca
-    "HSBA_EQ",   # HSBC Holdings
-    "ULVRl_EQ",  # Unilever
-    "BP.l_EQ",   # BP plc
-    "GSKl_EQ",   # GSK
-    "RIO_EQ",    # Rio Tinto
-    "LLOYl_EQ",  # Lloyds Banking Group
-    "BARCl_EQ",  # Barclays
-    "RR.l_EQ"    # Rolls-Royce Holdings
-]
-
-# 2. US 500 Index & Mega-Cap Pool (Strictly S&P 500 Trackers & Market Giants)
-US_TOP_POOL = [
-    "VUSA_US_EQ",  # Vanguard S&P 500 ETF (LSE/US cross-listing or US equivalent)
-    "VOO_US_EQ",   # Vanguard S&P 500 ETF
-    "SPY_US_EQ",   # SPDR S&P 500 ETF Trust
-    "IVV_US_EQ",   # iShares Core S&P 500 ETF
-    "AAPL_US_EQ",  # Apple (Top S&P 500 Component)
-    "MSFT_US_EQ",  # Microsoft (Top S&P 500 Component)
-    "NVDA_US_EQ",  # NVIDIA (Top S&P 500 Component)
-    "AMZN_US_EQ",  # Amazon (Top S&P 500 Component)
-    "GOOGL_US_EQ"  # Alphabet (Top S&P 500 Component)
-]
 
 def is_market_open(market_code: str) -> bool:
     now = datetime.utcnow()
@@ -81,6 +53,35 @@ def get_t212_auth_headers():
     raw_credentials = f"{T212_API_KEY}:{T212_API_SECRET}"
     encoded = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
+
+def load_trading212_instruments():
+    """Dynamically fetches all available instruments from Trading 212 and categorizes them."""
+    global DYNAMIC_INSTRUMENTS
+    if not T212_API_KEY: return
+    try:
+        res = requests.get(f"{T212_BASE_URL}/metadata/instruments", headers=get_t212_auth_headers(), timeout=15)
+        if res.status_code == 200:
+            data = res.json()
+            uk_list = []
+            us_list = []
+            for item in data:
+                ticker = item.get("ticker", "")
+                name = item.get("name", "").lower()
+                # Filter for major liquid equities and index ETFs
+                if ticker.endswith("l_EQ") or ticker.endswith("_EQ"):
+                    if "_US_EQ" in ticker:
+                        us_list.append(ticker)
+                    elif ticker.endswith("l_EQ") or "LSE" in ticker.upper():
+                        uk_list.append(ticker)
+            
+            # Fallback defaults if list is empty
+            DYNAMIC_INSTRUMENTS["UK"] = uk_list[:100] if uk_list else ["VUKGl_EQ", "SHELl_EQ", "AZNl_EQ", "HSBA_EQ"]
+            DYNAMIC_INSTRUMENTS["US"] = us_list[:100] if us_list else ["AAPL_US_EQ", "MSFT_US_EQ", "VOO_US_EQ", "SPY_US_EQ"]
+            log_activity(f"Loaded {len(DYNAMIC_INSTRUMENTS['UK_TOP'] if 'UK_TOP' in DYNAMIC_INSTRUMENTS else DYNAMIC_INSTRUMENTS['UK'])} UK and {len(DYNAMIC_INSTRUMENTS['US'])} US dynamic instruments.", "success")
+    except Exception as e:
+        log_activity(f"Failed to load instrument metadata: {str(e)}", "warning")
+        DYNAMIC_INSTRUMENTS["UK"] = ["VUKGl_EQ", "SHELl_EQ", "AZNl_EQ"]
+        DYNAMIC_INSTRUMENTS["US"] = ["AAPL_US_EQ", "MSFT_US_EQ", "VOO_US_EQ"]
 
 def execute_live_order(exact_ticker: str, quantity: float):
     payload = {"ticker": exact_ticker, "quantity": quantity}
@@ -127,7 +128,8 @@ def fetch_live_data():
 
 async def autonomous_ai_brain():
     await asyncio.sleep(2)
-    log_activity("Cross-Continental US 500 & UK Index Engine Online.", "success")
+    load_trading212_instruments()
+    log_activity("Dynamic Global Top 500 Engine Online.", "success")
     
     while True:
         try:
@@ -156,10 +158,12 @@ async def autonomous_ai_brain():
                         execute_live_order(t212_ticker, -qty)
                         AI_SELL_COOLDOWN[t212_ticker] = time.time()
             
-            # --- PHASE 2: ACTIVE DUAL-MARKET US 500 & UK SELECTION ---
+            # --- PHASE 2: ACTIVE DYNAMIC SELECTION ---
             active_pool = []
-            if is_market_open("UK"): active_pool.extend([(t, "UK") for t in UK_TOP_POOL])
-            if is_market_open("US"): active_pool.extend([(t, "US") for t in US_TOP_POOL])
+            if is_market_open("UK") and DYNAMIC_INSTRUMENTS["UK"]: 
+                active_pool.extend([(t, "UK") for t in DYNAMIC_INSTRUMENTS["UK"]])
+            if is_market_open("US") and DYNAMIC_INSTRUMENTS["US"]: 
+                active_pool.extend([(t, "US") for t in DYNAMIC_INSTRUMENTS["US"]])
             
             if free_cash > 200.0 and active_pool:
                 target_ticker, market_type = random.choice(active_pool)
@@ -168,11 +172,7 @@ async def autonomous_ai_brain():
                     
                     if market_type == "UK":
                         clean_sym = target_ticker.replace("l_EQ", "").replace("_EQ", "")
-                        if "SHEL" in clean_sym: yf_sym = "SHEL.L"
-                        elif "RR" in clean_sym: yf_sym = "RR.L"
-                        elif "BP" in clean_sym: yf_sym = "BP.L"
-                        elif "VUKG" in clean_sym: yf_sym = "VUAG.L"
-                        else: yf_sym = clean_sym + ".L"
+                        yf_sym = clean_sym + ".L"
                     else:
                         yf_sym = target_ticker.replace("_US_EQ", "").replace(".", "-")
                     
@@ -200,7 +200,7 @@ async def autonomous_ai_brain():
                                 qty = round(target_spend / current_price, 2)
                                 if qty <= 0: continue
                             
-                            log_activity(f"🧠 {market_type} US/UK 500 ENTRY: {yf_sym} (Score: +{momentum:.3f}%, Vol Confirmed)", "success")
+                            log_activity(f"🧠 {market_type} DYNAMIC 500 ENTRY: {yf_sym} (Score: +{momentum:.3f}%)", "success")
                             execute_live_order(target_ticker, qty)
                             AI_BUY_COOLDOWN[target_ticker] = time.time()
                             await asyncio.sleep(2.0)
