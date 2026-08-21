@@ -184,6 +184,6 @@ def get_dashboard_data():
         "markets": {"UK": is_market_open("UK"), "US": is_market_open("US")}
     }
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def read_root():
     return FileResponse("index.html")
