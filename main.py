@@ -4,11 +4,11 @@ import asyncio
 from datetime import datetime
 import os
 import requests
-from requests.auth import HTTPBasicAuth
+import base64
 from contextlib import asynccontextmanager
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Initializing hardcoded secure connection..."
+LIVE_COMMENTARY = "AI Trading Floor: Initializing verified Basic Auth engine..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -19,7 +19,6 @@ def log_activity(message: str, level: str = "info"):
     LIVE_COMMENTARY = f"[{timestamp}] {message}"
     print(f"[{level.upper()}] {timestamp} - {message}")
 
-# Hardcoded base URL to prevent any Render env var markdown corruption
 T212_API_KEY = os.getenv("T212_API_KEY", "").strip()
 T212_API_SECRET = os.getenv("T212_API_SECRET", "").strip()
 T212_BASE_URL = "https://demo.trading212.com/api/v0/equity"
@@ -29,18 +28,26 @@ def test_t212_connection():
         log_activity("T212 Error: Missing T212_API_KEY or T212_API_SECRET in Render settings.", "error")
         return
     
-    auth = HTTPBasicAuth(T212_API_KEY, T212_API_SECRET)
-    headers = {"Content-Type": "application/json"}
+    # Construct official Trading 212 Basic Auth header
+    raw_credentials = f"{T212_API_KEY}:{T212_API_SECRET}"
+    encoded_credentials = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
+    
+    headers = {
+        "Authorization": f"Basic {encoded_credentials}",
+        "Content-Type": "application/json"
+    }
     
     url = f"{T212_BASE_URL}/account/info"
-    log_activity(f"Testing GET request to {url}", "info")
+    log_activity(f"Testing authenticated connection to {url}", "info")
     
     try:
-        res = requests.get(url, auth=auth, headers=headers, timeout=10)
+        res = requests.get(url, headers=headers, timeout=10)
         log_activity(f"T212 Response [{res.status_code}]: {res.text}", "success" if res.status_code == 200 else "error")
         
         if res.status_code == 200:
             log_activity("🎉 AUTHENTICATION SUCCESSFUL! Connected to Trading 212 Demo.", "success")
+        elif res.status_code == 401:
+            log_activity("⚠️ 401 UNAUTHORIZED: Please verify that your API Key and Secret were generated specifically inside 'demo.trading212.com' (Practice mode).", "warning")
     except Exception as e:
         log_activity(f"Exception: {str(e)}", "error")
 
