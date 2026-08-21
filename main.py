@@ -34,7 +34,6 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
     if "_" not in clean_ticker:
         clean_ticker = f"{clean_ticker}_US_EQ"
 
-    # Official Trading 212 API Header Authentication
     headers = {
         "Authorization": T212_API_KEY,
         "Content-Type": "application/json"
