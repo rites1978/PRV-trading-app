@@ -12,17 +12,14 @@ import yfinance as yf
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Initializing neural market scanner..."
+LIVE_COMMENTARY = "AI Trading Floor: Initializing highly sensitive neural scanner..."
 
-# Global Watchlist mapped to Trading 212 Tickers
 MARKET_UNIVERSE = {
-    "BARC.L": "BARC_L_EQ",   # Barclays (UK - Open)
-    "LLOY.L": "LLOY_L_EQ",   # Lloyds (UK - Open)
-    "BP.L": "BP_L_EQ",       # BP (UK - Open)
-    "VOD.L": "VOD_L_EQ",     # Vodafone (UK - Open)
-    "AAPL": "AAPL_US_EQ",    # Apple (US)
-    "NVDA": "NVDA_US_EQ",    # Nvidia (US)
-    "TSLA": "TSLA_US_EQ"     # Tesla (US)
+    "BARC.L": "BARC_L_EQ",
+    "LLOY.L": "LLOY_L_EQ",
+    "BP.L": "BP_L_EQ",
+    "VOD.L": "VOD_L_EQ",
+    "AAPL": "AAPL_US_EQ"
 }
 
 def log_activity(message: str, level: str = "info"):
@@ -49,8 +46,8 @@ def get_live_portfolio():
         res = requests.get(f"{T212_BASE_URL}/portfolio", headers=get_t212_auth_headers(), timeout=10)
         if res.status_code == 200:
             return res.json()
-    except Exception as e:
-        log_activity(f"Portfolio fetch error: {str(e)}", "error")
+    except Exception:
+        pass
     return []
 
 def get_account_cash():
@@ -77,61 +74,54 @@ def execute_live_order(t212_ticker: str, quantity: float):
                     "ticker": t212_ticker, "side": "BUY", "quantity": quantity, "status": status
                 }).execute()
             except Exception: pass
-            return True
+            return {"status": "SUCCESS", "detail": status}
         else:
             log_activity(f"Order Rejected: {res.text}", "error")
-            return False
+            return {"status": "REJECTED"}
     except Exception as e:
         log_activity(f"Order Exception: {str(e)}", "error")
-        return False
+        return {"status": "EXCEPTION"}
 
 async def autonomous_ai_brain():
     await asyncio.sleep(5)
-    log_activity("AI Brain Online: Commencing live intraday market sweeps...", "success")
+    log_activity("AI Brain Online: Scanning for ANY positive intraday momentum...", "success")
     
     while True:
         try:
-            # 1. Check current holdings so we don't overbuy the same stock
             portfolio = get_live_portfolio()
             owned_tickers = [pos.get("ticker") for pos in portfolio] if portfolio else []
             
-            # 2. Scan the universe for opportunities
             for yf_ticker, t212_ticker in MARKET_UNIVERSE.items():
                 if t212_ticker in owned_tickers:
-                    continue # Skip if we already own it; let the profits run
+                    continue 
                 
-                log_activity(f"Scanning intraday price action for {yf_ticker}...", "info")
-                
-                # Fetch live 5-minute interval data to catch immediate intraday momentum
+                log_activity(f"Scanning price action for {yf_ticker}...", "info")
                 data = yf.download(yf_ticker, period="1d", interval="5m", progress=False)
                 
                 if len(data) >= 3:
                     closes = data['Close'].values
                     current_price = float(closes[-1].item())
-                    # Calculate a micro-trend (last 3 intervals vs previous)
                     recent_avg = sum(closes[-3:]) / 3
                     older_avg = sum(closes[-6:-3]) / 3 if len(closes) >= 6 else closes[0].item()
-                    
                     momentum = ((recent_avg - older_avg) / older_avg) * 100
                     
                     log_activity(f"[{yf_ticker}] Price: {current_price:.2f} | 15m Momentum: {momentum:+.3f}%", "info")
                     
-                    # AI DECISION LOGIC: If momentum is shifting positive and strong enough, BUY.
-                    if momentum > 0.15: 
-                        log_activity(f"🚀 UPTREND DETECTED on {yf_ticker}. AI authorizing execution...", "success")
-                        # Size the position based on the asset (UK penny stocks vs US tech)
-                        qty = 50.0 if "L_EQ" in t212_ticker else 1.0
+                    # DROPPED THRESHOLD TO 0.01% - Will trigger on almost any positive micro-trend
+                    if momentum > 0.01: 
+                        log_activity(f"🚀 POSITIVE TREND on {yf_ticker}. AI executing buy...", "success")
+                        qty = 25.0 if "L_EQ" in t212_ticker else 1.0
                         execute_live_order(t212_ticker, qty)
-                        await asyncio.sleep(10) # Pause after a trade
-                        break # Only take one new position per scan cycle
+                        await asyncio.sleep(10) 
+                        break 
                 
-                await asyncio.sleep(3) # Prevent API rate limits
+                await asyncio.sleep(3) 
                 
         except Exception as e:
-            log_activity(f"AI Brain encountered an error: {str(e)}", "error")
+            log_activity(f"AI Brain error: {str(e)}", "error")
             
-        log_activity("Sweep complete. Monitoring active positions. Next scan in 5 minutes...", "info")
-        await asyncio.sleep(300)
+        log_activity("Sweep complete. Next scan in 2 minutes...", "info")
+        await asyncio.sleep(120)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -141,12 +131,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+@app.get("/api/trigger-trade")
+def trigger_manual_trade():
+    return execute_live_order("BARC_L_EQ", 10.0)
+
 @app.api_route("/api/dashboard_data", methods=["GET"])
 def get_dashboard_data():
     portfolio = get_live_portfolio()
     cash = get_account_cash()
-    
-    # Calculate total portfolio equity (Cash + Value of open positions)
     invested_value = sum(float(p.get("currentPrice", 0)) * float(p.get("quantity", 0)) for p in portfolio) if portfolio else 0.0
     
     return {
@@ -184,14 +176,19 @@ def read_root():
         .log-info { color: #94a3b8; }
         .log-success { color: #34d399; font-weight: bold; }
         .log-error { color: #f87171; font-weight: bold; }
+        .btn { background: #38bdf8; color: #0b0f19; font-weight: bold; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #0ea5e9; }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>PRV Autonomous AI Engine</h1>
-        <div style="text-align: right;">
-            <div style="color: #94a3b8; font-size: 12px;">SYSTEM STATUS</div>
-            <div style="color: #34d399; font-weight: bold; font-size: 14px;">● LIVE SCANNING ACTIVE</div>
+        <div style="text-align: right; display: flex; align-items: center; gap: 15px;">
+            <button class="btn" onclick="triggerTrade()">Force Instant Trade (BARC.L)</button>
+            <div>
+                <div style="color: #94a3b8; font-size: 12px;">SYSTEM STATUS</div>
+                <div style="color: #34d399; font-weight: bold; font-size: 14px;">● LIVE SCANNING ACTIVE</div>
+            </div>
         </div>
     </div>
 
@@ -227,27 +224,30 @@ def read_root():
     </div>
 
     <script>
+        async function triggerTrade() {
+            try {
+                await fetch('/api/trigger-trade');
+                updateDashboard();
+            } catch(e) {}
+        }
+
         async function updateDashboard() {
             try {
                 const res = await fetch('/api/dashboard_data');
                 const data = await res.json();
                 
-                // Update Values
-                document.getElementById('totalEquity').innerText = '£' + data.total_equity.toLocaleString('en-GB', {minimumFractionDigits: 2});
-                document.getElementById('cashBal').innerText = '£' + data.cash_balance.toLocaleString('en-GB', {minimumFractionDigits: 2});
+                document.getElementById('totalEquity').innerText = '£' + data.total_equity.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                document.getElementById('cashBal').innerText = '£' + data.cash_balance.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 
-                // Update Logs
                 const logHtml = data.system_logs.map(log => {
                     let colorClass = log.level === 'success' ? 'log-success' : (log.level === 'error' ? 'log-error' : 'log-info');
                     return `<div class="log-entry"><span class="log-time">[${log.time}]</span><span class="${colorClass}">${log.msg}</span></div>`;
                 }).join('');
                 document.getElementById('logStream').innerHTML = logHtml;
 
-                // Update Portfolio Table
                 const tbody = document.getElementById('portfolioTable');
                 if (data.portfolio && data.portfolio.length > 0) {
                     tbody.innerHTML = data.portfolio.map(pos => {
-                        // Calculate return percentage
                         const avg = parseFloat(pos.averagePrice);
                         const cur = parseFloat(pos.currentPrice);
                         const retPct = ((cur - avg) / avg) * 100;
@@ -258,8 +258,8 @@ def read_root():
                         <tr>
                             <td style="font-weight: bold;">${pos.ticker.replace('_EQ', '').replace('_', '.')}</td>
                             <td>${pos.quantity}</td>
-                            <td>${pos.averagePrice.toFixed(2)}</td>
-                            <td>${pos.currentPrice.toFixed(2)}</td>
+                            <td>${pos.averagePrice.toFixed(4)}</td>
+                            <td>${pos.currentPrice.toFixed(4)}</td>
                             <td class="${retClass}">${retSign}${retPct.toFixed(2)}%</td>
                         </tr>
                         `;
@@ -270,7 +270,6 @@ def read_root():
             } catch(e) {}
         }
         
-        // Refresh every 2.5 seconds to watch price action move
         setInterval(updateDashboard, 2500);
         updateDashboard();
     </script>
