@@ -4,3 +4,4 @@ yfinance
 supabase
 pandas
 requests
+python-dotenv
