@@ -38,6 +38,7 @@
             border: 1px solid #1f2937;
             padding: 20px;
             border-radius: 12px;
+            transition: border-color 0.3s;
         }
         h2 {
             color: #94a3b8;
@@ -139,7 +140,7 @@
                 <div class="market-indicator" id="ukStatus"><span class="dot" style="background: #6b7280;"></span> UK: LSE</div>
                 <div class="market-indicator" id="usStatus"><span class="dot" style="background: #6b7280;"></span> US: NYSE</div>
             </div>
-            <button class="btn" onclick="triggerTrade()">⚡ Run Quant Scan</button>
+            <button class="btn" id="scanBtn" onclick="triggerTrade()">⚡ Run Quant Scan</button>
         </div>
     </div>
 
@@ -159,7 +160,7 @@
         </div>
         <div class="card">
             <h2>Capital Utilisation</h2>
-            <div class="value-large" id="rateOfReturn">0.00%</div>
+            <div class="value-large" id="rateOfReturn">0.0%</div>
         </div>
     </div>
 
@@ -192,7 +193,7 @@
                     </tr>
                 </thead>
                 <tbody id="portfolioTable">
-                    <tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 25px;">Connecting to quantitative engine...</td></tr>
+                    <tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 25px;">Loading active holdings...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -204,6 +205,9 @@
     </div>
 
     <script>
+        let lastPortfolioHash = "";
+        let lastLogsHash = "";
+
         function switchTab(evt, tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -220,34 +224,46 @@
                     label: 'Portfolio Equity (£)',
                     data: [],
                     borderColor: '#38bdf8',
-                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                    borderWidth: 2.5,
+                    backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                    borderWidth: 2,
                     fill: true,
-                    tension: 0.3,
-                    pointRadius: 3,
+                    tension: 0.2,
+                    pointRadius: 2,
+                    pointHoverRadius: 5,
                     pointBackgroundColor: '#38bdf8'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: { duration: 400 },
                 plugins: { legend: { display: false } },
                 scales: {
                     x: { ticks: { color: '#6b7280', font: { size: 11 } }, grid: { color: '#1f2937' } },
-                    y: { ticks: { color: '#6b7280', font: { size: 11 } }, grid: { color: '#1f2937' } }
+                    y: { 
+                        ticks: { 
+                            color: '#6b7280', 
+                            font: { size: 11 },
+                            callback: function(value) { return '£' + value.toLocaleString(); }
+                        }, 
+                        grid: { color: '#1f2937' } 
+                    }
                 }
             }
         });
 
         async function triggerTrade() {
+            const btn = document.getElementById('scanBtn');
+            btn.innerText = "⏳ Scanning...";
+            btn.disabled = true;
             try {
-                const btn = document.querySelector('.btn');
-                btn.innerText = "⏳ Scanning...";
                 await fetch('/api/trigger-trade', { method: 'POST' });
                 await updateDashboard();
-                btn.innerText = "⚡ Run Quant Scan";
             } catch(e) {
                 console.error(e);
+            } finally {
+                btn.innerText = "⚡ Run Quant Scan";
+                btn.disabled = false;
             }
         }
 
@@ -257,11 +273,12 @@
                 if (!res.ok) return;
                 const data = await res.json();
                 
-                const totalEq = data.total_equity || 50000.0;
-                const cashBal = data.cash_balance || 50000.0;
-                const banked = data.banked_profits || 0.0;
-                const utilPct = data.capital_utilization || 0.0;
+                const totalEq = typeof data.total_equity === 'number' ? data.total_equity : 50000.0;
+                const cashBal = typeof data.cash_balance === 'number' ? data.cash_balance : 50000.0;
+                const banked = typeof data.banked_profits === 'number' ? data.banked_profits : 0.0;
+                const utilPct = typeof data.capital_utilization === 'number' ? data.capital_utilization : 0.0;
                 
+                // Update Top KPI Metrics smoothly
                 document.getElementById('totalEquity').innerText = '£' + totalEq.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 document.getElementById('cashBal').innerText = '£' + cashBal.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 document.getElementById('bankedProfits').innerText = '£' + banked.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -270,6 +287,7 @@
                 rorElem.innerText = utilPct.toFixed(1) + '%';
                 rorElem.className = 'value-large ' + (utilPct > 0 ? 'pos' : 'neg');
                 
+                // Market Status
                 if (data.markets) {
                     const ukOpen = Boolean(data.markets.UK);
                     const usOpen = Boolean(data.markets.US);
@@ -277,16 +295,25 @@
                     document.getElementById('usStatus').innerHTML = `<span class="dot" style="background: ${usOpen ? '#34d399' : '#f87171'};"></span> US: ${usOpen ? 'OPEN' : 'CLOSED'}`;
                 }
 
+                // Growth Curve: append smoothly without dropouts
                 const timeNow = new Date().toLocaleTimeString();
-                if (growthChart.data.labels.length > 25) {
-                    growthChart.data.labels.shift();
-                    growthChart.data.datasets[0].data.shift();
+                const lastVal = growthChart.data.datasets[0].data.slice(-1)[0];
+                
+                // Only push if time advanced or equity changed
+                if (growthChart.data.labels.length === 0 || Math.abs((lastVal || 0) - totalEq) > 0.01 || growthChart.data.labels.slice(-1)[0] !== timeNow) {
+                    if (growthChart.data.labels.length >= 30) {
+                        growthChart.data.labels.shift();
+                        growthChart.data.datasets[0].data.shift();
+                    }
+                    growthChart.data.labels.push(timeNow);
+                    growthChart.data.datasets[0].data.push(totalEq);
+                    growthChart.update('none'); // Update without full layout animation to avoid flickering
                 }
-                growthChart.data.labels.push(timeNow);
-                growthChart.data.datasets[0].data.push(totalEq);
-                growthChart.update();
 
-                if (data.system_logs && data.system_logs.length > 0) {
+                // AI Execution Logs: Only update if content changed
+                const logsString = JSON.stringify(data.system_logs || []);
+                if (logsString !== lastLogsHash && data.system_logs) {
+                    lastLogsHash = logsString;
                     const logHtml = data.system_logs.map(log => {
                         let colorClass = log.level === 'success' ? 'log-success' : (log.level === 'error' ? 'log-error' : (log.level === 'warning' ? 'log-warning' : 'log-info'));
                         return `<div class="log-entry"><span class="log-time">[${log.time}]</span><span class="${colorClass}">${log.msg}</span></div>`;
@@ -294,37 +321,42 @@
                     document.getElementById('logStream').innerHTML = logHtml;
                 }
 
-                const tbody = document.getElementById('portfolioTable');
-                if (data.portfolio && data.portfolio.length > 0) {
-                    tbody.innerHTML = data.portfolio.map(pos => {
-                        const avg = parseFloat(pos.averagePrice || 0);
-                        const cur = parseFloat(pos.currentPrice || 0);
-                        const ppl = parseFloat(pos.ppl || 0);
-                        const retPct = avg > 0 ? ((cur - avg) / avg) * 100 : 0;
-                        const retClass = retPct >= 0 ? 'pos' : 'neg';
-                        const retSign = retPct >= 0 ? '+' : '';
-                        const cleanTicker = (pos.ticker || '').replace('l_EQ', '').replace('_US_EQ', '');
-                        
-                        return `
-                        <tr>
-                            <td style="font-weight: bold; color: #38bdf8;">${cleanTicker}</td>
-                            <td>${pos.quantity}</td>
-                            <td>£${avg.toFixed(2)}</td>
-                            <td>£${cur.toFixed(2)}</td>
-                            <td class="${retClass}">£${ppl.toFixed(2)}</td>
-                            <td class="${retClass}">${retSign}${retPct.toFixed(2)}%</td>
-                        </tr>
-                        `;
-                    }).join('');
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 25px;">No active positions open. AI quantitative scanner holding cash.</td></tr>';
+                // Active Holdings Table: Only update if data changed (eliminates flashing)
+                const portfolioString = JSON.stringify(data.portfolio || []);
+                if (portfolioString !== lastPortfolioHash) {
+                    lastPortfolioHash = portfolioString;
+                    const tbody = document.getElementById('portfolioTable');
+                    if (data.portfolio && data.portfolio.length > 0) {
+                        tbody.innerHTML = data.portfolio.map(pos => {
+                            const avg = parseFloat(pos.averagePrice || 0);
+                            const cur = parseFloat(pos.currentPrice || 0);
+                            const ppl = parseFloat(pos.ppl || 0);
+                            const retPct = avg > 0 ? ((cur - avg) / avg) * 100 : 0;
+                            const retClass = retPct >= 0 ? 'pos' : 'neg';
+                            const retSign = retPct >= 0 ? '+' : '';
+                            const cleanTicker = (pos.ticker || '').replace('l_EQ', '').replace('_US_EQ', '');
+                            
+                            return `
+                            <tr>
+                                <td style="font-weight: bold; color: #38bdf8;">${cleanTicker}</td>
+                                <td>${pos.quantity}</td>
+                                <td>£${avg.toFixed(2)}</td>
+                                <td>£${cur.toFixed(2)}</td>
+                                <td class="${retClass}">£${ppl.toFixed(2)}</td>
+                                <td class="${retClass}">${retSign}${retPct.toFixed(2)}%</td>
+                            </tr>
+                            `;
+                        }).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 25px;">No active positions open. AI quantitative scanner holding cash.</td></tr>';
+                    }
                 }
             } catch(e) {
                 console.error("Dashboard update error:", e);
             }
         }
         
-        setInterval(updateDashboard, 4000);
+        setInterval(updateDashboard, 5000);
         updateDashboard();
     </script>
 </body>

@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 from datetime import datetime, timezone, time as dtime
 from contextlib import asynccontextmanager
@@ -20,11 +21,22 @@ from src.brokers.trading212 import broker
 from src.database.db import db
 from src.risk.risk_engine import risk_engine
 
+# High-reliability in-memory state cache
+CACHE = {
+    "last_sync": 0.0,
+    "account": {
+        "total_value": settings.STARTING_CAPITAL,
+        "available_cash": settings.STARTING_CAPITAL,
+        "invested": 0.0,
+        "currency": "GBP"
+    },
+    "positions": []
+}
+
 def is_uk_market_open() -> bool:
     now_utc = datetime.now(timezone.utc)
     if now_utc.weekday() >= 5:  # Saturday/Sunday
         return False
-    # LSE open: 08:00 - 16:30 London (UTC in winter / UTC+1 in summer)
     current_time = now_utc.time()
     return dtime(8, 0) <= current_time <= dtime(16, 30)
 
@@ -32,13 +44,36 @@ def is_us_market_open() -> bool:
     now_utc = datetime.now(timezone.utc)
     if now_utc.weekday() >= 5:  # Saturday/Sunday
         return False
-    # NYSE/NASDAQ open: 14:30 - 21:00 UTC
     current_time = now_utc.time()
     return dtime(14, 30) <= current_time <= dtime(21, 0)
 
+def sync_broker_data(force: bool = False):
+    """Synchronize with broker with rate-limiting protection & persistent caching."""
+    now = time.time()
+    if not force and (now - CACHE["last_sync"]) < 4.0:
+        return CACHE["account"], CACHE["positions"]
+
+    try:
+        acc = broker.get_account_summary()
+        if acc.get("success"):
+            CACHE["account"]["total_value"] = float(acc.get("total_value", CACHE["account"]["total_value"]))
+            CACHE["account"]["available_cash"] = float(acc.get("available_cash", CACHE["account"]["available_cash"]))
+            CACHE["account"]["invested"] = float(acc.get("invested", CACHE["account"]["invested"]))
+            CACHE["account"]["currency"] = acc.get("currency", "GBP")
+
+        pos = broker.get_open_positions()
+        if isinstance(pos, list):
+            CACHE["positions"] = pos
+
+        CACHE["last_sync"] = now
+    except Exception as e:
+        print(f"[Broker Sync Error] {e}")
+
+    return CACHE["account"], CACHE["positions"]
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start the autonomous quant engine in the background
+    sync_broker_data(force=True)
     quant_engine.start()
     yield
     quant_engine.stop()
@@ -62,17 +97,16 @@ def read_root():
 
 @app.get("/api/dashboard_data")
 def get_dashboard_data():
-    account = broker.get_account_summary()
-    positions = broker.get_open_positions()
+    account, positions = sync_broker_data()
     
-    total_equity = account.get("total_value", settings.STARTING_CAPITAL) if account.get("success") else settings.STARTING_CAPITAL
-    available_cash = account.get("available_cash", settings.STARTING_CAPITAL) if account.get("success") else settings.STARTING_CAPITAL
-    invested = account.get("invested", 0.0) if account.get("success") else 0.0
+    total_equity = account["total_value"]
+    available_cash = account["available_cash"]
+    invested = account["invested"]
     
     cap_state = capital_manager.get_capital_state(total_equity, invested, available_cash)
     
     # Audit logs for UI stream
-    audit_records = db.get_audit_logs(limit=25)
+    audit_records = db.get_audit_logs(limit=30)
     formatted_logs = []
     for log in audit_records:
         ts = log.get("timestamp", "")
@@ -109,4 +143,5 @@ def get_dashboard_data():
 @app.api_route("/api/trigger-trade", methods=["GET", "POST"])
 def trigger_trade():
     res = quant_engine.run_cycle()
+    sync_broker_data(force=True)
     return JSONResponse(content={"status": "executed", "result": res})
