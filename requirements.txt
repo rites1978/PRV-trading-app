@@ -3,3 +3,5 @@ yfinance
 supabase
 pandas
 requests
+streamlit-option-menu
+streamlit-extras
