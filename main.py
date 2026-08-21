@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import yfinance as yf
 from db_manager import db
 import asyncio
@@ -34,7 +34,7 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
             log_activity(f"T212 Broker Gateway: LIVE ORDER CONFIRMED for {ticker}!", "success")
             return "LIVE EXECUTED"
         else:
-            log_activity(f"T212 Auth Error [401/403]. Fallback to Virtual Fill for {ticker}.", "warning")
+            log_activity(f"T212 Auth Error. Fallback to Virtual Fill for {ticker}.", "warning")
             return "SIMULATED FILL"
     except Exception:
         log_activity(f"Broker connection timeout. Virtual Fill for {ticker}.", "warning")
@@ -83,19 +83,12 @@ async def market_scouring_agent():
                 continue
                 
         log_activity(f"Market Scouter: Cycle finished. Executed {trades_fired} active transactions.", "info")
-        await asyncio.sleep(300) # Scan every 5 minutes
+        await asyncio.sleep(300)
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Autonomous Quant Desk online with visual audit trails.", "success")
+    log_activity("PRV Autonomous Quant Desk online with streaming valuation feeds.", "success")
     asyncio.create_task(market_scouring_agent())
-
-def get_watchlist_from_db():
-    try:
-        response = db.client.table("friend_watchlist").select("*").execute()
-        return response.data if response.data else []
-    except Exception:
-        return []
 
 def get_trades_from_db():
     try:
@@ -103,6 +96,31 @@ def get_trades_from_db():
         return response.data if response.data else []
     except Exception:
         return []
+
+# Live API Endpoint for JavaScript Streaming
+@app.api_route("/api/valuation", methods=["GET", "HEAD"])
+def get_live_valuation():
+    baseline_capital = 40000.00
+    trades = get_trades_from_db()
+    
+    current_notional = 0.0
+    for t in trades:
+        ticker = t.get('ticker')
+        shares = float(t.get('shares', 0))
+        entry_price = float(t.get('price', 0))
+        
+        # Pull real-time price to stream dynamic PnL movement
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="1d")
+            live_price = float(hist['Close'].iloc[-1]) if not hist.empty else entry_price
+        except Exception:
+            live_price = entry_price
+            
+        current_notional += shares * live_price
+        
+    total_val = baseline_capital + current_notional
+    return {"valuation": round(total_val, 2)}
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -161,10 +179,6 @@ HTML_TEMPLATE = """
         .pill.green { background-color: var(--green-glow); color: var(--green); border: 0.5px solid var(--green); }
         .pill.blue { background-color: rgba(10, 132, 255, 0.2); color: var(--accent-blue); border: 0.5px solid var(--accent-blue); }
         .balance-display { font-size: 36px; font-weight: 700; margin-top: 4px; }
-        .form-group { display: flex; gap: 12px; }
-        .apple-input { flex: 1; background: var(--tab-bg); border: 0.5px solid var(--card-border); border-radius: 12px; padding: 12px 16px; color: var(--text-primary); font-size: 14px; outline: none; }
-        .apple-input:focus { border-color: var(--accent-blue); }
-        .apple-btn { background: var(--accent-blue); color: #ffffff; border: none; border-radius: 12px; padding: 0 24px; font-weight: 600; cursor: pointer; }
         .log-stream { background: rgba(0,0,0,0.3); border: 0.5px solid var(--card-border); border-radius: 12px; padding: 14px; font-family: ui-monospace, monospace; font-size: 12px; max-height: 280px; overflow-y: auto; }
         .log-item { margin-bottom: 6px; display: flex; gap: 10px; }
         .log-time { color: var(--text-secondary); }
@@ -179,7 +193,7 @@ HTML_TEMPLATE = """
         <div class="header-container">
             <div class="header">
                 <h1>Markets</h1>
-                <p>PRV Capital &bull; Autonomous Quant Desk</p>
+                <p>PRV Capital &bull; Live Streaming Quant Desk</p>
             </div>
             <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">☀️</button>
         </div>
@@ -189,14 +203,16 @@ HTML_TEMPLATE = """
             <button class="tab-btn" onclick="switchTab(1)">📊 Live Transactions Ledger</button>
             <button class="tab-btn" onclick="switchTab(2)">🤖 AI Boardroom</button>
             <button class="tab-btn" onclick="switchTab(3)">📡 Market Telemetry</button>
-            <button class="tab-btn" onclick="switchTab(4)">👀 Watchlist</button>
         </div>
 
         <div class="tab-pane active">
             <div class="apple-card">
-                <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Live Portfolio Valuation</div>
-                <div class="balance-display">&pound;$PORTFOLIO_VALUATION$</div>
-                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">Autonomous Execution Engine Active</div>
+                <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Streaming Portfolio Valuation</div>
+                <div class="balance-display" id="liveValuation">&pound;Loading...</div>
+                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; background: var(--green); border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite;"></span>
+                    Live Market Feed Streaming Active
+                </div>
             </div>
         </div>
 
@@ -209,7 +225,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent continuously analyzes broad market volatility. Every order is stamped with execution status codes to verify that transactions are processed directly into your audit logs.
+                    The autonomous agent continuously processes real-time feeds. Portfolio valuation updates dynamically every 5 seconds as live market prices fluctuate.
                 </div>
             </div>
         </div>
@@ -221,17 +237,6 @@ HTML_TEMPLATE = """
                     $LOG_STREAM_HTML$
                 </div>
             </div>
-        </div>
-
-        <div class="tab-pane">
-            <div class="apple-card" style="margin-bottom: 16px;">
-                <form action="/add" method="post" class="form-group">
-                    <input type="text" name="ticker" class="apple-input" placeholder="Symbol (e.g. AAPL)" required />
-                    <input type="text" name="notes" class="apple-input" placeholder="Thesis / Note" />
-                    <button type="submit" class="apple-btn">Add Symbol</button>
-                </form>
-            </div>
-            $WATCHLIST_ITEMS$
         </div>
     </div>
 
@@ -255,6 +260,19 @@ HTML_TEMPLATE = """
                 toggleBtn.textContent = '☀️';
             }
         }
+
+        // Live Valuation Streaming Poller (Updates every 5 seconds)
+        async function pollValuation() {
+            try {
+                const response = await fetch('/api/valuation');
+                const data = await response.json();
+                document.getElementById('liveValuation').textContent = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            } catch (e) {
+                console.error("Valuation poll failed", e);
+            }
+        }
+        setInterval(pollValuation, 5000);
+        pollValuation(); // Immediate initial pull
     </script>
 </body>
 </html>
@@ -262,43 +280,7 @@ HTML_TEMPLATE = """
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
-    baseline_capital = 40000.00
     trades = get_trades_from_db()
-    total_notional_deployed = sum(float(t.get('shares', 0)) * float(t.get('price', 0)) for t in trades)
-    portfolio_val = baseline_capital + total_notional_deployed
-
-    items = get_watchlist_from_db()
-    watchlist_html = ""
-    for item in items:
-        ticker = item.get('ticker', '').upper()
-        notes = item.get('notes', '')
-        try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="2d")
-            price = float(hist['Close'].iloc[-1]) if not hist.empty else 0.0
-            prev = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else price
-            change = ((price - prev) / prev) * 100 if prev > 0 else 0.0
-        except Exception:
-            price, change = 0.0, 0.0
-        
-        is_pos = change >= 0
-        pill_class = "green" if is_pos else "red"
-        sign = "+" if is_pos else ""
-        
-        watchlist_html += f"""
-        <div class="apple-card row-flex">
-            <div>
-                <div class="stock-ticker">{ticker}</div>
-                <div class="stock-name">{notes}</div>
-            </div>
-            <div style="text-align: right;">
-                <div class="stock-price">&pound;{price:,.2f}</div>
-                <span class="pill {pill_class}">{sign}{change:.2f}%</span>
-            </div>
-        </div>
-        """
-    if not watchlist_html:
-        watchlist_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">No custom watchlist symbols added yet.</div>'
 
     trades_html = ""
     for trade in trades:
@@ -337,20 +319,5 @@ def read_root():
     if not logs_html:
         logs_html = '<div class="log-item"><span class="log-msg info">Initializing transaction stream...</span></div>'
 
-    page = HTML_TEMPLATE.replace("$PORTFOLIO_VALUATION$", f"{portfolio_val:,.2f}")
-    page = page.replace("$WATCHLIST_ITEMS$", watchlist_html)
-    page = page.replace("$TRADES_ITEMS$", trades_html)
+    page = HTML_TEMPLATE.replace("$TRADES_ITEMS$", trades_html)
     return page.replace("$LOG_STREAM_HTML$", logs_html)
-
-@app.post("/add", response_class=HTMLResponse)
-def add_ticker(ticker: str = Form(...), notes: str = Form("")):
-    try:
-        clean_ticker = ticker.upper().strip()
-        db.client.table("friend_watchlist").insert({
-            "ticker": clean_ticker,
-            "notes": notes.strip()
-        }).execute()
-        log_activity(f"Added symbol {clean_ticker} to personal watchlist.", "success")
-    except Exception as e:
-        log_activity(f"Failed to insert {ticker}: {str(e)}", "error")
-    return read_root()
