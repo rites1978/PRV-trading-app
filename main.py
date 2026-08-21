@@ -11,7 +11,7 @@ import random
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Connected to Trading 212 Practice API via official Authorization header..."
+LIVE_COMMENTARY = "AI Trading Floor: Connected directly to Trading 212 Practice REST API..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -34,6 +34,7 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
     if "_" not in clean_ticker:
         clean_ticker = f"{clean_ticker}_US_EQ"
 
+    # Official Trading 212 REST API Header Authentication
     headers = {
         "Authorization": T212_API_KEY,
         "Content-Type": "application/json"
@@ -103,7 +104,7 @@ async def market_scouring_agent():
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Trading Desk online with Trading 212 API linkage.", "success")
+    log_activity("PRV Trading Desk online with T212 REST API linkage.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_trades_from_db():
@@ -260,7 +261,7 @@ HTML_TEMPLATE = """
     <div class="container">
         <div class="commentary-ticker">
             <span class="ticker-dot"></span>
-            <span id="liveCommentary">Connecting to Trading 212 API gateway...</span>
+            <span id="liveCommentary">Connecting to Trading 212 REST gateway...</span>
         </div>
 
         <div class="header-container">
@@ -314,7 +315,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent is authorized via your Trading 212 API key header for live demo execution.
+                    The autonomous agent is connected directly to your Trading 212 Practice account via REST API headers.
                 </div>
             </div>
         </div>
