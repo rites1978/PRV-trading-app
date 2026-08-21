@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 import asyncio
 from datetime import datetime
@@ -12,24 +12,25 @@ import yfinance as yf
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Global multi-market autonomous agent online..."
+LIVE_COMMENTARY = "AI Trading Floor: Initializing neural market scanner..."
 
-# Mapping Yahoo Finance tickers to exact Trading 212 Instrument Codes
-WATCHLIST = {
-    "LLOY.L": "LLOY_L_EQ",   # Lloyds Banking Group (UK - OPEN NOW)
-    "BARC.L": "BARC_L_EQ",   # Barclays (UK - OPEN NOW)
-    "VOD.L": "VOD_L_EQ",     # Vodafone (UK - OPEN NOW)
-    "RR.L": "RR_L_EQ",       # Rolls Royce (UK - OPEN NOW)
-    "AAPL": "AAPL_US_EQ",    # Apple (US - Opens 2:30 PM BST)
-    "NVDA": "NVDA_US_EQ"     # Nvidia (US - Opens 2:30 PM BST)
+# Global Watchlist mapped to Trading 212 Tickers
+MARKET_UNIVERSE = {
+    "BARC.L": "BARC_L_EQ",   # Barclays (UK - Open)
+    "LLOY.L": "LLOY_L_EQ",   # Lloyds (UK - Open)
+    "BP.L": "BP_L_EQ",       # BP (UK - Open)
+    "VOD.L": "VOD_L_EQ",     # Vodafone (UK - Open)
+    "AAPL": "AAPL_US_EQ",    # Apple (US)
+    "NVDA": "NVDA_US_EQ",    # Nvidia (US)
+    "TSLA": "TSLA_US_EQ"     # Tesla (US)
 }
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
-    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    timestamp = datetime.now().strftime("%H:%M:%S")
     entry = {"time": timestamp, "msg": message, "level": level}
     SYSTEM_LOGS.insert(0, entry)
-    if len(SYSTEM_LOGS) > 60: SYSTEM_LOGS.pop()
+    if len(SYSTEM_LOGS) > 50: SYSTEM_LOGS.pop()
     LIVE_COMMENTARY = f"[{timestamp}] {message}"
     print(f"[{level.upper()}] {timestamp} - {message}")
 
@@ -42,48 +43,18 @@ def get_t212_auth_headers():
     encoded = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
-def execute_live_order(t212_ticker: str, quantity: float):
-    if not T212_API_KEY:
-        return {"status": "ERROR"}
-    
-    payload = {
-        "ticker": t212_ticker,
-        "quantity": float(quantity)
-    }
-    
-    url = f"{T212_BASE_URL}/orders/market"
-    log_activity(f"AI Dispatching live order: {t212_ticker} (Qty: {quantity})", "info")
-    
+def get_live_portfolio():
+    if not T212_API_KEY: return []
     try:
-        res = requests.post(url, json=payload, headers=get_t212_auth_headers(), timeout=15)
-        
-        if res.status_code in [200, 201]:
-            res_json = res.json()
-            order_status = res_json.get("status", "NEW")
-            final_status = "QUEUED" if order_status == "NEW" else "FILLED"
-            
-            try:
-                db.client.table("trades").insert({
-                    "ticker": t212_ticker,
-                    "side": "BUY",
-                    "quantity": float(quantity),
-                    "status": final_status
-                }).execute()
-            except Exception:
-                pass
-                
-            log_activity(f"Order Accepted by T212! Status: {final_status}", "success")
-            return {"status": "SUCCESS", "detail": final_status}
-        else:
-            log_activity(f"T212 Rejection: {res.text}", "error")
-            return {"status": "REJECTED"}
+        res = requests.get(f"{T212_BASE_URL}/portfolio", headers=get_t212_auth_headers(), timeout=10)
+        if res.status_code == 200:
+            return res.json()
     except Exception as e:
-        log_activity(f"API Error: {str(e)}", "error")
-        return {"status": "EXCEPTION"}
+        log_activity(f"Portfolio fetch error: {str(e)}", "error")
+    return []
 
-def fetch_live_account_balance():
-    if not T212_API_KEY:
-        return 50000.00
+def get_account_cash():
+    if not T212_API_KEY: return 50000.00
     try:
         res = requests.get(f"{T212_BASE_URL}/account/cash", headers=get_t212_auth_headers(), timeout=10)
         if res.status_code == 200:
@@ -92,62 +63,97 @@ def fetch_live_account_balance():
         pass
     return 50000.00
 
-def get_trades_from_db():
+def execute_live_order(t212_ticker: str, quantity: float):
+    payload = {"ticker": t212_ticker, "quantity": quantity}
+    log_activity(f"AI Executing BUY order for {t212_ticker} (Qty: {quantity})", "info")
+    
     try:
-        response = db.client.table("trades").select("*").order("created_at", desc=True).execute()
-        return response.data if response.data else []
-    except Exception:
-        return []
-
-async def background_autonomous_loop():
-    await asyncio.sleep(10) # Give server time to boot
-    while True:
-        log_activity("AI Agent: Commencing multi-market momentum scan...", "info")
-        for yf_ticker, t212_ticker in WATCHLIST.items():
+        res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=get_t212_auth_headers(), timeout=15)
+        if res.status_code in [200, 201]:
+            status = res.json().get("status", "FILLED")
+            log_activity(f"Trade Successful! {t212_ticker} order is {status}.", "success")
             try:
-                data = yf.download(yf_ticker, period="5d", interval="1d", progress=False)
-                if not data.empty and len(data) >= 2:
-                    c1 = float(data['Close'].iloc[-1].item())
-                    c0 = float(data['Close'].iloc[-2].item())
-                    change = ((c1 - c0) / c0) * 100
+                db.client.table("trades").insert({
+                    "ticker": t212_ticker, "side": "BUY", "quantity": quantity, "status": status
+                }).execute()
+            except Exception: pass
+            return True
+        else:
+            log_activity(f"Order Rejected: {res.text}", "error")
+            return False
+    except Exception as e:
+        log_activity(f"Order Exception: {str(e)}", "error")
+        return False
+
+async def autonomous_ai_brain():
+    await asyncio.sleep(5)
+    log_activity("AI Brain Online: Commencing live intraday market sweeps...", "success")
+    
+    while True:
+        try:
+            # 1. Check current holdings so we don't overbuy the same stock
+            portfolio = get_live_portfolio()
+            owned_tickers = [pos.get("ticker") for pos in portfolio] if portfolio else []
+            
+            # 2. Scan the universe for opportunities
+            for yf_ticker, t212_ticker in MARKET_UNIVERSE.items():
+                if t212_ticker in owned_tickers:
+                    continue # Skip if we already own it; let the profits run
+                
+                log_activity(f"Scanning intraday price action for {yf_ticker}...", "info")
+                
+                # Fetch live 5-minute interval data to catch immediate intraday momentum
+                data = yf.download(yf_ticker, period="1d", interval="5m", progress=False)
+                
+                if len(data) >= 3:
+                    closes = data['Close'].values
+                    current_price = float(closes[-1].item())
+                    # Calculate a micro-trend (last 3 intervals vs previous)
+                    recent_avg = sum(closes[-3:]) / 3
+                    older_avg = sum(closes[-6:-3]) / 3 if len(closes) >= 6 else closes[0].item()
                     
-                    log_activity(f"AI Analysis [{t212_ticker}]: Price {c1:.2f} | Momentum: {change:+.2f}%", "info")
+                    momentum = ((recent_avg - older_avg) / older_avg) * 100
                     
-                    # AI Trading Rule: Execute buy if short-term momentum is positive
-                    if change > 0.2:
-                        log_activity(f"Breakout momentum detected on {t212_ticker}. AI executing autonomous trade...", "success")
-                        # Buy larger quantities for UK penny stocks (like LLOY) to simulate real weighting
-                        qty = 100.0 if "L_EQ" in t212_ticker else 1.0
+                    log_activity(f"[{yf_ticker}] Price: {current_price:.2f} | 15m Momentum: {momentum:+.3f}%", "info")
+                    
+                    # AI DECISION LOGIC: If momentum is shifting positive and strong enough, BUY.
+                    if momentum > 0.15: 
+                        log_activity(f"🚀 UPTREND DETECTED on {yf_ticker}. AI authorizing execution...", "success")
+                        # Size the position based on the asset (UK penny stocks vs US tech)
+                        qty = 50.0 if "L_EQ" in t212_ticker else 1.0
                         execute_live_order(t212_ticker, qty)
-                        break # Execute one trade per cycle, then sleep
-            except Exception as e:
-                pass
+                        await asyncio.sleep(10) # Pause after a trade
+                        break # Only take one new position per scan cycle
+                
+                await asyncio.sleep(3) # Prevent API rate limits
+                
+        except Exception as e:
+            log_activity(f"AI Brain encountered an error: {str(e)}", "error")
             
-            await asyncio.sleep(3) # Briefly pause between fetching tickers
-            
-        log_activity("Scan cycle complete. Monitoring positions. Next scan in 10 minutes.", "info")
-        await asyncio.sleep(600) # Wait 10 mins before next full market scan
+        log_activity("Sweep complete. Monitoring active positions. Next scan in 5 minutes...", "info")
+        await asyncio.sleep(300)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log_activity("PRV Autonomous Multi-Market Engine booting up...", "success")
-    task = asyncio.create_task(background_autonomous_loop())
+    task = asyncio.create_task(autonomous_ai_brain())
     yield
     task.cancel()
 
 app = FastAPI(lifespan=lifespan)
 
-@app.get("/api/trigger-trade")
-def trigger_manual_trade():
-    # Manual trigger now buys a UK stock to prove instant fill while US is closed
-    return execute_live_order("BARC_L_EQ", 10.0)
-
-@app.api_route("/api/valuation", methods=["GET", "HEAD"])
-def get_live_valuation():
+@app.api_route("/api/dashboard_data", methods=["GET"])
+def get_dashboard_data():
+    portfolio = get_live_portfolio()
+    cash = get_account_cash()
+    
+    # Calculate total portfolio equity (Cash + Value of open positions)
+    invested_value = sum(float(p.get("currentPrice", 0)) * float(p.get("quantity", 0)) for p in portfolio) if portfolio else 0.0
+    
     return {
-        "valuation": fetch_live_account_balance(),
-        "trades": get_trades_from_db()[:15],
-        "commentary": LIVE_COMMENTARY
+        "total_equity": cash + invested_value,
+        "cash_balance": cash,
+        "portfolio": portfolio,
+        "system_logs": SYSTEM_LOGS[:15]
     }
 
 @app.get("/", response_class=HTMLResponse)
@@ -157,94 +163,116 @@ def read_root():
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>PRV Autonomous Trading Floor</title>
+    <title>PRV Autonomous AI Trading Floor</title>
     <style>
-        body { background: #0b0f19; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 30px; }
-        .container { max-width: 1200px; margin: 0 auto; display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
-        .card { background: #111827; border: 1px solid #1f2937; padding: 24px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); grid-column: span 2; }
-        .card-half { grid-column: span 1; }
-        h1 { color: #38bdf8; font-size: 24px; margin-top: 0; }
-        h2 { color: #94a3b8; font-size: 16px; margin-top: 0; border-bottom: 1px solid #1f2937; padding-bottom: 8px; }
-        .metric { font-size: 32px; font-weight: bold; color: #34d399; margin: 10px 0; }
-        .log { background: #030712; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 250px; overflow-y: auto; border: 1px solid #374151; color: #4ade80; }
+        body { background: #0b0f19; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1f2937; padding-bottom: 15px; margin-bottom: 20px; }
+        h1 { color: #38bdf8; font-size: 24px; margin: 0; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: #111827; border: 1px solid #1f2937; padding: 20px; border-radius: 12px; }
+        .full-width { grid-column: span 2; }
+        h2 { color: #94a3b8; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-top: 0; border-bottom: 1px solid #1f2937; padding-bottom: 8px; }
+        .value-large { font-size: 36px; font-weight: bold; color: #f3f4f6; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
-        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #1f2937; }
-        th { color: #9ca3af; }
-        .btn { background: #38bdf8; color: #0b0f19; font-weight: bold; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; margin-top: 10px; }
-        .btn:hover { background: #0ea5e9; }
+        th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #1f2937; }
+        th { color: #6b7280; font-weight: 500; }
+        .pos { color: #34d399; font-weight: bold; }
+        .neg { color: #f87171; font-weight: bold; }
+        .log-box { background: #030712; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px; height: 250px; overflow-y: auto; border: 1px solid #374151; }
+        .log-entry { margin-bottom: 6px; }
+        .log-time { color: #6b7280; margin-right: 8px; }
+        .log-info { color: #94a3b8; }
+        .log-success { color: #34d399; font-weight: bold; }
+        .log-error { color: #f87171; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <h1>PRV Autonomous Trading Floor (Global Markets)</h1>
-            <p>AI is evaluating UK (LSE) and US (NASDAQ/NYSE) markets for live execution.</p>
-            <button class="btn" onclick="triggerTrade()">Force AI Trade (Barclays UK - Instant Fill Test)</button>
-            <span id="execStatus" style="margin-left: 15px; font-weight: bold; color: #38bdf8;"></span>
+    <div class="header">
+        <h1>PRV Autonomous AI Engine</h1>
+        <div style="text-align: right;">
+            <div style="color: #94a3b8; font-size: 12px;">SYSTEM STATUS</div>
+            <div style="color: #34d399; font-weight: bold; font-size: 14px;">● LIVE SCANNING ACTIVE</div>
         </div>
-        
-        <div class="card card-half">
-            <h2>Live Practice Balance</h2>
-            <div class="metric" id="valuation">Synchronizing...</div>
-            <p>Status: <span style="color: #34d399; font-weight: bold;">AI TRADING AGENT ONLINE</span></p>
-        </div>
+    </div>
 
-        <div class="card card-half">
-            <h2>AI Agent System Logs</h2>
-            <div class="log" id="logStream">Loading logs...</div>
+    <div class="grid">
+        <div class="card">
+            <h2>Total Portfolio Equity</h2>
+            <div class="value-large" id="totalEquity">£--.--</div>
+            <div style="color: #94a3b8; margin-top: 5px;">Available Cash: <span id="cashBal" style="color: #f3f4f6;">£--.--</span></div>
         </div>
 
         <div class="card">
-            <h2>Confirmed Trades on Trading 212</h2>
+            <h2>AI Brain Execution Logs</h2>
+            <div class="log-box" id="logStream">Initializing connection...</div>
+        </div>
+
+        <div class="card full-width">
+            <h2>Live Active Holdings (Synced with Trading 212)</h2>
             <table>
                 <thead>
-                    <tr><th>Timestamp</th><th>Ticker</th><th>Side</th><th>Quantity</th><th>Status</th></tr>
+                    <tr>
+                        <th>Instrument</th>
+                        <th>Shares</th>
+                        <th>Avg Buy Price</th>
+                        <th>Current Price</th>
+                        <th>Return (P/L)</th>
+                    </tr>
                 </thead>
-                <tbody id="tradeTable">
-                    <tr><td colspan="5" style="color: #6b7280;">Loading trade history...</td></tr>
+                <tbody id="portfolioTable">
+                    <tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 30px;">Analyzing markets. Waiting for AI to initiate positions...</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
-    <script>
-        async function triggerTrade() {
-            document.getElementById('execStatus').innerText = "Routing UK market order...";
-            try {
-                const res = await fetch('/api/trigger-trade');
-                const data = await res.json();
-                document.getElementById('execStatus').innerText = "Result: " + data.status + (data.detail ? " (" + data.detail + ")" : "");
-                fetchDashboard();
-            } catch(e) {
-                document.getElementById('execStatus').innerText = "Network fail.";
-            }
-        }
 
-        async function fetchDashboard() {
+    <script>
+        async function updateDashboard() {
             try {
-                const res = await fetch('/api/valuation');
+                const res = await fetch('/api/dashboard_data');
                 const data = await res.json();
-                document.getElementById('logStream').innerHTML = data.commentary;
-                document.getElementById('valuation').innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 
-                const tbody = document.getElementById('tradeTable');
-                if (data.trades && data.trades.length > 0) {
-                    tbody.innerHTML = data.trades.map(t => {
-                        let statusColor = t.status === 'QUEUED' ? '#facc15' : '#34d399';
+                // Update Values
+                document.getElementById('totalEquity').innerText = '£' + data.total_equity.toLocaleString('en-GB', {minimumFractionDigits: 2});
+                document.getElementById('cashBal').innerText = '£' + data.cash_balance.toLocaleString('en-GB', {minimumFractionDigits: 2});
+                
+                // Update Logs
+                const logHtml = data.system_logs.map(log => {
+                    let colorClass = log.level === 'success' ? 'log-success' : (log.level === 'error' ? 'log-error' : 'log-info');
+                    return `<div class="log-entry"><span class="log-time">[${log.time}]</span><span class="${colorClass}">${log.msg}</span></div>`;
+                }).join('');
+                document.getElementById('logStream').innerHTML = logHtml;
+
+                // Update Portfolio Table
+                const tbody = document.getElementById('portfolioTable');
+                if (data.portfolio && data.portfolio.length > 0) {
+                    tbody.innerHTML = data.portfolio.map(pos => {
+                        // Calculate return percentage
+                        const avg = parseFloat(pos.averagePrice);
+                        const cur = parseFloat(pos.currentPrice);
+                        const retPct = ((cur - avg) / avg) * 100;
+                        const retClass = retPct >= 0 ? 'pos' : 'neg';
+                        const retSign = retPct >= 0 ? '+' : '';
+                        
                         return `
                         <tr>
-                            <td>${t.created_at.split('T')[1].substring(0, 8) || 'Just now'}</td>
-                            <td><b>${t.ticker}</b></td>
-                            <td style="color: #34d399">${t.side}</td>
-                            <td>${t.quantity}</td>
-                            <td><span style="color: ${statusColor}; font-weight: bold;">${t.status}</span></td>
+                            <td style="font-weight: bold;">${pos.ticker.replace('_EQ', '').replace('_', '.')}</td>
+                            <td>${pos.quantity}</td>
+                            <td>${pos.averagePrice.toFixed(2)}</td>
+                            <td>${pos.currentPrice.toFixed(2)}</td>
+                            <td class="${retClass}">${retSign}${retPct.toFixed(2)}%</td>
                         </tr>
                         `;
                     }).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 20px;">No active positions. AI is hunting for the right entry point.</td></tr>';
                 }
             } catch(e) {}
         }
-        setInterval(fetchDashboard, 2000);
-        fetchDashboard();
+        
+        // Refresh every 2.5 seconds to watch price action move
+        setInterval(updateDashboard, 2500);
+        updateDashboard();
     </script>
 </body>
 </html>
