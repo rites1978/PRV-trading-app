@@ -4,10 +4,11 @@ import asyncio
 from datetime import datetime
 import os
 import requests
+import base64
 from contextlib import asynccontextmanager
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Initializing direct token connection..."
+LIVE_COMMENTARY = "AI Trading Floor: Authenticating with T212 via Basic Auth (Key:Secret)..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -19,12 +20,13 @@ def log_activity(message: str, level: str = "info"):
     print(f"[{level.upper()}] {timestamp} - {message}")
 
 T212_API_KEY = os.getenv("T212_API_KEY", "").strip()
+T212_API_SECRET = os.getenv("T212_API_SECRET", "").strip()
 T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/equity")
 
 def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
-    if not T212_API_KEY:
-        log_activity("T212 Error: T212_API_KEY is missing.", "error")
-        return "MISSING CREDS"
+    if not T212_API_KEY or not T212_API_SECRET:
+        log_activity("T212 Error: Missing API Key or Secret environment variables.", "error")
+        return 401
     
     clean_ticker = ticker.upper().strip().replace(".", "-")
     if "_" not in clean_ticker:
@@ -32,9 +34,12 @@ def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
 
     final_qty = float(abs(quantity)) if side == "BUY" else float(-abs(quantity))
 
-    # Single-token authorization header (used when generated directly from T212 settings)
+    # Correct HTTP Basic Authentication encoding
+    creds = f"{T212_API_KEY}:{T212_API_SECRET}"
+    encoded = base64.b64encode(creds.encode('utf-8')).decode('utf-8').strip()
+    
     headers = {
-        "Authorization": T212_API_KEY,
+        "Authorization": f"Basic {encoded}",
         "Content-Type": "application/json"
     }
     
@@ -45,7 +50,7 @@ def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
     }
     
     url = f"{T212_BASE_URL}/orders/market"
-    log_activity(f"Sending MARKET order to T212 for {clean_ticker} (Qty: {final_qty})", "info")
+    log_activity(f"Sending Basic Auth MARKET order for {clean_ticker} (Qty: {final_qty})", "info")
     
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=15)
@@ -58,7 +63,7 @@ def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
 async def market_scouring_agent():
     await asyncio.sleep(5)
     while True:
-        log_activity("Testing live order placement against T212 Practice API...", "info")
+        log_activity("Testing authenticated order placement against T212...", "info")
         execute_t212_order("AAPL", 1.0, "BUY")
         await asyncio.sleep(300)
 
