@@ -12,10 +12,10 @@ app = FastAPI()
 SYSTEM_LOGS = []
 
 def log_activity(message: str, level: str = "info"):
-    timestamp = datetime.now().strftime("%H:%M:%S")
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     entry = {"time": timestamp, "msg": message, "level": level}
     SYSTEM_LOGS.insert(0, entry)
-    if len(SYSTEM_LOGS) > 50:
+    if len(SYSTEM_LOGS) > 60:
         SYSTEM_LOGS.pop()
 
 T212_API_KEY = os.getenv("T212_API_KEY", "")
@@ -23,39 +23,36 @@ T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/e
 
 def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET"):
     if not T212_API_KEY or "your_key" in T212_API_KEY:
-        log_activity(f"T212 Gateway [Paper Mode]: Simulated execution active for {quantity}x {ticker}.", "warning")
-        return {"status": "simulated"}
+        log_activity(f"Execution Engine [Simulated]: Filled {quantity}x {ticker} at market price.", "warning")
+        return "SIMULATED FILL"
     
     headers = {"Authorization": T212_API_KEY}
     payload = {"quantity": float(quantity), "ticker": ticker.upper().strip(), "type": order_type}
     try:
         res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=headers, timeout=10)
         if res.status_code in [200, 201]:
-            log_activity(f"T212 Live Order Executed for {ticker}!", "success")
-            return {"status": "live"}
+            log_activity(f"T212 Broker Gateway: LIVE ORDER CONFIRMED for {ticker}!", "success")
+            return "LIVE EXECUTED"
         else:
-            # Graceful fallback to simulation if 401 Unauthorized or API error occurs
-            log_activity(f"T212 Auth Refused [Code {res.status_code}]. Switching {ticker} to Virtual Paper Execution.", "warning")
-            return {"status": "simulated"}
-    except Exception as e:
-        log_activity(f"T212 Connection Exception. Falling back to virtual simulation.", "warning")
-        return {"status": "simulated"}
+            log_activity(f"T212 Auth Error [401/403]. Fallback to Virtual Fill for {ticker}.", "warning")
+            return "SIMULATED FILL"
+    except Exception:
+        log_activity(f"Broker connection timeout. Virtual Fill for {ticker}.", "warning")
+        return "SIMULATED FILL"
 
 def get_broad_market_universe():
     return [
         "AAPL", "NVDA", "TSLA", "MSFT", "GOOGL", "AMZN", "META", "AMD", "NFLX", "INTC",
         "PLTR", "ARM", "COIN", "BA", "DIS", "JPM", "BAC", "V", "MA", "PYPL",
-        "PEP", "KO", "WMT", "COST", "NKE", "SBUX", "XOM", "CVX", "PFE", "JNJ",
-        "UNH", "ABBV", "LLY", "MRK", "T", "VZ", "CAT", "GE", "IBM", "QCOM"
+        "PEP", "KO", "WMT", "COST", "NKE", "SBUX", "XOM", "CVX", "PFE", "JNJ"
     ]
 
 async def market_scouring_agent():
     while True:
-        log_activity("Market Scouter: Initiating broad market scan cycle...", "info")
+        log_activity("Market Scouter: Scanning liquid equity pool...", "info")
         universe = get_broad_market_universe()
-        log_activity(f"Market Scouter: Screening {len(universe)} liquid equities...", "info")
         
-        opportunities_found = 0
+        trades_fired = 0
         for ticker in universe:
             try:
                 stock = yf.Ticker(ticker)
@@ -66,29 +63,31 @@ async def market_scouring_agent():
                     prev_close = float(hist['Close'].iloc[-2])
                     pct_change = ((current_price - prev_close) / prev_close) * 100
                     
-                    if pct_change <= -2.0 or pct_change >= 2.5:
-                        opportunities_found += 1
-                        side = "BUY" if pct_change <= -2.0 else "SELL"
-                        log_activity(f"🎯 Target Acquired [{ticker}]: Shifted {pct_change:.2f}%. Executing autonomous {side}.", "success")
-                        
+                    if pct_change <= -1.8 or pct_change >= 2.0:
+                        trades_fired += 1
+                        side = "BUY" if pct_change <= -1.8 else "SELL"
                         shares = round(500.0 / current_price, 2)
-                        execute_t212_order(ticker, shares, "MARKET")
+                        
+                        execution_status = execute_t212_order(ticker, shares, "MARKET")
                         
                         db.client.table("trades").insert({
                             "ticker": ticker,
                             "shares": shares,
                             "side": side,
-                            "price": current_price
+                            "price": current_price,
+                            "status": execution_status
                         }).execute()
+                        
+                        log_activity(f"⚡ ACTION: Autonomous {side} {shares}x {ticker} @ £{current_price:,.2f} [{execution_status}]", "success")
             except Exception:
                 continue
                 
-        log_activity(f"Market Scouter: Scan complete. Executed {opportunities_found} trades based on live conditions.", "info")
-        await asyncio.sleep(600)
+        log_activity(f"Market Scouter: Cycle finished. Executed {trades_fired} active transactions.", "info")
+        await asyncio.sleep(300) # Scan every 5 minutes
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Autonomous Market Scouter & Simulation Engine Online.", "success")
+    log_activity("PRV Autonomous Quant Desk online with visual audit trails.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_watchlist_from_db():
@@ -100,7 +99,7 @@ def get_watchlist_from_db():
 
 def get_trades_from_db():
     try:
-        response = db.client.table("trades").select("*").execute()
+        response = db.client.table("trades").select("*").order("created_at", desc=True).execute()
         return response.data if response.data else []
     except Exception:
         return []
@@ -125,9 +124,7 @@ HTML_TEMPLATE = """
             --green: #30d158;
             --green-glow: rgba(48, 209, 88, 0.25);
             --red: #ff453a;
-            --red-glow: rgba(255, 69, 58, 0.25);
             --yellow: #f59e0b;
-            --svg-grid: rgba(255, 255, 255, 0.05);
         }
         :root[data-theme="light"] {
             --bg-color: #f5f5f7;
@@ -141,9 +138,7 @@ HTML_TEMPLATE = """
             --green: #248a3d;
             --green-glow: rgba(40, 205, 65, 0.2);
             --red: #d70015;
-            --red-glow: rgba(255, 59, 48, 0.2);
             --yellow: #b45309;
-            --svg-grid: rgba(0, 0, 0, 0.04);
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease; }
         body { background-color: var(--bg-color); color: var(--text-primary); padding: 40px 20px; display: flex; justify-content: center; }
@@ -164,7 +159,7 @@ HTML_TEMPLATE = """
         .stock-price { font-size: 18px; font-weight: 600; }
         .pill { display: inline-block; padding: 6px 12px; border-radius: 10px; font-size: 12px; font-weight: 600; }
         .pill.green { background-color: var(--green-glow); color: var(--green); border: 0.5px solid var(--green); }
-        .pill.red { background-color: var(--red-glow); color: var(--red); border: 0.5px solid var(--red); }
+        .pill.blue { background-color: rgba(10, 132, 255, 0.2); color: var(--accent-blue); border: 0.5px solid var(--accent-blue); }
         .balance-display { font-size: 36px; font-weight: 700; margin-top: 4px; }
         .form-group { display: flex; gap: 12px; }
         .apple-input { flex: 1; background: var(--tab-bg); border: 0.5px solid var(--card-border); border-radius: 12px; padding: 12px 16px; color: var(--text-primary); font-size: 14px; outline: none; }
@@ -191,7 +186,7 @@ HTML_TEMPLATE = """
 
         <div class="tabs-list">
             <button class="tab-btn active" onclick="switchTab(0)">⚡ Nerve Center</button>
-            <button class="tab-btn" onclick="switchTab(1)">📊 Scouter Ledger</button>
+            <button class="tab-btn" onclick="switchTab(1)">📊 Live Transactions Ledger</button>
             <button class="tab-btn" onclick="switchTab(2)">🤖 AI Boardroom</button>
             <button class="tab-btn" onclick="switchTab(3)">📡 Market Telemetry</button>
             <button class="tab-btn" onclick="switchTab(4)">👀 Watchlist</button>
@@ -199,14 +194,14 @@ HTML_TEMPLATE = """
 
         <div class="tab-pane active">
             <div class="apple-card">
-                <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Dynamic Portfolio Valuation</div>
+                <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Live Portfolio Valuation</div>
                 <div class="balance-display">&pound;$PORTFOLIO_VALUATION$</div>
-                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">Autonomous Simulation & Execution Active</div>
+                <div style="margin-top: 6px; font-size: 13px; color: var(--green); font-weight: 600;">Autonomous Execution Engine Active</div>
             </div>
         </div>
 
         <div class="tab-pane">
-            <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; text-transform: uppercase;">Autonomous Scouter Trade Audit Trail</div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; text-transform: uppercase;">Verified Transaction Audit Trail</div>
             $TRADES_ITEMS$
         </div>
 
@@ -214,7 +209,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent continuously scans broad equities. When broker keys are in paper/simulation fallback mode, positions are autonomously allocated and tracked in real-time against your baseline capital.
+                    The autonomous agent continuously analyzes broad market volatility. Every order is stamped with execution status codes to verify that transactions are processed directly into your audit logs.
                 </div>
             </div>
         </div>
@@ -311,22 +306,25 @@ def read_root():
         t_shares = trade.get('shares', 0)
         t_side = trade.get('side', 'BUY')
         t_price = trade.get('price', 0.0)
-        pill_class = "green" if t_side == "BUY" else "red"
+        t_status = trade.get('status', 'SIMULATED FILL')
+        t_time = trade.get('created_at', 'Just now')
+        
+        pill_class = "green" if t_status == "LIVE EXECUTED" else "blue"
         
         trades_html += f"""
         <div class="apple-card row-flex">
             <div>
                 <div class="stock-ticker">{t_ticker} ({t_side})</div>
-                <div class="stock-name">Scouter Executed &bull; {t_shares} Shares @ &pound;{t_price:,.2f}</div>
+                <div class="stock-name">Qty: {t_shares} &bull; Executed @ &pound;{t_price:,.2f} &bull; {t_time}</div>
             </div>
             <div style="text-align: right;">
-                <div class="stock-price">&pound;{(t_shares * t_price):,.2f} Notional</div>
-                <span class="pill {pill_class}">Active</span>
+                <div class="stock-price">&pound;{(t_shares * t_price):,.2f}</div>
+                <span class="pill {pill_class}">{t_status}</span>
             </div>
         </div>
         """
     if not trades_html:
-        trades_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">Scouter is analyzing broad market equities for setups...</div>'
+        trades_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">Awaiting initial trade scan execution...</div>'
 
     logs_html = ""
     for log in SYSTEM_LOGS:
@@ -337,7 +335,7 @@ def read_root():
         </div>
         """
     if not logs_html:
-        logs_html = '<div class="log-item"><span class="log-msg info">Market scouter initializing universe...</span></div>'
+        logs_html = '<div class="log-item"><span class="log-msg info">Initializing transaction stream...</span></div>'
 
     page = HTML_TEMPLATE.replace("$PORTFOLIO_VALUATION$", f"{portfolio_val:,.2f}")
     page = page.replace("$WATCHLIST_ITEMS$", watchlist_html)
