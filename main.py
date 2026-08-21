@@ -12,7 +12,7 @@ import random
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Neural portfolio optimizer active. Calculating 24h rates of return..."
+LIVE_COMMENTARY = "AI Trading Floor: Recalibrating cash-equity ledgers and correcting portfolio accounting..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -40,7 +40,7 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
             log_activity(f"Trading 212 Broker: LIVE ORDER EXECUTED for {ticker}!", "success")
             return "LIVE EXECUTED"
         else:
-            log_activity(f"Trading 212 Auth Refused [Code {res.status_code}]. Using Virtual Fill.", "warning")
+            log_activity(f"Trading 212 Auth Refused. Using Virtual Fill.", "warning")
             return "SIMULATED FILL"
     except Exception:
         log_activity(f"Broker connection timeout. Virtual Fill for {ticker}.", "warning")
@@ -92,7 +92,7 @@ async def market_scouring_agent():
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Trading Desk online with institutional allocations & live ticker.", "success")
+    log_activity("PRV Trading Desk online with accurate cash-equity ledger.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_trades_from_db():
@@ -107,14 +107,19 @@ def get_live_valuation():
     baseline_capital = 40000.00
     trades = get_trades_from_db()
     
-    current_notional = 0.0
+    total_cost_basis = 0.0
+    current_market_value = 0.0
     total_24h_pnl = 0.0
+    allocations_map = {}
     
     for t in trades:
         ticker = t.get('ticker')
         shares = float(t.get('shares', 0))
         entry_price = float(t.get('price', 0))
         side = t.get('side', 'BUY')
+        
+        cost_basis = shares * entry_price
+        total_cost_basis += cost_basis
         
         try:
             stock = yf.Ticker(ticker)
@@ -126,19 +131,32 @@ def get_live_valuation():
             prev_close = entry_price
             
         position_val = shares * live_price
-        current_notional += position_val
+        current_market_value += position_val
         
-        # Calculate 24h PnL change for this position
+        allocations_map[ticker] = allocations_map.get(ticker, 0.0) + position_val
+        
         pnl_change = (live_price - prev_close) * shares
         if side == "SELL":
             pnl_change = -pnl_change
         total_24h_pnl += pnl_change
         
-    total_val = baseline_capital + current_notional
+    # CORRECT ACCOUNTING: Remaining Cash = Baseline - Cash spent on trades
+    remaining_cash = baseline_capital - total_cost_basis
+    
+    # Total Portfolio Valuation = Cash + Current Market Value of Open Positions
+    total_val = remaining_cash + current_market_value
+    
+    # Total Profit/Loss = Total Valuation - Baseline Capital
+    total_pnl = total_val - baseline_capital
+    return_pct = (total_pnl / baseline_capital) * 100
+
+    allocations_list = [{"ticker": k, "value": round(v, 2)} for k, v in allocations_map.items()]
+    
     return {
         "valuation": round(total_val, 2),
         "change_24h": round(total_24h_pnl, 2),
-        "return_pct": round((total_24h_pnl / baseline_capital) * 100, 2),
+        "return_pct": round(return_pct, 2),
+        "allocations": allocations_list,
         "commentary": LIVE_COMMENTARY
     }
 
@@ -204,7 +222,6 @@ HTML_TEMPLATE = """
         .stock-name { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
         .stock-price { font-size: 18px; font-weight: 600; }
         
-        /* Distinct Buy vs Sell Badges */
         .pill { display: inline-block; padding: 6px 14px; border-radius: 10px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
         .pill.buy { background-color: var(--green-glow); color: var(--green); border: 0.5px solid var(--green); }
         .pill.sell { background-color: var(--red-glow); color: var(--red); border: 0.5px solid var(--red); }
@@ -226,7 +243,6 @@ HTML_TEMPLATE = """
         .log-msg.warning { color: var(--yellow); }
         .log-msg.info { color: var(--text-primary); }
 
-        /* Allocation Pie Chart Layout */
         .chart-row { display: flex; align-items: center; gap: 24px; margin-top: 14px; }
         .chart-legend { display: flex; flex-direction: column; gap: 8px; flex: 1; max-height: 160px; overflow-y: auto; }
         .legend-item { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
@@ -257,7 +273,6 @@ HTML_TEMPLATE = """
             <button class="tab-btn" onclick="switchTab(3)">📡 Market Telemetry</button>
         </div>
 
-        <!-- TAB 0: Nerve Center with Pie Chart & 24h Metrics -->
         <div class="tab-pane active">
             <div class="apple-card">
                 <div style="font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">Streaming Portfolio Valuation</div>
@@ -269,44 +284,36 @@ HTML_TEMPLATE = """
                         <div class="metric-val" id="metric24h">&pound;0.00</div>
                     </div>
                     <div class="metric-box">
-                        <div class="metric-label">Rate of Return</div>
+                        <div class="metric-label">Total Return (ROI)</div>
                         <div class="metric-val" id="metricRoi">0.00%</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Portfolio Allocation Pie Chart Card -->
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 4px;">Portfolio Asset Allocation</div>
                 <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">Live weighting breakdown of active holdings</div>
                 <div class="chart-row">
-                    <div style="width: 140px; height: 140px; flex-shrink: 0;" id="pieChartContainer">
-                        <!-- SVG Donut injected dynamically -->
-                    </div>
-                    <div class="chart-legend" id="chartLegend">
-                        <!-- Legend items injected dynamically -->
-                    </div>
+                    <div style="width: 140px; height: 140px; flex-shrink: 0;" id="pieChartContainer"></div>
+                    <div class="chart-legend" id="chartLegend"></div>
                 </div>
             </div>
         </div>
 
-        <!-- TAB 1: Transactions & Allocations Ledger -->
         <div class="tab-pane">
             <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; text-transform: uppercase;">Verified Transaction Audit Trail</div>
             $TRADES_ITEMS$
         </div>
 
-        <!-- TAB 2: AI Boardroom -->
         <div class="tab-pane">
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent continuously processes real-time feeds. Buy (Long) positions are highlighted in green and Sell (Short) positions in red across your institutional audit logs.
+                    The autonomous agent continuously processes real-time feeds with strict cash-equity ledger balancing.
                 </div>
             </div>
         </div>
 
-        <!-- TAB 3: Market Telemetry -->
         <div class="tab-pane">
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 12px;">Live Market Analysis Log</div>
@@ -354,7 +361,6 @@ HTML_TEMPLATE = """
                 valEl.textContent = '£' + newVal.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 commentaryEl.textContent = data.commentary;
                 
-                // 24h metrics
                 const change24h = data.change_24h;
                 const roi = data.return_pct;
                 
@@ -385,7 +391,6 @@ HTML_TEMPLATE = """
         function renderPieChart(allocations) {
             const container = document.getElementById('pieChartContainer');
             const legend = document.getElementById('chartLegend');
-            
             const colors = ['#0a84ff', '#30d158', '#f59e0b', '#ff453a', '#bf5af2', '#5e5ce6', '#64d2ff', '#ff9f0a'];
             
             let total = allocations.reduce((sum, item) => sum + item.value, 0);
@@ -399,14 +404,12 @@ HTML_TEMPLATE = """
                 const percent = (item.value / total) * 100;
                 const color = colors[index % colors.length];
                 
-                // SVG Donut slice calculation
                 const [startX, startY] = getCoordinatesForPercent(cumulativePercent / 100);
                 cumulativePercent += percent;
                 const [endX, endY] = getCoordinatesForPercent(cumulativePercent / 100);
                 const largeArcFlag = percent > 50 ? 1 : 0;
                 
                 svgSlices += `<path d="M 50 50 L ${startX} ${startY} A 40 40 0 ${largeArcFlag} 1 ${endX} ${endY} Z" fill="${color}" />`;
-                
                 legendHtml += `
                     <div class="legend-item">
                         <span><span class="legend-color" style="background: ${color};"></span>${item.ticker}</span>
@@ -435,7 +438,6 @@ HTML_TEMPLATE = """
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     trades = get_trades_from_db()
-
     trades_html = ""
     for trade in trades:
         t_ticker = trade.get('ticker', '').upper()
@@ -445,7 +447,6 @@ def read_root():
         t_status = trade.get('status', 'SIMULATED FILL')
         t_time = trade.get('created_at', 'Just now')
         
-        # Distinct Buy vs Sell styling
         pill_class = "buy" if t_side == "BUY" else "sell"
         
         trades_html += f"""
@@ -476,49 +477,3 @@ def read_root():
 
     page = HTML_TEMPLATE.replace("$TRADES_ITEMS$", trades_html)
     return page.replace("$LOG_STREAM_HTML$", logs_html)
-
-@app.api_route("/api/valuation", methods=["GET", "HEAD"])
-def get_live_valuation_json():
-    baseline_capital = 40000.00
-    trades = get_trades_from_db()
-    
-    current_notional = 0.0
-    total_24h_pnl = 0.0
-    allocations_map = {}
-    
-    for t in trades:
-        ticker = t.get('ticker')
-        shares = float(t.get('shares', 0))
-        entry_price = float(t.get('price', 0))
-        side = t.get('side', 'BUY')
-        
-        try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="2d")
-            live_price = float(hist['Close'].iloc[-1]) if not hist.empty else entry_price
-            prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else live_price
-        except Exception:
-            live_price = entry_price
-            prev_close = entry_price
-            
-        position_val = shares * live_price
-        current_notional += position_val
-        
-        allocations_map[ticker] = allocations_map.get(ticker, 0.0) + position_val
-        
-        pnl_change = (live_price - prev_close) * shares
-        if side == "SELL":
-            pnl_change = -pnl_change
-        total_24h_pnl += pnl_change
-        
-    total_val = baseline_capital + current_notional
-    
-    allocations_list = [{"ticker": k, "value": round(v, 2)} for k, v in allocations_map.items()]
-    
-    return {
-        "valuation": round(total_val, 2),
-        "change_24h": round(total_24h_pnl, 2),
-        "return_pct": round((total_24h_pnl / baseline_capital) * 100, 2),
-        "allocations": allocations_list,
-        "commentary": LIVE_COMMENTARY
-    }
