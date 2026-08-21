@@ -86,5 +86,33 @@ class TestPRVQuantPlatform(unittest.TestCase):
         self.assertFalse(approved)
         self.assertFalse(data["approved"])
 
+    def test_market_hours_manager(self):
+        """Test market hours timezone checks for UK and US."""
+        from src.data.market_hours import market_hours
+        status = market_hours.get_market_status()
+        self.assertIn("uk_market_open", status)
+        self.assertIn("us_market_open", status)
+        self.assertIn("session_state", status)
+
+    def test_evidence_recorder_and_monitoring(self):
+        """Test permanent evidence recording and phase gate monitoring dashboard."""
+        from src.monitoring.evidence_recorder import evidence_recorder
+        from src.monitoring.monitoring_service import monitoring_service
+
+        evidence_recorder.record_daily_snapshot({
+            "starting_nav": 5000.0, "current_nav": 4956.10, "core_capital": 4956.10,
+            "active_capital": 3431.10, "idle_cash": 1525.00, "vault_balance": 24.55,
+            "deployment_pct": 69.23, "daily_pnl": -43.90, "daily_pnl_pct": -0.88,
+            "drawdown_pct": 1.64, "peak_nav": 5000.0, "open_positions_count": 12,
+            "market_regime": "BULL", "profit_factor": 0.11, "win_rate": 7.89,
+            "completed_trades_count": 38
+        })
+
+        phase_data = monitoring_service.get_phase_gate_dashboard(total_trades=38, rolling_pf=0.11, max_drawdown=1.64)
+        self.assertEqual(phase_data["current_trade_count"], 38)
+        self.assertEqual(phase_data["trades_remaining_to_gate1"], 12)
+        self.assertEqual(phase_data["operational_status"], "YELLOW")
+        self.assertFalse(phase_data["scale_eligibility"])
+
 if __name__ == "__main__":
     unittest.main()

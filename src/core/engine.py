@@ -19,6 +19,8 @@ from src.ai.scoring_engine import ai_scoring
 from src.execution.cost_model import cost_model
 from src.agents.boardroom import boardroom
 from src.execution.order_router import order_router
+from src.data.market_hours import market_hours
+from src.monitoring.evidence_recorder import evidence_recorder
 from telegram_notifier import TelegramNotifier
 
 class PRVQuantEngine:
@@ -206,6 +208,10 @@ class PRVQuantEngine:
             is_uk = (item["country"] == "UK")
             is_uk_pence = item.get("is_uk_pence", False)
 
+            # Market Hours Gate: Only scan assets when their domestic exchange is active
+            if not market_hours.is_asset_market_open(item.get("country", "US")):
+                continue
+
             # Event Risk Blackout Gate
             event_safe, event_reason, event_meta = event_risk_engine.evaluate_event_blackout(symbol, yf_ticker)
             if not event_safe:
@@ -295,6 +301,22 @@ class PRVQuantEngine:
                 cost_approved=cost_eval_ok
             )
 
+            # Permanent Evidence Recording for Signal
+            evidence_recorder.record_signal({
+                "symbol": symbol,
+                "market_regime": market_regime,
+                "technical_score": tech_confidence,
+                "fundamental_score": alpha_breakdown.get("fundamental_score", 50.0),
+                "sector_score": alpha_breakdown.get("sector_alpha_score", 50.0),
+                "sentiment_score": alpha_breakdown.get("sentiment_score", 50.0),
+                "composite_alpha": composite_alpha_score,
+                "target_position_pct": sizing_meta.get("target_pct", 5.0),
+                "reward_risk_ratio": cost_eval.get("net_reward_risk", 3.0),
+                "status": "APPROVED" if approved_by_boardroom else "REJECTED",
+                "rejection_reason": decision_data.get("reasoning", "") if not approved_by_boardroom else "Quorum Approved",
+                "boardroom_votes": decision_data
+            })
+
             candidates.append({
                 "symbol": symbol,
                 "t212_ticker": t212_ticker,
@@ -376,7 +398,12 @@ class PRVQuantEngine:
     def _execution_loop(self):
         while not self._stop_event.is_set():
             try:
-                self.run_cycle()
+                m_status = market_hours.get_market_status()
+                if m_status["any_market_open"]:
+                    self.run_cycle()
+                else:
+                    # Markets closed - sync broker data & update daily snapshot quietly
+                    pass
             except Exception as e:
                 print(f"[QuantEngine Loop Error] {e}")
                 

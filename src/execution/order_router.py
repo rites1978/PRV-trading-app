@@ -3,6 +3,7 @@ from datetime import datetime
 from src.config.settings import settings
 from src.brokers.trading212 import broker
 from src.database.db import db
+from src.monitoring.evidence_recorder import evidence_recorder
 
 class OrderRouter:
     """
@@ -89,6 +90,23 @@ class OrderRouter:
                     "mode": "LIVE"
                 })
                 
+                evidence_recorder.record_trade_ledger({
+                    "trade_id": str(broker_order_id),
+                    "symbol": symbol,
+                    "t212_ticker": t212_ticker,
+                    "action": "BUY",
+                    "quantity": quantity,
+                    "entry_price": price,
+                    "position_cost": total_cost,
+                    "stop_loss_price": price * (1.0 - settings.DEFAULT_STOP_LOSS_PCT),
+                    "take_profit_price": price * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT),
+                    "spread_cost": spread_cost,
+                    "slippage_cost": slippage_cost,
+                    "fx_cost": fx_cost,
+                    "total_friction": spread_cost + slippage_cost + fx_cost,
+                    "mode": "LIVE"
+                })
+                
                 self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, "FILLED_LIVE")
                 return True, f"✅ Live Buy Order Executed: {quantity} shares of {symbol} at £{price:.2f}", res["data"]
             else:
@@ -111,6 +129,22 @@ class OrderRouter:
                 "confidence_score": confidence_score,
                 "reward_risk_ratio": reward_risk_ratio,
                 "trade_reason": trade_reason,
+                "mode": "PAPER"
+            })
+            evidence_recorder.record_trade_ledger({
+                "trade_id": trade_id,
+                "symbol": symbol,
+                "t212_ticker": t212_ticker,
+                "action": "BUY",
+                "quantity": quantity,
+                "entry_price": price,
+                "position_cost": total_cost,
+                "stop_loss_price": price * (1.0 - settings.DEFAULT_STOP_LOSS_PCT),
+                "take_profit_price": price * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT),
+                "spread_cost": spread_cost,
+                "slippage_cost": slippage_cost,
+                "fx_cost": fx_cost,
+                "total_friction": spread_cost + slippage_cost + fx_cost,
                 "mode": "PAPER"
             })
             self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, "FILLED_PAPER")
@@ -150,6 +184,21 @@ class OrderRouter:
                     "trade_reason": exit_reason,
                     "mode": "LIVE"
                 })
+                evidence_recorder.record_trade_ledger({
+                    "trade_id": trade_id,
+                    "symbol": symbol,
+                    "t212_ticker": t212_ticker,
+                    "action": "SELL",
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "exit_price": current_price,
+                    "position_cost": nominal_entry,
+                    "gross_pnl": realized_pnl,
+                    "net_pnl": realized_pnl,
+                    "net_return_pct": (realized_pnl / max(1.0, nominal_entry)) * 100.0,
+                    "exit_reason": exit_reason,
+                    "mode": "LIVE"
+                })
                 self._log_audit("SELL_EXECUTION", symbol, "N/A", {}, 100.0, exit_reason, True, quantity, f"FILLED_LIVE_PNL_{realized_pnl:+.2f}")
                 return True, f"✅ Live Exit Executed for {symbol}: {exit_reason} (Realized PnL: £{realized_pnl:+.2f})", realized_pnl
             else:
@@ -166,6 +215,21 @@ class OrderRouter:
                 "confidence_score": 100.0,
                 "reward_risk_ratio": 0.0,
                 "trade_reason": exit_reason,
+                "mode": "PAPER"
+            })
+            evidence_recorder.record_trade_ledger({
+                "trade_id": trade_id,
+                "symbol": symbol,
+                "t212_ticker": t212_ticker,
+                "action": "SELL",
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "exit_price": current_price,
+                "position_cost": nominal_entry,
+                "gross_pnl": realized_pnl,
+                "net_pnl": realized_pnl,
+                "net_return_pct": (realized_pnl / max(1.0, nominal_entry)) * 100.0,
+                "exit_reason": exit_reason,
                 "mode": "PAPER"
             })
             self._log_audit("SELL_EXECUTION", symbol, "N/A", {}, 100.0, exit_reason, True, quantity, f"FILLED_PAPER_PNL_{realized_pnl:+.2f}")

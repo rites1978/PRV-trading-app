@@ -21,6 +21,8 @@ from src.portfolio.dust_cleaner import dust_cleaner
 from src.brokers.trading212 import broker
 from src.database.db import db
 from src.risk.risk_engine import risk_engine
+from src.data.market_hours import market_hours
+from src.monitoring.monitoring_service import monitoring_service
 
 CACHE = {
     "last_sync": 0.0,
@@ -34,18 +36,10 @@ CACHE = {
 }
 
 def is_uk_market_open() -> bool:
-    now_utc = datetime.now(timezone.utc)
-    if now_utc.weekday() >= 5:
-        return False
-    current_time = now_utc.time()
-    return dtime(8, 0) <= current_time <= dtime(16, 30)
+    return market_hours.is_uk_market_open()
 
 def is_us_market_open() -> bool:
-    now_utc = datetime.now(timezone.utc)
-    if now_utc.weekday() >= 5:
-        return False
-    current_time = now_utc.time()
-    return dtime(14, 30) <= current_time <= dtime(21, 0)
+    return market_hours.is_us_market_open()
 
 def sync_broker_data(force: bool = False):
     """Synchronize with broker with rate-limiting protection & persistent caching."""
@@ -163,3 +157,51 @@ def clean_dust():
     res = dust_cleaner.liquidate_dust_positions(is_paper=quant_engine.paper_mode)
     sync_broker_data(force=True)
     return JSONResponse(content=res)
+
+# ==========================================
+# PHASE 23 PRODUCTION MONITORING API ROUTES
+# ==========================================
+
+@app.get("/api/monitoring/daily")
+def get_daily_monitoring():
+    account, positions = sync_broker_data()
+    cap_state = capital_manager.get_capital_state(account["total_value"], account["invested"], account["available_cash"])
+    regime, _ = capital_manager.determine_market_regime(70.0, 75.0)
+    data = monitoring_service.get_daily_dashboard(account, positions, cap_state, regime)
+    return JSONResponse(content=data)
+
+@app.get("/api/monitoring/trades")
+def get_trade_ledger_monitoring():
+    ledger = monitoring_service.get_trade_ledger(limit=100)
+    return JSONResponse(content={"count": len(ledger), "ledger": ledger})
+
+@app.get("/api/monitoring/risk")
+def get_risk_monitoring():
+    account, positions = sync_broker_data()
+    regime, _ = capital_manager.determine_market_regime(70.0, 75.0)
+    risk_data = monitoring_service.get_risk_dashboard(account["total_value"], settings.STARTING_CAPITAL, positions, regime)
+    return JSONResponse(content=risk_data)
+
+@app.get("/api/monitoring/broker")
+def get_broker_monitoring():
+    account, positions = sync_broker_data()
+    cap_state = capital_manager.get_capital_state(account["total_value"], account["invested"], account["available_cash"])
+    broker_data = monitoring_service.get_broker_audit_dashboard(account, cap_state, positions)
+    return JSONResponse(content=broker_data)
+
+@app.get("/api/monitoring/phase_gate")
+def get_phase_gate_monitoring():
+    trades = db.get_trades(limit=500)
+    wins = [t for t in trades if t.get("realized_pnl", 0) > 0]
+    losses = [t for t in trades if t.get("realized_pnl", 0) < 0]
+    tot_win = sum(t.get("realized_pnl", 0) for t in wins)
+    tot_loss = abs(sum(t.get("realized_pnl", 0) for t in losses))
+    pf = round(tot_win / max(1.0, tot_loss), 2)
+    account, _ = sync_broker_data()
+    drawdown_pct = max(0.0, (settings.STARTING_CAPITAL - account["total_value"]) / settings.STARTING_CAPITAL * 100.0)
+    gate_data = monitoring_service.get_phase_gate_dashboard(len(trades), pf, round(drawdown_pct, 2))
+    return JSONResponse(content=gate_data)
+
+@app.get("/api/monitoring/market_hours")
+def get_market_hours_status():
+    return JSONResponse(content=market_hours.get_market_status())
