@@ -12,8 +12,12 @@ import yfinance as yf
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Initializing strict no-guess protocol..."
-TICKER_MAP = {} # Will hold exact mapped T212 tickers directly from their API
+LIVE_COMMENTARY = "AI Trading Floor: Initializing strict no-guess protocol with memory cache..."
+TICKER_MAP = {} 
+
+# Memory Cache to prevent UI flickering on API rate limits
+CACHED_PORTFOLIO = []
+CACHED_CASH = 50000.00
 
 MARKET_UNIVERSE = {
     "BARC.L": "BARC",
@@ -43,7 +47,7 @@ def get_t212_auth_headers():
 
 def execute_live_order(exact_ticker: str, quantity: float):
     payload = {"ticker": exact_ticker, "quantity": quantity}
-    log_activity(f"AI Executing BUY order for strictly verified ticker: {exact_ticker}", "info")
+    log_activity(f"AI Executing BUY order for: {exact_ticker}", "info")
     
     try:
         res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=get_t212_auth_headers(), timeout=15)
@@ -64,27 +68,28 @@ def execute_live_order(exact_ticker: str, quantity: float):
         return {"status": "EXCEPTION", "detail": str(e)}
 
 def get_live_portfolio():
-    if not T212_API_KEY: return []
+    global CACHED_PORTFOLIO
+    if not T212_API_KEY: return CACHED_PORTFOLIO
     try:
         res = requests.get(f"{T212_BASE_URL}/portfolio", headers=get_t212_auth_headers(), timeout=10)
         if res.status_code == 200:
-            return res.json()
+            CACHED_PORTFOLIO = res.json()
     except Exception: pass
-    return []
+    return CACHED_PORTFOLIO
 
 def get_account_cash():
-    if not T212_API_KEY: return 50000.00
+    global CACHED_CASH
+    if not T212_API_KEY: return CACHED_CASH
     try:
         res = requests.get(f"{T212_BASE_URL}/account/cash", headers=get_t212_auth_headers(), timeout=10)
         if res.status_code == 200:
-            return float(res.json().get("total", 50000.00))
+            CACHED_CASH = float(res.json().get("total", 50000.00))
     except Exception: pass
-    return 50000.00
+    return CACHED_CASH
 
 async def autonomous_ai_brain():
     await asyncio.sleep(2)
     
-    # STRICT PROTOCOL: Fetch exact instrument database from T212 to avoid 404 errors
     try:
         log_activity("Downloading exact instrument database from Trading 212 API...", "info")
         res = requests.get(f"{T212_BASE_URL}/metadata/instruments", headers=get_t212_auth_headers(), timeout=15)
@@ -112,11 +117,7 @@ async def autonomous_ai_brain():
             for yf_ticker, short_name in MARKET_UNIVERSE.items():
                 exact_ticker = TICKER_MAP.get(short_name)
                 
-                # If we don't have the exact verified ticker from T212, skip it completely. No guessing.
-                if not exact_ticker:
-                    continue
-                    
-                if exact_ticker in owned_tickers:
+                if not exact_ticker or exact_ticker in owned_tickers:
                     continue 
                 
                 data = yf.download(yf_ticker, period="1d", interval="5m", progress=False)
@@ -130,7 +131,7 @@ async def autonomous_ai_brain():
                     
                     if momentum > 0.01: 
                         log_activity(f"🚀 POSITIVE TREND on {yf_ticker}. AI executing buy...", "success")
-                        qty = 25.0 if "GB_EQ" in exact_ticker or "UK" in exact_ticker else 1.0
+                        qty = 25.0 if "GB_EQ" in exact_ticker or "UK" in exact_ticker or "L_EQ" in exact_ticker else 1.0
                         execute_live_order(exact_ticker, qty)
                         await asyncio.sleep(10) 
                         break 
@@ -154,7 +155,7 @@ app = FastAPI(lifespan=lifespan)
 def trigger_manual_trade():
     exact_ticker = TICKER_MAP.get("BARC")
     if not exact_ticker:
-        return {"status": "ERROR", "detail": "Barclays exact ticker has not yet synced from Trading 212 API."}
+        return {"status": "ERROR", "detail": "Barclays ticker not yet synced."}
     return execute_live_order(exact_ticker, 10.0)
 
 @app.api_route("/api/dashboard_data", methods=["GET"])
@@ -292,7 +293,8 @@ def read_root():
             } catch(e) {}
         }
         
-        setInterval(updateDashboard, 2500);
+        // Changed interval to 5 seconds to prevent rate limiting
+        setInterval(updateDashboard, 5000);
         updateDashboard();
     </script>
 </body>
