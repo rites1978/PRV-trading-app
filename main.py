@@ -70,7 +70,8 @@ HTML_TEMPLATE = """
         .pill { display: inline-block; padding: 5px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; }
         .pill.green { background-color: var(--green-bg); color: var(--green); }
         .pill.red { background-color: var(--red-bg); color: var(--red); }
-        .form-group { display: flex; gap: 12px; margin-bottom: 0; }
+        .balance-display { font-size: 32px; font-weight: 700; color: var(--text-primary); margin-top: 6px; }
+        .form-group { display: flex; gap: 12px; }
         .apple-input { flex: 1; background: var(--tab-bg); border: 0.5px solid var(--border-color); border-radius: 10px; padding: 10px 14px; color: var(--text-primary); font-size: 14px; outline: none; }
         .apple-input:focus { border-color: var(--accent-blue); }
         .apple-btn { background: var(--accent-blue); color: #ffffff; border: none; border-radius: 10px; padding: 0 20px; font-weight: 600; cursor: pointer; }
@@ -96,8 +97,13 @@ HTML_TEMPLATE = """
 
         <div class="tab-pane active">
             <div class="apple-card">
-                <div style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">System Status</div>
-                <div style="color: var(--text-secondary); font-size: 14px;">All algorithmic execution nodes active. Volatility circuit breakers nominal.</div>
+                <div style="font-size: 13px; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">Account Balance</div>
+                <div class="balance-display">£40,000.00</div>
+                <div style="margin-top: 12px; font-size: 13px; color: var(--green); font-weight: 600;">Baseline Capital Active</div>
+            </div>
+            <div class="apple-card">
+                <div style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Risk & Volatility Circuit Breakers</div>
+                <div style="color: var(--text-secondary); font-size: 14px;">ATR Position Sizing: Active &bull; Max Drawdown Limit: Nominal</div>
             </div>
         </div>
 
@@ -117,7 +123,7 @@ HTML_TEMPLATE = """
         <div class="tab-pane">
             <div class="apple-card">
                 <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">Alpha Feed Veto</div>
-                <div style="color: var(--text-secondary); font-size: 14px;">Macro sentiment analysis indicates bullish continuation for mega-cap tech.</div>
+                <div style="color: var(--text-secondary); font-size: 14px;">Macro sentiment analysis indicates bullish continuation for mega-cap tech. No vetoes triggered.</div>
             </div>
         </div>
 
@@ -131,12 +137,11 @@ HTML_TEMPLATE = """
         <div class="tab-pane">
             <div class="apple-card" style="margin-bottom: 20px;">
                 <form action="/add" method="post" class="form-group">
-                    <input type="text" name="ticker" class="apple-input" placeholder="Symbol (e.g. LCID)" required />
+                    <input type="text" name="ticker" class="apple-input" placeholder="Symbol (e.g. AAPL)" required />
                     <input type="text" name="notes" class="apple-input" placeholder="Thesis / Note" />
                     <button type="submit" class="apple-btn">Add</button>
                 </form>
             </div>
-
             $WATCHLIST_ITEMS$
         </div>
     </div>
