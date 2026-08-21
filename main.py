@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: £10k HEAVY STRIKE ENGINE (API Compliant)."
+LIVE_COMMENTARY = "AI Trading Floor: IMMEDIATE £10k DEPLOYMENT (Hurdles Removed)."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
@@ -20,22 +20,21 @@ STARTING_CAPITAL = 50000.00
 BANKED_PROFITS = 0.00
 PRICE_MEMORY = {}
 
-# FIXED POOL: UK-compliant ETFs and legacy T212 API tickers applied
 HEAVY_STRIKE_POOL = [
-    "NVDA_US_EQ",  # NVIDIA
-    "TSLA_US_EQ",  # Tesla
-    "MSTR_US_EQ",  # MicroStrategy (Extreme Beta)
-    "COIN_US_EQ",  # Coinbase
-    "FB_US_EQ",    # Meta Platforms (T212 API strictly requires the legacy 'FB' ticker)
-    "AMD_US_EQ",   # AMD
-    "EQQQl_EQ",    # Invesco EQQQ Nasdaq-100 (UK/EU Compliant UCITS version)
-    "AAPL_US_EQ"   # Apple
+    "NVDA_US_EQ",  
+    "TSLA_US_EQ",  
+    "MSTR_US_EQ",  
+    "COIN_US_EQ",  
+    "FB_US_EQ",    
+    "AMD_US_EQ",   
+    "EQQQl_EQ",    
+    "AAPL_US_EQ"   
 ]
 
 FX_ROUNDTRIP_FEE_PCT = 0.30 
 
 def is_market_open() -> bool:
-    return True # US Market Forced Open for final session hours
+    return True 
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -91,7 +90,7 @@ def fetch_live_data():
 
 async def heavy_strike_engine():
     await asyncio.sleep(2)
-    log_activity("£10,000 Heavy Strike Engine Online. Deploying Maximum Capital.", "success")
+    log_activity("Immediate Strike Engine Online. Forcing idle cash into the market.", "success")
     
     while True:
         fetch_live_data()
@@ -107,7 +106,7 @@ async def heavy_strike_engine():
                     execute_live_order(target, 0.05, "DATA SEED")
                     await asyncio.sleep(0.5)
 
-        # --- PHASE 2: £10,000 STRIKES & NET PROFIT HARVESTING ---
+        # --- PHASE 2: IMMEDIATE DEPLOYMENT & PROFIT HARVESTING ---
         for ticker, pos in owned_tickers.items():
             if ticker not in HEAVY_STRIKE_POOL: continue
             
@@ -117,41 +116,31 @@ async def heavy_strike_engine():
             invested = avg_price * qty
             
             if cur_price > 0 and avg_price > 0:
-                if ticker not in PRICE_MEMORY: PRICE_MEMORY[ticker] = []
-                PRICE_MEMORY[ticker].append(cur_price)
-                if len(PRICE_MEMORY[ticker]) > 5: PRICE_MEMORY[ticker].pop(0)
-                
                 spread_pct = max(0.05, ((avg_price - cur_price) / avg_price) * 100.0)
                 total_friction_pct = spread_pct + FX_ROUNDTRIP_FEE_PCT
                 
-                # SCALING: £10,000 BLOCK DEPLOYMENT
-                if invested < 20.0 and deployable_cash > 9500.0 and len(PRICE_MEMORY[ticker]) >= 3:
-                    oldest_price = PRICE_MEMORY[ticker][0]
-                    momentum_pct = ((cur_price - oldest_price) / oldest_price) * 100.0
-                    
-                    if momentum_pct >= (total_friction_pct + 0.10):
-                        target_spend = min(10000.0, deployable_cash)
-                        target_qty = round(target_spend / cur_price, 2)
-                        if target_qty > 0:
-                            log_activity(f"💰 HEAVY STRIKE: Slamming £{target_spend:,.2f} into {ticker} (Mom: +{momentum_pct:.2f}%).", "success")
-                            execute_live_order(ticker, target_qty, "HEAVY BLOCK")
-                            deployable_cash -= target_spend
-                            PRICE_MEMORY[ticker] = []
+                # IMMEDIATE SCALING: Remove the 20-second momentum hurdle. Put the cash to work.
+                if invested < 20.0 and deployable_cash >= 5000.0:
+                    target_spend = min(10000.0, deployable_cash)
+                    target_qty = round(target_spend / cur_price, 2)
+                    if target_qty > 0:
+                        log_activity(f"💰 FORCED ENTRY: Slamming £{target_spend:,.2f} into {ticker} to deploy idle cash.", "success")
+                        execute_live_order(ticker, target_qty, "HEAVY BLOCK")
+                        deployable_cash -= target_spend # Update local cash immediately
+                        await asyncio.sleep(1) # Breathe for API
 
                 # PROFIT / RISK MANAGEMENT FOR £10k BLOCKS
-                elif invested >= 5000.0:
+                elif invested >= 4000.0:
                     gross_ret_pct = ((cur_price - avg_price) / avg_price) * 100.0
                     net_ret_pct = gross_ret_pct - total_friction_pct
                     
                     if net_ret_pct >= 0.40:
                         log_activity(f"🏦 MASSIVE PROFIT SECURED: {ticker} (Gross: +{gross_ret_pct:.2f}%, Net: +{net_ret_pct:.2f}%).", "success")
                         execute_live_order(ticker, -qty, "TAKE PROFIT")
-                        PRICE_MEMORY[ticker] = []
                         
                     elif gross_ret_pct <= -1.25:
                         log_activity(f"🛡️ CUTTING BLEED: Closing {ticker} ({gross_ret_pct:.2f}%).", "warning")
                         execute_live_order(ticker, -qty, "STOP LOSS")
-                        PRICE_MEMORY[ticker] = []
 
         await asyncio.sleep(4)
 
