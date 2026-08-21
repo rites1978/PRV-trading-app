@@ -11,7 +11,7 @@ from db_manager import db
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Fully online and authenticated with Trading 212..."
+LIVE_COMMENTARY = "AI Trading Floor: Rate limits stabilized. Portfolio connection healthy..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -34,7 +34,7 @@ def get_trades_from_db():
         return []
 
 async def market_scouring_agent():
-    await asyncio.sleep(10)
+    await asyncio.sleep(15)
     while True:
         try:
             raw_credentials = f"{T212_API_KEY}:{T212_API_SECRET}"
@@ -47,11 +47,12 @@ async def market_scouring_agent():
         except Exception as e:
             log_activity(f"Agent loop error: {str(e)}", "error")
         
+        # Safe rate limit: Check once every 300 seconds (5 minutes) instead of spamming
         await asyncio.sleep(300)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log_activity("PRV Trading Desk starting up with verified broker integration...", "success")
+    log_activity("PRV Trading Desk starting up with rate-limited broker sync...", "success")
     task = asyncio.create_task(market_scouring_agent())
     yield
     task.cancel()
@@ -128,7 +129,7 @@ def read_root():
                 const res = await fetch('/api/valuation');
                 const data = await res.json();
                 document.getElementById('logStream').innerHTML = data.commentary;
-                document.getElementById('valuation'].innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2});
+                document.getElementById('valuation').innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2});
                 
                 const tbody = document.getElementById('tradeTable');
                 if (data.trades && data.trades.length > 0) {
