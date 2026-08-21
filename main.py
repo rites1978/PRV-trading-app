@@ -12,14 +12,15 @@ import yfinance as yf
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Initializing highly sensitive neural scanner..."
+LIVE_COMMENTARY = "AI Trading Floor: Initializing strict no-guess protocol..."
+TICKER_MAP = {} # Will hold exact mapped T212 tickers directly from their API
 
 MARKET_UNIVERSE = {
-    "BARC.L": "BARC_L_EQ",
-    "LLOY.L": "LLOY_L_EQ",
-    "BP.L": "BP_L_EQ",
-    "VOD.L": "VOD_L_EQ",
-    "AAPL": "AAPL_US_EQ"
+    "BARC.L": "BARC",
+    "LLOY.L": "LLOY",
+    "BP.L": "BP",
+    "VOD.L": "VOD",
+    "AAPL": "AAPL"
 }
 
 def log_activity(message: str, level: str = "info"):
@@ -40,14 +41,35 @@ def get_t212_auth_headers():
     encoded = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
+def execute_live_order(exact_ticker: str, quantity: float):
+    payload = {"ticker": exact_ticker, "quantity": quantity}
+    log_activity(f"AI Executing BUY order for strictly verified ticker: {exact_ticker}", "info")
+    
+    try:
+        res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=get_t212_auth_headers(), timeout=15)
+        if res.status_code in [200, 201]:
+            status = res.json().get("status", "FILLED")
+            log_activity(f"Trade Successful! {exact_ticker} order is {status}.", "success")
+            try:
+                db.client.table("trades").insert({
+                    "ticker": exact_ticker, "side": "BUY", "quantity": quantity, "status": status
+                }).execute()
+            except Exception: pass
+            return {"status": "SUCCESS", "detail": status}
+        else:
+            log_activity(f"Order Rejected [{res.status_code}]: {res.text}", "error")
+            return {"status": "REJECTED", "detail": res.text}
+    except Exception as e:
+        log_activity(f"Order Exception: {str(e)}", "error")
+        return {"status": "EXCEPTION", "detail": str(e)}
+
 def get_live_portfolio():
     if not T212_API_KEY: return []
     try:
         res = requests.get(f"{T212_BASE_URL}/portfolio", headers=get_t212_auth_headers(), timeout=10)
         if res.status_code == 200:
             return res.json()
-    except Exception:
-        pass
+    except Exception: pass
     return []
 
 def get_account_cash():
@@ -56,46 +78,47 @@ def get_account_cash():
         res = requests.get(f"{T212_BASE_URL}/account/cash", headers=get_t212_auth_headers(), timeout=10)
         if res.status_code == 200:
             return float(res.json().get("total", 50000.00))
-    except Exception:
-        pass
+    except Exception: pass
     return 50000.00
 
-def execute_live_order(t212_ticker: str, quantity: float):
-    payload = {"ticker": t212_ticker, "quantity": quantity}
-    log_activity(f"AI Executing BUY order for {t212_ticker} (Qty: {quantity})", "info")
-    
-    try:
-        res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=get_t212_auth_headers(), timeout=15)
-        if res.status_code in [200, 201]:
-            status = res.json().get("status", "FILLED")
-            log_activity(f"Trade Successful! {t212_ticker} order is {status}.", "success")
-            try:
-                db.client.table("trades").insert({
-                    "ticker": t212_ticker, "side": "BUY", "quantity": quantity, "status": status
-                }).execute()
-            except Exception: pass
-            return {"status": "SUCCESS", "detail": status}
-        else:
-            log_activity(f"Order Rejected: {res.text}", "error")
-            return {"status": "REJECTED"}
-    except Exception as e:
-        log_activity(f"Order Exception: {str(e)}", "error")
-        return {"status": "EXCEPTION"}
-
 async def autonomous_ai_brain():
+    await asyncio.sleep(2)
+    
+    # STRICT PROTOCOL: Fetch exact instrument database from T212 to avoid 404 errors
+    try:
+        log_activity("Downloading exact instrument database from Trading 212 API...", "info")
+        res = requests.get(f"{T212_BASE_URL}/metadata/instruments", headers=get_t212_auth_headers(), timeout=15)
+        if res.status_code == 200:
+            instruments = res.json()
+            for inst in instruments:
+                short_name = inst.get("shortName", "")
+                ticker = inst.get("ticker", "")
+                if short_name and ticker:
+                    TICKER_MAP[short_name.upper()] = ticker
+            log_activity(f"Successfully mapped {len(TICKER_MAP)} official tickers.", "success")
+        else:
+            log_activity(f"Failed to load T212 instruments. API returned {res.status_code}", "error")
+    except Exception as e:
+        log_activity(f"Instrument sync error: {str(e)}", "error")
+
     await asyncio.sleep(5)
-    log_activity("AI Brain Online: Scanning for ANY positive intraday momentum...", "success")
+    log_activity("AI Brain Online: Scanning for positive intraday momentum...", "success")
     
     while True:
         try:
             portfolio = get_live_portfolio()
             owned_tickers = [pos.get("ticker") for pos in portfolio] if portfolio else []
             
-            for yf_ticker, t212_ticker in MARKET_UNIVERSE.items():
-                if t212_ticker in owned_tickers:
+            for yf_ticker, short_name in MARKET_UNIVERSE.items():
+                exact_ticker = TICKER_MAP.get(short_name)
+                
+                # If we don't have the exact verified ticker from T212, skip it completely. No guessing.
+                if not exact_ticker:
+                    continue
+                    
+                if exact_ticker in owned_tickers:
                     continue 
                 
-                log_activity(f"Scanning price action for {yf_ticker}...", "info")
                 data = yf.download(yf_ticker, period="1d", interval="5m", progress=False)
                 
                 if len(data) >= 3:
@@ -105,13 +128,10 @@ async def autonomous_ai_brain():
                     older_avg = sum(closes[-6:-3]) / 3 if len(closes) >= 6 else closes[0].item()
                     momentum = ((recent_avg - older_avg) / older_avg) * 100
                     
-                    log_activity(f"[{yf_ticker}] Price: {current_price:.2f} | 15m Momentum: {momentum:+.3f}%", "info")
-                    
-                    # DROPPED THRESHOLD TO 0.01% - Will trigger on almost any positive micro-trend
                     if momentum > 0.01: 
                         log_activity(f"🚀 POSITIVE TREND on {yf_ticker}. AI executing buy...", "success")
-                        qty = 25.0 if "L_EQ" in t212_ticker else 1.0
-                        execute_live_order(t212_ticker, qty)
+                        qty = 25.0 if "GB_EQ" in exact_ticker or "UK" in exact_ticker else 1.0
+                        execute_live_order(exact_ticker, qty)
                         await asyncio.sleep(10) 
                         break 
                 
@@ -120,7 +140,6 @@ async def autonomous_ai_brain():
         except Exception as e:
             log_activity(f"AI Brain error: {str(e)}", "error")
             
-        log_activity("Sweep complete. Next scan in 2 minutes...", "info")
         await asyncio.sleep(120)
 
 @asynccontextmanager
@@ -133,7 +152,10 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    return execute_live_order("BARC_L_EQ", 10.0)
+    exact_ticker = TICKER_MAP.get("BARC")
+    if not exact_ticker:
+        return {"status": "ERROR", "detail": "Barclays exact ticker has not yet synced from Trading 212 API."}
+    return execute_live_order(exact_ticker, 10.0)
 
 @app.api_route("/api/dashboard_data", methods=["GET"])
 def get_dashboard_data():
@@ -184,7 +206,7 @@ def read_root():
     <div class="header">
         <h1>PRV Autonomous AI Engine</h1>
         <div style="text-align: right; display: flex; align-items: center; gap: 15px;">
-            <button class="btn" onclick="triggerTrade()">Force Instant Trade (BARC.L)</button>
+            <button class="btn" onclick="triggerTrade()">Force Verified Trade (BARC)</button>
             <div>
                 <div style="color: #94a3b8; font-size: 12px;">SYSTEM STATUS</div>
                 <div style="color: #34d399; font-weight: bold; font-size: 14px;">● LIVE SCANNING ACTIVE</div>
