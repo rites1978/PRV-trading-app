@@ -6,13 +6,12 @@ import asyncio
 from datetime import datetime
 import os
 import requests
-import base64
 import random
 
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Authenticating with Trading 212 Practice API via Base64 Basic Auth..."
+LIVE_COMMENTARY = "AI Trading Floor: Connected to Trading 212 Practice API via official Authorization header..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -24,11 +23,10 @@ def log_activity(message: str, level: str = "info"):
     LIVE_COMMENTARY = f"[{timestamp}] {message}"
 
 T212_API_KEY = os.getenv("T212_API_KEY", "")
-T212_API_SECRET = os.getenv("T212_API_SECRET", "")
 T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/equity")
 
 def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET"):
-    if not T212_API_KEY or not T212_API_SECRET or "your_key" in T212_API_KEY:
+    if not T212_API_KEY or "your_key" in T212_API_KEY:
         log_activity(f"T212 [Paper Sandbox]: Simulated fill for {quantity}x {ticker}.", "warning")
         return "SIMULATED FILL"
     
@@ -36,12 +34,8 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
     if "_" not in clean_ticker:
         clean_ticker = f"{clean_ticker}_US_EQ"
 
-    # Official Trading 212 Base64 Basic Authentication Header
-    credentials_string = f"{T212_API_KEY}:{T212_API_SECRET}"
-    encoded_creds = base64.b64encode(credentials_string.encode('utf-8')).decode('utf-8')
-    
     headers = {
-        "Authorization": f"Basic {encoded_creds}",
+        "Authorization": T212_API_KEY,
         "Content-Type": "application/json"
     }
     
@@ -109,7 +103,7 @@ async def market_scouring_agent():
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Trading Desk online with T212 Base64 Auth linkage.", "success")
+    log_activity("PRV Trading Desk online with Trading 212 API linkage.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_trades_from_db():
@@ -320,7 +314,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent is authorized via Base64 Basic Auth directly with your Trading 212 Practice API endpoint.
+                    The autonomous agent is authorized via your Trading 212 API key header for live demo execution.
                 </div>
             </div>
         </div>
