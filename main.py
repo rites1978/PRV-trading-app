@@ -5,13 +5,13 @@ from db_manager import db
 import asyncio
 from datetime import datetime
 import os
-from trading212 import Trading212
+import requests
 import random
 
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Connected to Trading 212 via official Python client wrapper..."
+LIVE_COMMENTARY = "AI Trading Floor: Connected directly to Trading 212 Practice API via REST headers..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -23,8 +23,9 @@ def log_activity(message: str, level: str = "info"):
     LIVE_COMMENTARY = f"[{timestamp}] {message}"
 
 T212_API_KEY = os.getenv("T212_API_KEY", "")
+T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/equity")
 
-def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
+def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET"):
     if not T212_API_KEY or "your_key" in T212_API_KEY:
         log_activity(f"T212 [Paper Sandbox]: Simulated fill for {quantity}x {ticker}.", "warning")
         return "SIMULATED FILL"
@@ -33,16 +34,29 @@ def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
     if "_" not in clean_ticker:
         clean_ticker = f"{clean_ticker}_US_EQ"
 
+    # Official Trading 212 REST API Bearer / Token Authentication Header
+    headers = {
+        "Authorization": T212_API_KEY,
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "quantity": float(quantity),
+        "ticker": clean_ticker,
+        "type": order_type
+    }
+    
     try:
-        # Initialize official wrapper
-        client = Trading212(api_key=T212_API_KEY)
-        # Place market order via official client
-        order = client.place_market_order(ticker=clean_ticker, quantity=float(quantity))
-        log_activity(f"🚀 T212 PRACTICE API: SUCCESS! {side} order placed for {clean_ticker}", "success")
-        return "LIVE EXECUTED"
+        res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=headers, timeout=10)
+        if res.status_code in [200, 201]:
+            log_activity(f"🚀 T212 PRACTICE API: SUCCESS! Order placed for {clean_ticker}", "success")
+            return "LIVE EXECUTED"
+        else:
+            log_activity(f"T212 API Refused [{res.status_code}]: {res.text}", "error")
+            return "API REJECTED"
     except Exception as e:
-        log_activity(f"T212 SDK Error on {clean_ticker}: {str(e)}", "error")
-        return "API REJECTED"
+        log_activity(f"T212 Connection Exception: {str(e)}", "error")
+        return "API ERROR"
 
 def get_broad_market_universe():
     return [
@@ -71,7 +85,7 @@ async def market_scouring_agent():
                         side = "BUY" if pct_change <= -1.8 else "SELL"
                         shares = round(100.0 / current_price, 2)
                         
-                        execution_status = execute_t212_order(ticker, shares, side)
+                        execution_status = execute_t212_order(ticker, shares, "MARKET")
                         
                         db.client.table("trades").insert({
                             "ticker": ticker,
@@ -90,7 +104,7 @@ async def market_scouring_agent():
 
 @app.on_event("startup")
 async def startup_event():
-    log_activity("PRV Trading Desk online with official T212 SDK linkage.", "success")
+    log_activity("PRV Trading Desk online with clean REST API linkage.", "success")
     asyncio.create_task(market_scouring_agent())
 
 def get_trades_from_db():
@@ -247,7 +261,7 @@ HTML_TEMPLATE = """
     <div class="container">
         <div class="commentary-ticker">
             <span class="ticker-dot"></span>
-            <span id="liveCommentary">Connecting to Trading 212 Client SDK...</span>
+            <span id="liveCommentary">Connecting to Trading 212 REST gateway...</span>
         </div>
 
         <div class="header-container">
@@ -301,7 +315,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent is connected via the official python-trading212 SDK wrapper.
+                    The autonomous agent is connected directly to your Trading 212 Practice account via REST API headers.
                 </div>
             </div>
         </div>

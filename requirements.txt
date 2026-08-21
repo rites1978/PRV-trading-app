@@ -1,8 +1,6 @@
 fastapi
 uvicorn
 yfinance
+requests
 supabase
 pandas
-requests
-python-dotenv
-python-multipart
