@@ -15,7 +15,7 @@ class Trading212Broker:
             self.base_url = "https://demo.trading212.com/api/v0"
             
         self.last_request_time = 0.0
-        self.min_request_interval = 0.15  # Rate limit: max ~6-7 requests per second
+        self.min_request_interval = 0.35  # Conservative rate limit
 
     @property
     def auth(self):
@@ -27,14 +27,39 @@ class Trading212Broker:
             time.sleep(self.min_request_interval - elapsed)
         self.last_request_time = time.time()
 
+    def _request_with_retry(self, method: str, endpoint: str, **kwargs) -> requests.Response:
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        max_retries = 3
+        backoff = 1.5
+
+        for attempt in range(max_retries):
+            self._rate_limit()
+            try:
+                if method.upper() == "GET":
+                    res = requests.get(url, auth=self.auth, timeout=10, **kwargs)
+                elif method.upper() == "POST":
+                    res = requests.post(url, auth=self.auth, timeout=10, **kwargs)
+                elif method.upper() == "DELETE":
+                    res = requests.delete(url, auth=self.auth, timeout=10, **kwargs)
+                else:
+                    raise ValueError(f"Unsupported HTTP method {method}")
+
+                if res.status_code == 429:
+                    time.sleep(backoff * (attempt + 1))
+                    continue
+                return res
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                time.sleep(backoff)
+        return res
+
     def get_account_summary(self) -> Dict[str, Any]:
-        """Fetch live account cash and portfolio value."""
-        self._rate_limit()
+        """Fetch live account cash and portfolio value with retry protection."""
         try:
-            url = f"{self.base_url}/equity/account/summary"
-            response = requests.get(url, auth=self.auth, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
+            res = self._request_with_retry("GET", "equity/account/summary")
+            if res.status_code == 200:
+                data = res.json()
                 return {
                     "success": True,
                     "available_cash": float(data.get("cash", {}).get("availableToTrade", 0.0)),
@@ -44,77 +69,47 @@ class Trading212Broker:
                     "currency": data.get("currency", "GBP"),
                     "raw": data
                 }
-            return {"success": False, "error": f"HTTP {response.status_code}: {response.text}"}
+            return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     def get_open_positions(self) -> List[Dict[str, Any]]:
-        """Fetch all active positions."""
-        self._rate_limit()
+        """Fetch all active positions with retry protection."""
         try:
-            url = f"{self.base_url}/equity/portfolio"
-            response = requests.get(url, auth=self.auth, timeout=10)
-            if response.status_code == 200:
-                return response.json()
+            res = self._request_with_retry("GET", "equity/portfolio")
+            if res.status_code == 200:
+                return res.json()
             return []
         except Exception:
             return []
 
     def get_position(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get position details for a specific instrument."""
-        self._rate_limit()
         try:
-            url = f"{self.base_url}/equity/portfolio/{ticker}"
-            response = requests.get(url, auth=self.auth, timeout=10)
-            if response.status_code == 200:
-                return response.json()
+            res = self._request_with_retry("GET", f"equity/portfolio/{ticker}")
+            if res.status_code == 200:
+                return res.json()
             return None
         except Exception:
             return None
 
     def place_market_order(self, ticker: str, quantity: float) -> Dict[str, Any]:
-        """
-        Execute market order.
-        quantity > 0: BUY
-        quantity < 0: SELL
-        """
-        self._rate_limit()
+        """Execute market order."""
         try:
-            url = f"{self.base_url}/equity/orders/market"
             payload = {"ticker": ticker, "quantity": quantity}
-            response = requests.post(url, auth=self.auth, json=payload, timeout=10)
-            if response.status_code in [200, 201]:
-                return {"success": True, "data": response.json()}
-            return {"success": False, "error": f"HTTP {response.status_code}: {response.text}"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    def place_limit_order(self, ticker: str, quantity: float, limit_price: float, time_validity: str = "DAY") -> Dict[str, Any]:
-        """Execute limit order."""
-        self._rate_limit()
-        try:
-            url = f"{self.base_url}/equity/orders/limit"
-            payload = {
-                "ticker": ticker,
-                "quantity": quantity,
-                "limitPrice": limit_price,
-                "timeValidity": time_validity
-            }
-            response = requests.post(url, auth=self.auth, json=payload, timeout=10)
-            if response.status_code in [200, 201]:
-                return {"success": True, "data": response.json()}
-            return {"success": False, "error": f"HTTP {response.status_code}: {response.text}"}
+            res = self._request_with_retry("POST", "equity/orders/market", json=payload)
+            if res.status_code in [200, 201]:
+                return {"success": True, "data": res.json()}
+            return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     def get_instruments(self) -> List[Dict[str, Any]]:
         """Download complete instrument metadata."""
-        self._rate_limit()
         try:
-            url = f"{self.base_url}/equity/metadata/instruments"
-            response = requests.get(url, auth=self.auth, timeout=15)
-            if response.status_code == 200:
-                return response.json()
+            res = self._request_with_retry("GET", "equity/metadata/instruments")
+            if res.status_code == 200:
+                return res.json()
             return []
         except Exception:
             return []

@@ -61,7 +61,7 @@ class PRVQuantEngine:
 
     def run_cycle(self) -> Dict[str, Any]:
         """
-        Execute one complete quantitative trading and portfolio rebalance cycle.
+        Execute one complete quantitative trading and capital deployment cycle.
         """
         # 1. Fetch Live Account Metrics
         account = broker.get_account_summary()
@@ -82,16 +82,14 @@ class PRVQuantEngine:
         capital_state = capital_manager.get_capital_state(total_nav, invested, available_cash)
         core_capital = capital_state["core_capital"]
         active_capital = capital_state["active_capital"]
-        vault_balance = capital_state["profit_vault_balance"]
         exposure_pct = capital_state["capital_utilization_pct"]
 
-        # 4. Market Regime Assessment (using S&P benchmark snapshot)
+        # 4. Market Regime Assessment
         sp500_snapshot = market_data.get_market_snapshot("^GSPC")
-        sp500_trend_score = 80.0 if (sp500_snapshot.get("success") and sp500_snapshot["indicators"]["sma_20"] > sp500_snapshot["indicators"]["sma_50"]) else 45.0
+        sp500_trend_score = 80.0 if (sp500_snapshot.get("success") and sp500_snapshot["indicators"]["sma_20"] > sp500_snapshot["indicators"]["sma_50"]) else 50.0
         
-        # Calculate dynamic deployment capacity
         market_regime, target_deployment_pct = capital_manager.determine_market_regime(
-            market_breadth_score=70.0,
+            market_breadth_score=75.0,
             sp500_trend_score=sp500_trend_score
         )
         
@@ -145,15 +143,13 @@ class PRVQuantEngine:
                     is_paper=self.paper_mode
                 )
                 if success:
-                    # Automatically lock realized gain in Profit Vault
-                    vault_res = capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
+                    capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
                     self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, f"{exit_msg} | Vaulted: £{realized_pnl:+.2f}", is_paper=self.paper_mode)
                     closed_trades.append(t212_ticker)
 
-        # 6. Scan Institutional Universe for High-Edge Opportunities
+        # 6. Quantitative Universe Scanning & Capital Deployment
         universe = universe_manager.get_all()
-        scanned_candidates = []
-        executed_trades = []
+        candidates = []
 
         for item in universe:
             symbol = item["symbol"]
@@ -164,8 +160,14 @@ class PRVQuantEngine:
             is_uk = (item["country"] == "UK")
             is_uk_pence = item.get("is_uk_pence", False)
 
-            # Skip if already holding
-            if t212_ticker in holding_map and t212_ticker not in closed_trades:
+            # Check existing holding value
+            existing_pos = holding_map.get(t212_ticker)
+            current_holding_val = 0.0
+            if existing_pos and t212_ticker not in closed_trades:
+                current_holding_val = float(existing_pos.get("quantity", 0)) * float(existing_pos.get("currentPrice", 0))
+
+            # If already holding full position size (> £2,500), skip
+            if current_holding_val >= (core_capital * settings.TARGET_POSITION_SIZE_PCT * 0.85):
                 continue
 
             snapshot = market_data.get_market_snapshot(yf_ticker, is_uk_pence=is_uk_pence)
@@ -174,13 +176,17 @@ class PRVQuantEngine:
 
             price = snapshot["current_price"]
             
-            # Target 3:1 R:R Price Targets
+            # Sizing calculation (scales into target £3,000 allocation)
+            units = risk_engine.calculate_position_units(
+                price, core_capital, available_cash, remaining_allowance, current_holding_val
+            )
+            nominal_cost = units * price
+            
+            if units <= 0 or nominal_cost < 50.0:
+                continue
+
             stop_loss_price = price * (1.0 - settings.DEFAULT_STOP_LOSS_PCT)
             target_price = price * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT)
-            
-            # Sizing calculation
-            units = risk_engine.calculate_position_units(price, core_capital, available_cash, remaining_allowance)
-            nominal_cost = units * price
             
             # Cost Model Evaluation
             cost_eval_ok, cost_eval = cost_model.evaluate_net_edge(
@@ -206,6 +212,7 @@ class PRVQuantEngine:
             # Risk Engine Pre-Approval
             risk_approved, risk_reason = risk_engine.validate_new_order(
                 symbol=symbol,
+                t212_ticker=t212_ticker,
                 sector=sector,
                 order_cost=nominal_cost,
                 core_capital=core_capital,
@@ -224,48 +231,58 @@ class PRVQuantEngine:
                 cost_approved=cost_eval_ok
             )
 
-            candidate_record = {
+            candidates.append({
                 "symbol": symbol,
                 "t212_ticker": t212_ticker,
+                "sector": sector,
                 "confidence": confidence_score,
-                "reward_risk": cost_eval.get("net_reward_risk", 0.0),
+                "reward_risk": cost_eval.get("net_reward_risk", 3.0),
                 "price": price,
                 "units": units,
                 "cost": nominal_cost,
-                "approved": approved_by_boardroom
-            }
-            scanned_candidates.append(candidate_record)
+                "approved": approved_by_boardroom,
+                "decision_data": decision_data,
+                "cost_eval": cost_eval,
+                "risk_approved": risk_approved
+            })
 
-            # Route Order if Approved
-            if approved_by_boardroom and units > 0:
+        # 7. Sort by highest confidence and deploy capital
+        candidates.sort(key=lambda x: x["confidence"], reverse=True)
+        executed_trades = []
+
+        for cand in candidates:
+            if remaining_allowance <= 500.0 or available_cash <= 2500.0:
+                break
+
+            if cand["approved"] and cand["units"] > 0:
                 agent_votes = {
-                    "trend": decision_data["trend_agent_vote"],
-                    "momentum": decision_data["momentum_agent_vote"],
-                    "volatility": decision_data["volatility_agent_vote"],
-                    "liquidity": decision_data["liquidity_agent_vote"],
-                    "risk": decision_data["risk_agent_vote"]
+                    "trend": cand["decision_data"]["trend_agent_vote"],
+                    "momentum": cand["decision_data"]["momentum_agent_vote"],
+                    "volatility": cand["decision_data"]["volatility_agent_vote"],
+                    "liquidity": cand["decision_data"]["liquidity_agent_vote"],
+                    "risk": cand["decision_data"]["risk_agent_vote"]
                 }
                 
                 success, route_msg, trade_res = order_router.route_entry_order(
-                    symbol=symbol,
-                    t212_ticker=t212_ticker,
-                    quantity=units,
-                    price=price,
-                    sector=sector,
-                    confidence_score=confidence_score,
-                    reward_risk_ratio=cost_eval.get("net_reward_risk", 3.0),
+                    symbol=cand["symbol"],
+                    t212_ticker=cand["t212_ticker"],
+                    quantity=cand["units"],
+                    price=cand["price"],
+                    sector=cand["sector"],
+                    confidence_score=cand["confidence"],
+                    reward_risk_ratio=cand["reward_risk"],
                     market_regime=market_regime,
                     agent_votes=agent_votes,
-                    risk_approved=risk_approved,
-                    cost_evaluation=cost_eval,
+                    risk_approved=cand["risk_approved"],
+                    cost_evaluation=cand["cost_eval"],
                     is_paper=self.paper_mode
                 )
                 
                 if success:
-                    executed_trades.append(symbol)
-                    self.notifier.notify_trade("BUY", symbol, units, price, route_msg, is_paper=self.paper_mode)
-                    available_cash -= nominal_cost
-                    remaining_allowance -= nominal_cost
+                    executed_trades.append(cand["symbol"])
+                    self.notifier.notify_trade("BUY", cand["symbol"], cand["units"], cand["price"], route_msg, is_paper=self.paper_mode)
+                    available_cash -= cand["cost"]
+                    remaining_allowance -= cand["cost"]
 
         return {
             "success": True,
@@ -273,7 +290,6 @@ class PRVQuantEngine:
             "market_regime": market_regime,
             "target_deployment_pct": target_deployment_pct,
             "scanned_count": len(universe),
-            "candidates": scanned_candidates,
             "executed_trades": executed_trades,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
