@@ -15,6 +15,7 @@ from src.portfolio.dust_cleaner import dust_cleaner
 from src.risk.risk_engine import risk_engine
 from src.risk.event_risk import event_risk_engine
 from src.research.alpha_engine import alpha_engine
+from src.ai.scoring_engine import ai_scoring
 from src.execution.cost_model import cost_model
 from src.agents.boardroom import boardroom
 from src.execution.order_router import order_router
@@ -65,8 +66,10 @@ class PRVQuantEngine:
 
     def run_cycle(self) -> Dict[str, Any]:
         """
-        Execute one complete quantitative trading, alpha research, event risk,
-        and capital deployment cycle with progressive de-risking.
+        Execute Phase 5 quantitative trading cycle:
+        1. Technical Engine generates entry signal (Buy/No-Buy).
+        2. Fundamentals, Sector Strength & News Sentiment act as Dynamic Position Sizing Multipliers (3% - 8%).
+        3. Event Risk Blackout & Progressive De-Risking Controls.
         """
         # 1. Fetch Live Account Summary
         account = broker.get_account_summary()
@@ -157,7 +160,7 @@ class PRVQuantEngine:
                     self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, f"{exit_msg} | Vaulted: £{realized_pnl:+.2f}", is_paper=self.paper_mode)
                     closed_trades.append(t212_ticker)
 
-        # 6. Quantitative Alpha Research & Event-Gated Universe Scanning
+        # 6. Quantitative Universe Scanning & Multi-Factor Sizing Execution
         universe = universe_manager.get_all()
         candidates = []
 
@@ -170,7 +173,7 @@ class PRVQuantEngine:
             is_uk = (item["country"] == "UK")
             is_uk_pence = item.get("is_uk_pence", False)
 
-            # Event Risk Blackout Gate (Blocks entry within 48h of Earnings)
+            # Event Risk Blackout Gate
             event_safe, event_reason, event_meta = event_risk_engine.evaluate_event_blackout(symbol, yf_ticker)
             if not event_safe:
                 continue
@@ -189,7 +192,18 @@ class PRVQuantEngine:
             atr = snapshot["indicators"]["atr"]
             df_asset = snapshot["dataframe"]
 
-            # Institutional Sizing: ATR-Adjusted + Volatility Scaled + Correlation Aware
+            # Compute Multi-Factor Alpha Score (Used for Sizing Multiplier)
+            composite_alpha_score, alpha_breakdown = alpha_engine.compute_institutional_alpha(
+                symbol=symbol,
+                yf_ticker=yf_ticker,
+                sector=sector,
+                snapshot=snapshot,
+                market_regime=market_regime,
+                portfolio_exposure_pct=exposure_pct,
+                cost_friction_pct=0.10
+            )
+
+            # Phase 5 Dynamic Sizing (3% to 8% based on alpha score)
             units, nominal_cost, sizing_meta = portfolio_constructor.calculate_optimal_position_size(
                 symbol=symbol,
                 price=price,
@@ -198,6 +212,7 @@ class PRVQuantEngine:
                 core_capital=core_capital,
                 available_cash=available_cash,
                 remaining_capacity=remaining_allowance,
+                alpha_score=composite_alpha_score,
                 current_holding_val=current_holding_val,
                 active_positions_dfs=active_positions_dfs
             )
@@ -217,18 +232,14 @@ class PRVQuantEngine:
                 is_foreign_currency=is_foreign,
                 is_uk=is_uk
             )
-            
-            friction_pct = cost_eval.get("friction_breakdown", {}).get("friction_pct", 0.10)
 
-            # Multi-Pillar Alpha Synthesis (Technical 40%, Fundamental 25%, Sector 20%, Sentiment 15%)
-            composite_alpha_score, alpha_breakdown = alpha_engine.compute_institutional_alpha(
+            # Technical Entry Scoring
+            tech_confidence, tech_factors = ai_scoring.compute_composite_confidence(
                 symbol=symbol,
-                yf_ticker=yf_ticker,
-                sector=sector,
                 snapshot=snapshot,
                 market_regime=market_regime,
                 portfolio_exposure_pct=exposure_pct,
-                cost_friction_pct=friction_pct
+                cost_friction_pct=cost_eval.get("friction_breakdown", {}).get("friction_pct", 0.10)
             )
 
             # Exposure-Based Risk Validation
@@ -243,12 +254,11 @@ class PRVQuantEngine:
                 remaining_regime_allowance=remaining_allowance
             )
 
-            # Boardroom Quorum Deliberation
-            tech_factors = alpha_breakdown.get("technical_factors", {})
+            # Boardroom Quorum Deliberation (Technical Entry Signal)
             approved_by_boardroom, decision_data = boardroom.convene_boardroom(
                 symbol=symbol,
                 factors=tech_factors,
-                composite_confidence=composite_alpha_score,
+                technical_confidence=tech_confidence,
                 market_regime=market_regime,
                 risk_approved=risk_approved,
                 cost_approved=cost_eval_ok
@@ -258,7 +268,8 @@ class PRVQuantEngine:
                 "symbol": symbol,
                 "t212_ticker": t212_ticker,
                 "sector": sector,
-                "confidence": composite_alpha_score,
+                "confidence": tech_confidence,
+                "alpha_score": composite_alpha_score,
                 "reward_risk": cost_eval.get("net_reward_risk", 3.0),
                 "price": price,
                 "units": units,
@@ -271,7 +282,7 @@ class PRVQuantEngine:
                 "alpha_breakdown": alpha_breakdown
             })
 
-        # 7. Sort by highest alpha score and deploy capital
+        # 7. Sort by highest confidence and deploy capital
         candidates.sort(key=lambda x: x["confidence"], reverse=True)
         executed_trades = []
 

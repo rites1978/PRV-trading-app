@@ -10,30 +10,31 @@ class TradingSettings(BaseModel):
     TRADING212_API_KEY: str = Field(default_factory=lambda: os.getenv("TRADING212_API_KEY") or os.getenv("T212_API_KEY", ""))
     TRADING212_API_SECRET: str = Field(default_factory=lambda: os.getenv("TRADING212_API_SECRET") or os.getenv("T212_API_SECRET", ""))
     
-    # Capital Management Bands
+    # Capital Management Bands (Phase 5 Calibration)
     STARTING_CAPITAL: float = 50000.0
-    MIN_CASH_BUFFER_PCT: float = 0.05       # 5% cash buffer always held (£2,500)
-    MAX_DEPLOYMENT_NEUTRAL: float = 0.35    # 20%-40% (Target 35%) deployment in neutral markets
-    MAX_DEPLOYMENT_STRONG: float = 0.65     # 40%-70% (Target 65%) deployment in strong markets
-    MAX_DEPLOYMENT_EXCEPTIONAL: float = 0.80 # 70%-85% (Target 80%) deployment in exceptional markets
+    MIN_CASH_BUFFER_PCT: float = 0.05       # 5% cash safety buffer (£2,500)
+    MAX_DEPLOYMENT_BEAR: float = 0.25       # 15%-30% (Target 25%) in bear markets
+    MAX_DEPLOYMENT_NEUTRAL: float = 0.45    # 30%-50% (Target 45%) in neutral markets
+    MAX_DEPLOYMENT_BULL: float = 0.75       # 60%-80% (Target 75%) in bull markets
     
-    # Risk Limits & Sizing
+    # Risk Limits & Multi-Factor Dynamic Sizing
     MAX_DAILY_DRAWDOWN_PCT: float = 0.05    # 5% hard daily circuit breaker
-    TARGET_POSITION_SIZE_PCT: float = 0.06   # Target 6% (~£3,000) per position
-    MAX_POSITION_SIZE_PCT: float = 0.08      # Max 8% (~£4,000) of Core Capital per position
-    MAX_SECTOR_EXPOSURE_PCT: float = 0.30    # Max 30% exposure per sector
-    MAX_PORTFOLIO_VAR_BUDGET_PCT: float = 0.05 # Max 5% of Core Capital simultaneously at risk to stop losses
-    DEFAULT_STOP_LOSS_PCT: float = 0.025     # 2.5% stop loss
-    DEFAULT_TAKE_PROFIT_PCT: float = 0.075   # 7.5% take profit (3:1 R:R target)
-    MIN_REWARD_RISK_RATIO: float = 3.0       # 3:1 Reward to Risk
+    MIN_POSITION_SIZE_PCT: float = 0.03     # 3% floor for weak multi-factor setups (£1,500)
+    BASE_POSITION_SIZE_PCT: float = 0.05    # 5% base allocation (£2,500)
+    MAX_POSITION_SIZE_PCT: float = 0.08     # 8% cap for high-conviction multi-factor setups (£4,000)
+    MAX_SECTOR_EXPOSURE_PCT: float = 0.30   # Max 30% exposure per sector
+    MAX_PORTFOLIO_VAR_BUDGET_PCT: float = 0.05 # Max 5% of Core Capital simultaneously at risk
+    DEFAULT_STOP_LOSS_PCT: float = 0.025    # 2.5% stop loss
+    DEFAULT_TAKE_PROFIT_PCT: float = 0.075  # 7.5% take profit (3:1 R:R target)
+    MIN_REWARD_RISK_RATIO: float = 3.0      # 3:1 Reward to Risk
     
-    # AI Scoring & Execution Filters
-    MIN_CONFIDENCE_THRESHOLD: float = 70.0   # Calibrated threshold for high-conviction deployment
-    SLIPPAGE_ESTIMATE_BPS: float = 10.0      # 10 bps slippage
-    FX_FEE_BPS: float = 15.0                 # 15 bps currency conversion fee for USD/GBP
+    # Execution Filters & Friction Model
+    MIN_CONFIDENCE_THRESHOLD: float = 65.0  # Technical entry threshold
+    SLIPPAGE_ESTIMATE_BPS: float = 10.0     # 10 bps slippage
+    FX_FEE_BPS: float = 15.0                # 15 bps FX fee for foreign currency
     
     # Execution Intervals
-    SCAN_INTERVAL_SECONDS: int = 15          # 15-second quant cycle
+    SCAN_INTERVAL_SECONDS: int = 15
     MARKET_DATA_TIMEFRAME: str = "1d"
     
     # Database & Storage

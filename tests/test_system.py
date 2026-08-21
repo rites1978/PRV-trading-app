@@ -38,18 +38,18 @@ class TestPRVQuantPlatform(unittest.TestCase):
         self.assertEqual(vault_bal, 500.0)
 
     def test_dynamic_regime_deployment(self):
-        """Test Neutral, Strong, and Exceptional deployment allowances."""
-        regime_n, target_n = self.capital_mgr.determine_market_regime(40.0, 40.0)
+        """Test Bear, Neutral, and Bull deployment allowances."""
+        regime_b, target_b = self.capital_mgr.determine_market_regime(30.0, 30.0)
+        self.assertEqual(regime_b, "BEAR")
+        self.assertEqual(target_b, settings.MAX_DEPLOYMENT_BEAR)
+
+        regime_n, target_n = self.capital_mgr.determine_market_regime(55.0, 55.0)
         self.assertEqual(regime_n, "NEUTRAL")
         self.assertEqual(target_n, settings.MAX_DEPLOYMENT_NEUTRAL)
         
-        regime_s, target_s = self.capital_mgr.determine_market_regime(60.0, 60.0)
-        self.assertEqual(regime_s, "STRONG")
-        self.assertEqual(target_s, settings.MAX_DEPLOYMENT_STRONG)
-        
-        regime_e, target_e = self.capital_mgr.determine_market_regime(85.0, 85.0)
-        self.assertEqual(regime_e, "EXCEPTIONAL")
-        self.assertEqual(target_e, settings.MAX_DEPLOYMENT_EXCEPTIONAL)
+        regime_bull, target_bull = self.capital_mgr.determine_market_regime(80.0, 80.0)
+        self.assertEqual(regime_bull, "BULL")
+        self.assertEqual(target_bull, settings.MAX_DEPLOYMENT_BULL)
 
     def test_cost_model_friction_and_rr(self):
         """Test spread-aware cost calculation and 3:1 Reward/Risk enforcement."""
@@ -76,7 +76,7 @@ class TestPRVQuantPlatform(unittest.TestCase):
         self.assertTrue(self.risk_eng.circuit_breaker_tripped)
 
     def test_boardroom_quorum_rejection_low_confidence(self):
-        """Test that boardroom rejects any trade below confidence threshold."""
+        """Test that boardroom rejects any trade below technical confidence threshold."""
         factors = {
             "trend_strength": 40.0, "relative_strength": 40.0, "momentum": 40.0,
             "volume_confirmation": 40.0, "volatility_condition": 40.0, "market_regime": 40.0,

@@ -4,10 +4,14 @@ from src.database.db import db
 
 class CapitalManager:
     """
-    PRV Capital Three-Tier Capital Architecture:
+    Phase 5 Capital & Regime Management Architecture:
     1. Core Capital: Active trading risk pool (NAV minus Vaulted Gains).
     2. Active Capital: Capital deployed in active market positions.
     3. Profit Vault: Realized gains swept on trade close and excluded from sizing.
+    4. Regime Targets:
+       - Bear Market: 15% - 30% (Target: 25% max deployment)
+       - Neutral Market: 30% - 50% (Target: 45% max deployment)
+       - Bull Market: 60% - 80% (Target: 75% max deployment)
     """
     def __init__(self, starting_capital: float = settings.STARTING_CAPITAL):
         self.starting_capital = starting_capital
@@ -35,18 +39,18 @@ class CapitalManager:
     def determine_market_regime(self, market_breadth_score: float, sp500_trend_score: float) -> Tuple[str, float]:
         """
         Determine market regime and target deployment capacity:
-        - NEUTRAL: 20% - 40% (Target: 35% max deployment)
-        - STRONG: 40% - 70% (Target: 65% max deployment)
-        - EXCEPTIONAL: 70% - 85% (Target: 80% max deployment)
+        - BULL: 60% - 80% (Target: 75% max deployment)
+        - NEUTRAL: 30% - 50% (Target: 45% max deployment)
+        - BEAR: 15% - 30% (Target: 25% max deployment)
         """
         composite_regime_score = (market_breadth_score * 0.5) + (sp500_trend_score * 0.5)
         
-        if composite_regime_score >= 80.0:
-            return "EXCEPTIONAL", 0.80
-        elif composite_regime_score >= 50.0:
-            return "STRONG", 0.65
+        if composite_regime_score >= 70.0:
+            return "BULL", settings.MAX_DEPLOYMENT_BULL
+        elif composite_regime_score >= 45.0:
+            return "NEUTRAL", settings.MAX_DEPLOYMENT_NEUTRAL
         else:
-            return "NEUTRAL", 0.35
+            return "BEAR", settings.MAX_DEPLOYMENT_BEAR
 
     def calculate_deployment_allowance(
         self,
@@ -55,12 +59,12 @@ class CapitalManager:
         market_regime: str
     ) -> Tuple[float, float]:
         """Calculate maximum remaining deployable capital for current regime."""
-        if market_regime == "EXCEPTIONAL":
-            target_pct = 0.80
-        elif market_regime == "STRONG":
-            target_pct = 0.65
+        if market_regime == "BULL" or market_regime == "EXCEPTIONAL" or market_regime == "STRONG":
+            target_pct = settings.MAX_DEPLOYMENT_BULL
+        elif market_regime == "BEAR":
+            target_pct = settings.MAX_DEPLOYMENT_BEAR
         else:
-            target_pct = 0.35
+            target_pct = settings.MAX_DEPLOYMENT_NEUTRAL
             
         max_allowed_active = core_capital * target_pct
         remaining_allowance = max(0.0, max_allowed_active - active_capital)
@@ -75,14 +79,10 @@ class CapitalManager:
         market_regime: str,
         rejected_candidates: List[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Precise accounting of why every pound remains in cash:
-        Breaks down idle cash into exact buckets and conditions required to deploy.
-        """
+        """Precise accounting of why every pound remains in cash."""
         idle_cash = available_cash
         breakdown = []
         
-        # 1. Mandatory 5% Cash Safety Buffer
         cash_buffer = core_capital * settings.MIN_CASH_BUFFER_PCT
         breakdown.append({
             "bucket": "Cash Safety Buffer",
@@ -93,9 +93,7 @@ class CapitalManager:
             "deploy_condition": "Never deployed (permanent liquidity safeguard)"
         })
         
-        # 2. Regime Capacity Reserve (Capital held back based on macro regime)
         _, target_pct = self.determine_market_regime(70.0, 75.0)
-        regime_max_invested = core_capital * target_pct
         unallocated_regime_reserve = max(0.0, core_capital * (1.0 - target_pct) - cash_buffer)
         
         if unallocated_regime_reserve > 0:
@@ -105,18 +103,17 @@ class CapitalManager:
                 "pct_of_idle": round((unallocated_regime_reserve / idle_cash * 100.0) if idle_cash > 0 else 0.0, 1),
                 "status": "MACRO_GATED",
                 "reason": f"Regime is {market_regime} (capping active exposure at {target_pct * 100:.0f}% of Core Capital)",
-                "deploy_condition": "Requires Market Regime upgrade to EXCEPTIONAL (S&P 500 breakout + breadth > 80%)"
+                "deploy_condition": "Requires Market Regime upgrade to BULL (S&P 500 breakout + breadth > 70%)"
             })
 
-        # 3. Active Opportunity Deployment Queue (Capital immediately available for high-conviction signals)
         active_deployable_queue = max(0.0, idle_cash - cash_buffer - unallocated_regime_reserve)
         breakdown.append({
             "bucket": "High-Conviction Opportunity Queue",
             "amount": round(active_deployable_queue, 2),
             "pct_of_idle": round((active_deployable_queue / idle_cash * 100.0) if idle_cash > 0 else 0.0, 1),
             "status": "AWAITING_SIGNAL_TRIGGER",
-            "reason": "Allocated for top-ranked candidate entries and scale-in executions",
-            "deploy_condition": "Deploys when universe candidates achieve Confidence >= 70.0% and Net R:R >= 3.0"
+            "reason": "Allocated for top-ranked candidate entries and scale-in executions (3% - 8% dynamic sizing)",
+            "deploy_condition": "Deploys when candidates achieve Technical Confidence >= 65.0% and Net R:R >= 3.0"
         })
 
         return breakdown
