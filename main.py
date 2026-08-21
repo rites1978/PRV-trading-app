@@ -11,7 +11,7 @@ from db_manager import db
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Rate limits stabilized. Portfolio connection healthy..."
+LIVE_COMMENTARY = "AI Trading Floor: Querying live T212 account balance..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -26,6 +26,32 @@ T212_API_KEY = os.getenv("T212_API_KEY", "").strip()
 T212_API_SECRET = os.getenv("T212_API_SECRET", "").strip()
 T212_BASE_URL = "https://demo.trading212.com/api/v0/equity"
 
+def get_t212_auth_headers():
+    raw_credentials = f"{T212_API_KEY}:{T212_API_SECRET}"
+    encoded = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
+    return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
+
+def fetch_live_broker_valuation():
+    if not T212_API_KEY or not T212_API_SECRET:
+        return 50000.00, []
+    
+    headers = get_t212_auth_headers()
+    try:
+        # Fetch account cash details directly
+        res = requests.get(f"{T212_BASE_URL}/account/cash", headers=headers, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            # Trading 212 returns free, total, ppl, result, etc.
+            total_balance = float(data.get("total", data.get("free", 50000.00)))
+            log_activity(f"Live T212 Cash Fetched successfully: Total = £{total_balance}", "success")
+            return total_balance, []
+        else:
+            log_activity(f"Failed to fetch cash: Status {res.status_code} - {res.text}", "warning")
+    except Exception as e:
+        log_activity(f"Cash fetch exception: {str(e)}", "error")
+        
+    return 50000.00, []
+
 def get_trades_from_db():
     try:
         response = db.client.table("trades").select("*").order("created_at", desc=True).execute()
@@ -33,40 +59,22 @@ def get_trades_from_db():
     except Exception:
         return []
 
-async def market_scouring_agent():
-    await asyncio.sleep(15)
-    while True:
-        try:
-            raw_credentials = f"{T212_API_KEY}:{T212_API_SECRET}"
-            encoded = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
-            res = requests.get(f"{T212_BASE_URL}/account/info", headers={"Authorization": f"Basic {encoded}"}, timeout=10)
-            if res.status_code == 200:
-                log_activity("T212 Account Sync Active. Portfolio connection healthy.", "info")
-            else:
-                log_activity(f"T212 Account Sync Warning: Status {res.status_code}", "warning")
-        except Exception as e:
-            log_activity(f"Agent loop error: {str(e)}", "error")
-        
-        # Safe rate limit: Check once every 300 seconds (5 minutes) instead of spamming
-        await asyncio.sleep(300)
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log_activity("PRV Trading Desk starting up with rate-limited broker sync...", "success")
-    task = asyncio.create_task(market_scouring_agent())
+    log_activity("PRV Trading Desk starting up with live balance sync...", "success")
     yield
-    task.cancel()
 
 app = FastAPI(lifespan=lifespan)
 
 @app.api_route("/api/valuation", methods=["GET", "HEAD"])
 def get_live_valuation():
+    live_val, positions = fetch_live_broker_valuation()
     trades = get_trades_from_db()
     return {
-        "valuation": 40000.00,
+        "valuation": live_val,
         "change_24h": 0.00,
         "return_pct": 0.00,
-        "allocations": [],
+        "allocations": positions,
         "trades": trades[:10],
         "commentary": LIVE_COMMENTARY
     }
@@ -97,13 +105,13 @@ def read_root():
     <div class="container">
         <div class="card">
             <h1>PRV Trading Floor (Live Broker Connected)</h1>
-            <p>Authenticated securely with Trading 212 Practice Environment & Supabase Database.</p>
+            <p>Synced live with Trading 212 Practice Account.</p>
         </div>
         
         <div class="card card-half">
-            <h2>Portfolio Valuation</h2>
-            <div class="metric" id="valuation">£40,000.00</div>
-            <p>Status: <span style="color: #34d399; font-weight: bold;">ONLINE</span></p>
+            <h2>Live Account Valuation</h2>
+            <div class="metric" id="valuation">£50,000.00</div>
+            <p>Status: <span style="color: #34d399; font-weight: bold;">LIVE SYNC ACTIVE</span></p>
         </div>
 
         <div class="card card-half">
@@ -129,7 +137,7 @@ def read_root():
                 const res = await fetch('/api/valuation');
                 const data = await res.json();
                 document.getElementById('logStream').innerHTML = data.commentary;
-                document.getElementById('valuation').innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2});
+                document.getElementById('valuation').innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 
                 const tbody = document.getElementById('tradeTable');
                 if (data.trades && data.trades.length > 0) {
