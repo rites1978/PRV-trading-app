@@ -20,7 +20,10 @@ LIVE_COMMENTARY = "AI Trading Floor: Unrestricted Market Hunter Online."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
-AI_COOLDOWN_MEMORY = {}
+
+# Memories to prevent spamming the broker
+AI_BUY_COOLDOWN = {}
+AI_SELL_COOLDOWN = {}
 
 # Dynamic Pools for True AI Exploration
 ALL_UK_TICKERS = []
@@ -90,15 +93,16 @@ def fetch_live_data():
 async def autonomous_ai_brain():
     await asyncio.sleep(2)
     
-    # 1. Sync ALL 17,000+ valid tickers and categorize them dynamically
+    # 1. Sync ALL 17,000+ valid tickers with correct CASE SENSITIVITY
     try:
         res = requests.get(f"{T212_BASE_URL}/metadata/instruments", headers=get_t212_auth_headers(), timeout=15)
         if res.status_code == 200:
             for inst in res.json():
                 ticker = inst.get("ticker", "")
-                if "_US_EQ" in ticker:
+                ticker_upper = ticker.upper()
+                if "_US_EQ" in ticker_upper:
                     ALL_US_TICKERS.append(ticker)
-                elif "_l_EQ" in ticker or "_GB_EQ" in ticker:
+                elif "_L_EQ" in ticker_upper or "_UK_EQ" in ticker_upper or "_GB_EQ" in ticker_upper:
                     ALL_UK_TICKERS.append(ticker)
             log_activity(f"Brain Loaded: {len(ALL_UK_TICKERS)} UK Stocks | {len(ALL_US_TICKERS)} US Stocks.", "success")
     except Exception: pass
@@ -114,6 +118,10 @@ async def autonomous_ai_brain():
             
             # --- PHASE 1: EVALUATE SELLS (TAKE PROFIT / STOP LOSS) ---
             for t212_ticker, pos in owned_tickers.items():
+                # Fix: If we just issued a sell for this, skip it so we don't spam 400 errors
+                if t212_ticker in AI_SELL_COOLDOWN and (time.time() - AI_SELL_COOLDOWN[t212_ticker] < 120):
+                    continue 
+
                 qty = float(pos.get("quantity", 0))
                 avg = float(pos.get("averagePrice", 0))
                 cur = float(pos.get("currentPrice", 0))
@@ -123,6 +131,7 @@ async def autonomous_ai_brain():
                     if ret_pct >= 0.05 or ret_pct <= -0.05:
                         log_activity(f"⚡ HFT TRIGGER: Auto-Selling {t212_ticker} (P/L: {ret_pct:+.2f}%)", "warning" if ret_pct < 0 else "success")
                         execute_live_order(t212_ticker, -qty)
+                        AI_SELL_COOLDOWN[t212_ticker] = time.time() # Memory lock: Don't sell again for 2 mins
                         action_taken = True
                         break 
             
@@ -140,12 +149,12 @@ async def autonomous_ai_brain():
                 batch = random.sample(available_pool, min(10, len(available_pool)))
                 
                 for t212_ticker in batch:
-                    if t212_ticker in owned_tickers or (time.time() - AI_COOLDOWN_MEMORY.get(t212_ticker, 0) < 60):
+                    if t212_ticker in owned_tickers or (time.time() - AI_BUY_COOLDOWN.get(t212_ticker, 0) < 120):
                         continue
                         
                     # Translate T212 ticker to Yahoo Finance dynamically
                     yf_ticker = t212_ticker.split("_")[0]
-                    if "_l_EQ" in t212_ticker or "_GB_EQ" in t212_ticker:
+                    if "_L_EQ" in t212_ticker.upper() or "_UK_EQ" in t212_ticker.upper() or "_GB_EQ" in t212_ticker.upper():
                         yf_ticker += ".L"
                     
                     data = yf.download(yf_ticker, period="1d", interval="1m", progress=False)
@@ -160,7 +169,7 @@ async def autonomous_ai_brain():
                             log_activity(f"🚀 UNEXPECTED OPPORTUNITY: {yf_ticker} rising ({momentum:+.3f}%). AI Striking...", "success")
                             qty = 20.0 if ".L" in yf_ticker else 1.0
                             execute_live_order(t212_ticker, qty)
-                            AI_COOLDOWN_MEMORY[t212_ticker] = time.time()
+                            AI_BUY_COOLDOWN[t212_ticker] = time.time()
                             action_taken = True
                             break 
                     
@@ -181,7 +190,7 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    if is_market_open("UK"): return execute_live_order("BARC_l_EQ", 10.0)
+    if is_market_open("UK"): return execute_live_order("BARC_L_EQ", 10.0)
     elif is_market_open("US"): return execute_live_order("AAPL_US_EQ", 1.0)
     return {"status": "ERROR", "detail": "Both UK and US markets are closed."}
 
