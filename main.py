@@ -32,12 +32,11 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
         log_activity(f"T212 [Paper Sandbox]: Simulated fill for {quantity}x {ticker}.", "warning")
         return "SIMULATED FILL"
     
-    # Format Trading 212 specific equity ticker (e.g. AAPL -> AAPL_US_EQ)
     clean_ticker = ticker.upper().strip().replace(".", "-")
     if "_" not in clean_ticker:
         clean_ticker = f"{clean_ticker}_US_EQ"
 
-    # Base64 encode API Key and Secret for Trading 212 API Header
+    # Official Base64 Basic Auth Header Construction
     credentials_string = f"{T212_API_KEY}:{T212_API_SECRET}"
     encoded_creds = base64.b64encode(credentials_string.encode('utf-8')).decode('utf-8')
     
@@ -49,7 +48,6 @@ def execute_t212_order(ticker: str, quantity: float, order_type: str = "MARKET")
     payload = {
         "quantity": float(quantity),
         "ticker": clean_ticker,
-        "targetValue": None,
         "type": order_type
     }
     
@@ -90,7 +88,7 @@ async def market_scouring_agent():
                     if pct_change <= -1.8 or pct_change >= 2.0:
                         trades_fired += 1
                         side = "BUY" if pct_change <= -1.8 else "SELL"
-                        shares = round(100.0 / current_price, 2) # Controlled position size for testing
+                        shares = round(100.0 / current_price, 2)
                         
                         execution_status = execute_t212_order(ticker, shares, "MARKET")
                         
@@ -322,7 +320,7 @@ HTML_TEMPLATE = """
             <div class="apple-card">
                 <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px;">AI Boardroom & Sentiment Matrix</div>
                 <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6;">
-                    The autonomous agent communicates securely via Base64 Basic Auth directly with your Trading 212 Practice API endpoint.
+                    The autonomous agent is authorized via Base64 Basic Auth to place orders directly into your Trading 212 Practice account.
                 </div>
             </div>
         </div>
