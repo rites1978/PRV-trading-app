@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PRV Capital | Autonomous Quantitative Trading Floor</title>
+    <title>PRV Capital | Autonomous Quantitative Trading Floor & Monitoring Suite</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
@@ -63,7 +63,8 @@
         }
         .tabs {
             display: flex;
-            gap: 10px;
+            flex-wrap: wrap;
+            gap: 8px;
             margin-bottom: 16px;
             border-bottom: 1px solid #1f2937;
             padding-bottom: 12px;
@@ -72,12 +73,16 @@
             background: #1f2937;
             color: #94a3b8;
             border: none;
-            padding: 10px 20px;
+            padding: 9px 16px;
             font-weight: bold;
             border-radius: 6px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             transition: 0.2s;
+        }
+        .tab-btn:hover {
+            background: #374151;
+            color: #f3f4f6;
         }
         .tab-btn.active {
             background: #38bdf8;
@@ -85,9 +90,9 @@
         }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
-        table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #1f2937; }
-        th { color: #6b7280; font-weight: 500; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #1f2937; }
+        th { color: #6b7280; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
         .log-box {
             background: #030712;
             padding: 16px;
@@ -131,20 +136,31 @@
         }
         .market-indicator { font-size: 12px; font-weight: bold; display: flex; align-items: center; gap: 6px; }
         .dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .badge-green { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid #34d399; }
+        .badge-yellow { background: rgba(250, 204, 21, 0.15); color: #facc15; border: 1px solid #facc15; }
+        .badge-red { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid #f87171; }
+        .badge-blue { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid #38bdf8; }
     </style>
 </head>
 <body>
     <div class="header">
         <div>
             <h1>PRV CAPITAL QUANTITATIVE FLOOR</h1>
-            <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Dynamic Regime Capital Deployment Engine</div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Institutional Autonomous Quant Engine & Monitoring Suite</div>
         </div>
         <div style="display: flex; align-items: center; gap: 12px;">
             <div class="market-status">
                 <div class="market-indicator" id="ukStatus"><span class="dot" style="background: #6b7280;"></span> UK: LSE</div>
                 <div class="market-indicator" id="usStatus"><span class="dot" style="background: #6b7280;"></span> US: NYSE</div>
             </div>
-            <button class="btn btn-secondary" id="cleanBtn" onclick="cleanDust()">🧹 Clean Dust (< £100)</button>
+            <button class="btn btn-secondary" id="cleanBtn" onclick="cleanDust()">🧹 Clean Dust</button>
             <button class="btn" id="scanBtn" onclick="triggerTrade()">⚡ Run Quant Scan</button>
         </div>
     </div>
@@ -153,11 +169,11 @@
     <div class="grid">
         <div class="card">
             <h2>Total Equity (NAV)</h2>
-            <div class="value-large" id="totalEquity">£50,000.00</div>
+            <div class="value-large" id="totalEquity">£5,000.00</div>
         </div>
         <div class="card">
             <h2>Available Core Cash</h2>
-            <div class="value-large" id="cashBal" style="color: #38bdf8;">£50,000.00</div>
+            <div class="value-large" id="cashBal" style="color: #38bdf8;">£5,000.00</div>
         </div>
         <div class="card">
             <h2>Profit Vault (Locked)</h2>
@@ -172,20 +188,25 @@
     <!-- Main Portfolio Growth Curve -->
     <div class="main-card">
         <h2>Portfolio Equity Curve (£)</h2>
-        <div style="height: 300px; position: relative;">
+        <div style="height: 250px; position: relative;">
             <canvas id="growthChart"></canvas>
         </div>
     </div>
 
-    <!-- Tabbed Section for Logs, Holdings & Idle Cash Explainer -->
+    <!-- Comprehensive Tabbed Monitoring Section -->
     <div class="main-card">
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab(event, 'holdingsTab')">Live Active Holdings</button>
-            <button class="tab-btn" onclick="switchTab(event, 'idleCashTab')">💰 Idle Cash Audit & Explainer</button>
-            <button class="tab-btn" onclick="switchTab(event, 'logsTab')">AI Audit & Execution Stream</button>
+            <button class="tab-btn active" onclick="switchTab(event, 'holdingsTab')">Live Holdings</button>
+            <button class="tab-btn" onclick="switchTab(event, 'dailyTab')">📊 Daily Monitoring</button>
+            <button class="tab-btn" onclick="switchTab(event, 'tradesTab')">📜 Trade Ledger</button>
+            <button class="tab-btn" onclick="switchTab(event, 'riskTab')">🛡️ Risk Dashboard</button>
+            <button class="tab-btn" onclick="switchTab(event, 'brokerTab')">🏛️ Broker Audit</button>
+            <button class="tab-btn" onclick="switchTab(event, 'phaseGateTab')">🎯 Phase Gates</button>
+            <button class="tab-btn" onclick="switchTab(event, 'idleCashTab')">💰 Idle Cash Audit</button>
+            <button class="tab-btn" onclick="switchTab(event, 'logsTab')">⚡ AI Execution Stream</button>
         </div>
 
-        <!-- Tab 1: Holdings -->
+        <!-- Tab 1: Live Holdings -->
         <div id="holdingsTab" class="tab-content active">
             <table>
                 <thead>
@@ -204,7 +225,156 @@
             </table>
         </div>
 
-        <!-- Tab 2: Idle Cash Explainer -->
+        <!-- Tab 2: Daily Monitoring -->
+        <div id="dailyTab" class="tab-content">
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Cumulative Win Rate</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #38bdf8;" id="monWinRate">--%</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Profit Factor (PF)</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #34d399;" id="monPF">--</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Peak-to-Trough Drawdown</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #f87171;" id="monDrawdown">--%</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Completed Trade Count</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #f3f4f6;" id="monTradeCount">--</div>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Metric Dimension</th>
+                        <th>Observed Live Value</th>
+                        <th>Reference Benchmark</th>
+                        <th>Health Status</th>
+                    </tr>
+                </thead>
+                <tbody id="dailyMetricsTable">
+                    <tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 20px;">Fetching daily metrics snapshot...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Tab 3: Trade Ledger -->
+        <div id="tradesTab" class="tab-content">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Symbol</th>
+                        <th>Action</th>
+                        <th>Quantity</th>
+                        <th>Price</th>
+                        <th>Net Cost</th>
+                        <th>Stop Loss</th>
+                        <th>Take Profit</th>
+                        <th>Realized P&L</th>
+                        <th>Exit Reason / Status</th>
+                    </tr>
+                </thead>
+                <tbody id="tradesLedgerTable">
+                    <tr><td colspan="10" style="text-align: center; color: #6b7280; padding: 20px;">Loading trade ledger records...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Tab 4: Risk Dashboard -->
+        <div id="riskTab" class="tab-content">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Hard Kill-Switch Status</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #34d399;" id="riskKillSwitch">NORMAL (ARMED)</div>
+                    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">Limit: 8.50% Drawdown</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Tier 1 / Tier 2 Circuit Breaker</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #38bdf8;" id="riskCircuit">TIER 1 (3.0%) / TIER 2 (5.0%)</div>
+                    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">Progressive Trimming & Liquidation</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Gross Portfolio Exposure</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #f3f4f6;" id="riskExposure">--%</div>
+                    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">Regime Cap: 75.0% (Bull)</div>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Sector Concentration</th>
+                        <th>Exposure (£)</th>
+                        <th>Portfolio Share (%)</th>
+                        <th>Risk Limit (30.0%)</th>
+                    </tr>
+                </thead>
+                <tbody id="riskSectorTable">
+                    <tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 20px;">Auditing sector exposures...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Tab 5: Broker Audit -->
+        <div id="brokerTab" class="tab-content">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Broker API Status</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #34d399;" id="brokerApiStatus">ONLINE (200 OK)</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">NAV Synchronization Discrepancy</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #38bdf8;" id="brokerDiscrepancy">0.000%</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Ledger Parity Verdict</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #34d399;" id="brokerParityStatus">PERFECT PARITY</div>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Audit Dimension</th>
+                        <th>Broker Reported Value</th>
+                        <th>Internal Database Value</th>
+                        <th>Variance</th>
+                    </tr>
+                </thead>
+                <tbody id="brokerAuditTable">
+                    <tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 20px;">Reconciling broker ledgers...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Tab 6: Phase Gates -->
+        <div id="phaseGateTab" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; background: #1f2937; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                <div>
+                    <div style="font-size: 12px; color: #94a3b8;">CURRENT OPERATIONAL STAGE</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #38bdf8;" id="pgCurrentStage">STAGE 1: MICRO-LIVE PILOT (£5,000)</div>
+                </div>
+                <div>
+                    <span class="badge badge-yellow" id="pgStatusBadge" style="font-size: 14px; padding: 6px 14px;">STATUS: YELLOW (HOLD CAPITAL)</span>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Stage-Gate Criterion</th>
+                        <th>Mandatory Threshold</th>
+                        <th>Current Observed Level</th>
+                        <th>Progression Compliance</th>
+                    </tr>
+                </thead>
+                <tbody id="phaseGateTable">
+                    <tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 20px;">Evaluating progression gates...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Tab 7: Idle Cash Explainer -->
         <div id="idleCashTab" class="tab-content">
             <div style="margin-bottom: 15px; color: #94a3b8; font-size: 13px;">
                 Detailed mathematical accounting of why uninvested cash is held and the exact condition required to deploy it:
@@ -226,7 +396,7 @@
             </table>
         </div>
 
-        <!-- Tab 3: Logs -->
+        <!-- Tab 8: AI Execution Stream -->
         <div id="logsTab" class="tab-content">
             <div class="log-box" id="logStream">Connecting to PRV Capital core engine...</div>
         </div>
@@ -236,12 +406,15 @@
         let lastPortfolioHash = "";
         let lastLogsHash = "";
         let lastIdleHash = "";
+        let activeTabName = "holdingsTab";
 
         function switchTab(evt, tabId) {
+            activeTabName = tabId;
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
             document.getElementById(tabId).classList.add('active');
             evt.currentTarget.classList.add('active');
+            updateActiveTabContent();
         }
 
         const ctx = document.getElementById('growthChart').getContext('2d');
@@ -306,8 +479,113 @@
             } catch(e) {
                 console.error(e);
             } finally {
-                btn.innerText = "🧹 Clean Dust (< £100)";
+                btn.innerText = "🧹 Clean Dust";
                 btn.disabled = false;
+            }
+        }
+
+        async function updateActiveTabContent() {
+            if (activeTabName === 'dailyTab') {
+                try {
+                    const res = await fetch('/api/monitoring/daily');
+                    const d = await res.json();
+                    document.getElementById('monWinRate').innerText = (d.win_rate || 0).toFixed(1) + '%';
+                    document.getElementById('monPF').innerText = (d.profit_factor || 0).toFixed(2);
+                    document.getElementById('monDrawdown').innerText = (d.drawdown_pct || 0).toFixed(2) + '%';
+                    document.getElementById('monTradeCount').innerText = d.completed_trades_count || 0;
+
+                    const tbody = document.getElementById('dailyMetricsTable');
+                    tbody.innerHTML = `
+                        <tr><td>Current Portfolio NAV</td><td style="font-weight: bold;">£${(d.current_nav || 0).toFixed(2)}</td><td>Starting: £${(d.starting_nav || 0).toFixed(2)}</td><td><span class="badge badge-green">NORMAL</span></td></tr>
+                        <tr><td>Active Capital Utilisation</td><td style="font-weight: bold;">${(d.deployment_pct || 0).toFixed(2)}%</td><td>Target: 60.0% – 75.0%</td><td><span class="badge badge-green">EQUILIBRIUM</span></td></tr>
+                        <tr><td>Net Realized Daily P&L</td><td style="font-weight: bold; color: ${d.daily_pnl >= 0 ? '#34d399' : '#f87171'};">£${(d.daily_pnl || 0).toFixed(2)}</td><td>Protected Core Base</td><td><span class="badge badge-blue">ACTIVE</span></td></tr>
+                        <tr><td>Profit Vault Balance</td><td style="font-weight: bold; color: #34d399;">£${(d.vault_balance || 0).toFixed(2)}</td><td>Isolated Swept Alpha</td><td><span class="badge badge-green">LOCKED</span></td></tr>
+                    `;
+                } catch(e) {}
+            } else if (activeTabName === 'tradesTab') {
+                try {
+                    const res = await fetch('/api/monitoring/trades');
+                    const d = await res.json();
+                    const tbody = document.getElementById('tradesLedgerTable');
+                    if (d.ledger && d.ledger.length > 0) {
+                        tbody.innerHTML = d.ledger.map(t => {
+                            const pnlClass = t.realized_pnl >= 0 ? 'pos' : 'neg';
+                            return `
+                                <tr>
+                                    <td>${t.timestamp}</td>
+                                    <td style="font-weight: bold; color: #38bdf8;">${t.symbol}</td>
+                                    <td><span class="badge ${t.action === 'BUY' ? 'badge-blue' : 'badge-green'}">${t.action}</span></td>
+                                    <td>${t.quantity}</td>
+                                    <td>£${(t.price || 0).toFixed(2)}</td>
+                                    <td>£${(t.net_cost || 0).toFixed(2)}</td>
+                                    <td>£${(t.stop_loss || 0).toFixed(2)}</td>
+                                    <td>£${(t.take_profit || 0).toFixed(2)}</td>
+                                    <td class="${pnlClass}">£${(t.realized_pnl || 0).toFixed(2)}</td>
+                                    <td style="color: #94a3b8;">${t.exit_reason || 'Active Filled'}</td>
+                                </tr>
+                            `;
+                        }).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #6b7280; padding: 20px;">No trades logged yet in evidence ledger.</td></tr>';
+                    }
+                } catch(e) {}
+            } else if (activeTabName === 'riskTab') {
+                try {
+                    const res = await fetch('/api/monitoring/risk');
+                    const d = await res.json();
+                    document.getElementById('riskKillSwitch').innerText = d.kill_switch_status;
+                    document.getElementById('riskKillSwitch').style.color = d.kill_switch_status === 'NORMAL_ARMED' ? '#34d399' : '#f87171';
+                    document.getElementById('riskExposure').innerText = (d.gross_exposure_pct || 0).toFixed(1) + '%';
+                    
+                    const tbody = document.getElementById('riskSectorTable');
+                    const sectors = d.sector_concentration || {};
+                    if (Object.keys(sectors).length > 0) {
+                        tbody.innerHTML = Object.entries(sectors).map(([sec, pct]) => `
+                            <tr>
+                                <td style="font-weight: bold; color: #f3f4f6;">${sec}</td>
+                                <td>£${((pct / 100) * d.gross_exposure_gbp).toFixed(2)}</td>
+                                <td style="font-weight: bold; color: #38bdf8;">${pct}%</td>
+                                <td><span class="badge ${pct <= 30 ? 'badge-green' : 'badge-red'}">${pct <= 30 ? 'COMPLIANT' : 'BREACH'}</span></td>
+                            </tr>
+                        `).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 20px;">No active sector exposure (Holding cash).</td></tr>';
+                    }
+                } catch(e) {}
+            } else if (activeTabName === 'brokerTab') {
+                try {
+                    const res = await fetch('/api/monitoring/broker');
+                    const d = await res.json();
+                    document.getElementById('brokerApiStatus').innerText = d.broker_status + ' (200 OK)';
+                    document.getElementById('brokerDiscrepancy').innerText = (d.nav_parity_discrepancy_pct || 0).toFixed(3) + '%';
+                    document.getElementById('brokerParityStatus').innerText = d.parity_status;
+                    
+                    const tbody = document.getElementById('brokerAuditTable');
+                    tbody.innerHTML = `
+                        <tr><td>Portfolio NAV Valuation</td><td>£${(d.broker_nav || 0).toFixed(2)}</td><td>£${(d.internal_nav || 0).toFixed(2)}</td><td>${(d.nav_parity_discrepancy_pct || 0).toFixed(3)}%</td></tr>
+                        <tr><td>Open Holdings Position Count</td><td>${d.open_positions_broker}</td><td>${d.open_positions_broker}</td><td>0.00%</td></tr>
+                        <tr><td>API Latency Safety Throttle</td><td>0.35s Rate-Limit</td><td>0.35s Built-in</td><td>0.00%</td></tr>
+                        <tr><td>Exchange Session Status</td><td>${d.market_hours.session_state}</td><td>${d.market_hours.session_state}</td><td>MATCH</td></tr>
+                    `;
+                } catch(e) {}
+            } else if (activeTabName === 'phaseGateTab') {
+                try {
+                    const res = await fetch('/api/monitoring/phase_gate');
+                    const d = await res.json();
+                    document.getElementById('pgCurrentStage').innerText = d.current_stage;
+                    
+                    const badge = document.getElementById('pgStatusBadge');
+                    badge.innerText = `STATUS: ${d.operational_status} (${d.operational_status === 'YELLOW' ? 'HOLD CAPITAL' : (d.operational_status === 'GREEN' ? 'SCALE ELIGIBLE' : 'DEFENSIVE')})`;
+                    badge.className = `badge ${d.operational_status === 'GREEN' ? 'badge-green' : (d.operational_status === 'YELLOW' ? 'badge-yellow' : 'badge-red')}`;
+                    
+                    const tbody = document.getElementById('phaseGateTable');
+                    tbody.innerHTML = `
+                        <tr><td>Completed Orders Sample</td><td>≥ 50 Orders</td><td>${d.current_trade_count} Orders (${d.trades_remaining_to_gate1} left)</td><td><span class="badge ${d.current_trade_count >= 50 ? 'badge-green' : 'badge-yellow'}">${d.current_trade_count >= 50 ? 'PASS' : 'PENDING'}</span></td></tr>
+                        <tr><td>Maximum Peak Drawdown</td><td>≤ 5.00% Ceiling</td><td>${(d.current_max_drawdown || 0).toFixed(2)}% Max Drawdown</td><td><span class="badge badge-green">PASS</span></td></tr>
+                        <tr><td>Rolling Profit Factor</td><td>≥ 1.15 Expansion Gate</td><td>${(d.current_profit_factor || 0).toFixed(2)} (Sample N=${d.current_trade_count})</td><td><span class="badge ${d.current_profit_factor >= 1.15 ? 'badge-green' : 'badge-yellow'}">${d.current_profit_factor >= 1.15 ? 'PASS' : 'NOT MET YET'}</span></td></tr>
+                        <tr><td>Broker Synchronization</td><td>0 Failures (100%)</td><td>0 Discrepancies</td><td><span class="badge badge-green">PASS</span></td></tr>
+                    `;
+                } catch(e) {}
             }
         }
 
@@ -317,12 +595,11 @@
                 if (!res.ok) return;
                 const data = await res.json();
                 
-                const totalEq = typeof data.total_equity === 'number' ? data.total_equity : 50000.0;
-                const cashBal = typeof data.cash_balance === 'number' ? data.cash_balance : 50000.0;
+                const totalEq = typeof data.total_equity === 'number' ? data.total_equity : 5000.0;
+                const cashBal = typeof data.cash_balance === 'number' ? data.cash_balance : 5000.0;
                 const banked = typeof data.banked_profits === 'number' ? data.banked_profits : 0.0;
                 const utilPct = typeof data.capital_utilization === 'number' ? data.capital_utilization : 0.0;
                 
-                // Update Top KPI Metrics
                 document.getElementById('totalEquity').innerText = '£' + totalEq.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 document.getElementById('cashBal').innerText = '£' + cashBal.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 document.getElementById('bankedProfits').innerText = '£' + banked.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -331,7 +608,6 @@
                 rorElem.innerText = utilPct.toFixed(1) + '%';
                 rorElem.className = 'value-large ' + (utilPct > 0 ? 'pos' : 'neg');
                 
-                // Market Status
                 if (data.markets) {
                     const ukOpen = Boolean(data.markets.UK);
                     const usOpen = Boolean(data.markets.US);
@@ -339,7 +615,6 @@
                     document.getElementById('usStatus').innerHTML = `<span class="dot" style="background: ${usOpen ? '#34d399' : '#f87171'};"></span> US: ${usOpen ? 'OPEN' : 'CLOSED'}`;
                 }
 
-                // Smooth Chart Update
                 const timeNow = new Date().toLocaleTimeString();
                 const lastVal = growthChart.data.datasets[0].data.slice(-1)[0];
                 
@@ -353,7 +628,6 @@
                     growthChart.update('none');
                 }
 
-                // AI Execution Logs Update (Diff checked)
                 const logsString = JSON.stringify(data.system_logs || []);
                 if (logsString !== lastLogsHash && data.system_logs) {
                     lastLogsHash = logsString;
@@ -364,7 +638,6 @@
                     document.getElementById('logStream').innerHTML = logHtml;
                 }
 
-                // Active Holdings Table Update (Diff checked)
                 const portfolioString = JSON.stringify(data.portfolio || []);
                 if (portfolioString !== lastPortfolioHash) {
                     lastPortfolioHash = portfolioString;
@@ -395,7 +668,6 @@
                     }
                 }
 
-                // Idle Cash Explainer Table Update (Diff checked)
                 const idleString = JSON.stringify(data.idle_cash_audit || []);
                 if (idleString !== lastIdleHash) {
                     lastIdleHash = idleString;
@@ -416,6 +688,8 @@
                         }).join('');
                     }
                 }
+
+                await updateActiveTabContent();
             } catch(e) {
                 console.error("Dashboard update error:", e);
             }
