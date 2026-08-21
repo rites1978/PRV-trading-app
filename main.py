@@ -4,10 +4,11 @@ import asyncio
 from datetime import datetime
 import os
 import requests
+from requests.auth import HTTPBasicAuth
 from contextlib import asynccontextmanager
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Initializing direct token authorization..."
+LIVE_COMMENTARY = "AI Trading Floor: Initializing hardcoded secure connection..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -18,38 +19,28 @@ def log_activity(message: str, level: str = "info"):
     LIVE_COMMENTARY = f"[{timestamp}] {message}"
     print(f"[{level.upper()}] {timestamp} - {message}")
 
+# Hardcoded base URL to prevent any Render env var markdown corruption
 T212_API_KEY = os.getenv("T212_API_KEY", "").strip()
-T212_BASE_URL = os.getenv("T212_BASE_URL", "https://demo.trading212.com/api/v0/equity")
+T212_API_SECRET = os.getenv("T212_API_SECRET", "").strip()
+T212_BASE_URL = "https://demo.trading212.com/api/v0/equity"
 
 def test_t212_connection():
-    if not T212_API_KEY:
-        log_activity("T212 Error: T212_API_KEY is missing in environment variables.", "error")
+    if not T212_API_KEY or not T212_API_SECRET:
+        log_activity("T212 Error: Missing T212_API_KEY or T212_API_SECRET in Render settings.", "error")
         return
     
-    # Official Trading 212 header convention: Direct token string in Authorization
-    headers = {
-        "Authorization": T212_API_KEY,
-        "Content-Type": "application/json"
-    }
+    auth = HTTPBasicAuth(T212_API_KEY, T212_API_SECRET)
+    headers = {"Content-Type": "application/json"}
     
     url = f"{T212_BASE_URL}/account/info"
     log_activity(f"Testing GET request to {url}", "info")
     
     try:
-        res = requests.get(url, headers=headers, timeout=10)
+        res = requests.get(url, auth=auth, headers=headers, timeout=10)
         log_activity(f"T212 Response [{res.status_code}]: {res.text}", "success" if res.status_code == 200 else "error")
         
         if res.status_code == 200:
-            # If account info succeeds, test market order placement
-            order_url = f"{T212_BASE_URL}/orders/market"
-            payload = {
-                "quantity": 1.0,
-                "ticker": "AAPL_US_EQ",
-                "timeInForce": "DAY"
-            }
-            order_res = requests.post(order_url, json=payload, headers=headers, timeout=10)
-            log_activity(f"Order Placement Response [{order_res.status_code}]: {order_res.text}", "success" if order_res.status_code in [200, 201] else "warning")
-            
+            log_activity("🎉 AUTHENTICATION SUCCESSFUL! Connected to Trading 212 Demo.", "success")
     except Exception as e:
         log_activity(f"Exception: {str(e)}", "error")
 
@@ -73,4 +64,4 @@ def get_live_valuation():
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
-    return f"<html><body style='background:#111;color:#fff;font-family:sans-serif;padding:40px;'><h1>T212 Direct Token Console</h1><pre>{LIVE_COMMENTARY}</pre></body></html>"
+    return f"<html><body style='background:#111;color:#fff;font-family:sans-serif;padding:40px;'><h1>T212 Auth Console</h1><pre>{LIVE_COMMENTARY}</pre></body></html>"
