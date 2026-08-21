@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: prv-capital-quant-platform
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./start.sh
+    plan: standard
+    envVars:
+      - key: TRADING_ENV
+        value: demo
+      - key: TRADING212_API_KEY
+        sync: false
+      - key: TRADING212_API_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: NEWS_API_KEY
+        sync: false
