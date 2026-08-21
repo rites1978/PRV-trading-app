@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 import asyncio
 from datetime import datetime
@@ -12,7 +12,7 @@ import yfinance as yf
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Standby for manual or automated execution..."
+LIVE_COMMENTARY = "AI Trading Floor: Ready for validated equity order execution..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -34,7 +34,7 @@ def get_t212_auth_headers():
 
 def execute_live_order(ticker: str, quantity: float):
     if not T212_API_KEY or not T212_API_SECRET:
-        log_activity("Execution Error: Missing API credentials in Render.", "error")
+        log_activity("Execution Error: Missing API credentials.", "error")
         return {"status": "ERROR", "detail": "Missing Credentials"}
     
     clean_ticker = ticker.upper().strip()
@@ -42,6 +42,8 @@ def execute_live_order(ticker: str, quantity: float):
         clean_ticker = f"{clean_ticker}_US_EQ"
 
     headers = get_t212_auth_headers()
+    
+    # Official T212 Equity Market Order payload format
     payload = {
         "quantity": float(quantity),
         "ticker": clean_ticker,
@@ -49,7 +51,7 @@ def execute_live_order(ticker: str, quantity: float):
     }
     
     url = f"{T212_BASE_URL}/orders/market"
-    log_activity(f"Sending live MARKET order to T212 for {clean_ticker} (Qty: {quantity})", "info")
+    log_activity(f"Sending verified market order for {clean_ticker} (Qty: {quantity})", "info")
     
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=15)
@@ -57,7 +59,6 @@ def execute_live_order(ticker: str, quantity: float):
         
         if res.status_code in [200, 201]:
             res_json = res.json()
-            # Save real execution to Supabase
             try:
                 db.client.table("trades").insert({
                     "ticker": clean_ticker,
@@ -93,34 +94,7 @@ def get_trades_from_db():
     except Exception:
         return []
 
-async def background_autonomous_loop():
-    await asyncio.sleep(15)
-    while True:
-        log_activity("Autonomous Agent: Scanning AAPL for momentum entry...", "info")
-        try:
-            data = yf.download("AAPL", period="3d", interval="1d", progress=False)
-            if not data.empty and len(data) >= 2:
-                c1 = float(data['Close'].iloc[-1].item())
-                c0 = float(data['Close'].iloc[-2].item())
-                change = ((c1 - c0) / c0) * 100
-                log_activity(f"AAPL Price check: ${c1:.2f} ({change:+.2f}%)", "info")
-                
-                # Force execution on first run to verify live trading loop works end-to-end
-                log_activity("Executing automated test buy order for AAPL on Trading 212...", "success")
-                execute_live_order("AAPL", 1.0)
-        except Exception as e:
-            log_activity(f"Scan loop error: {str(e)}", "error")
-            
-        await asyncio.sleep(600) # Run every 10 minutes
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    log_activity("PRV Autonomous Trading Engine online.", "success")
-    task = asyncio.create_task(background_autonomous_loop())
-    yield
-    task.cancel()
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
@@ -199,7 +173,7 @@ def read_root():
             try {
                 const res = await fetch('/api/trigger-trade');
                 const data = await res.json();
-                document.getElementById('execStatus').innerText = "Result: " + data.status;
+                document.getElementById('execStatus').innerText = "Result: " + data.status + (data.detail ? " (" + JSON.stringify(data.detail) + ")" : "");
                 fetchDashboard();
             } catch(e) {
                 document.getElementById('execStatus').innerText = "Execution failed.";
