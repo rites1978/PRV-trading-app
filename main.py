@@ -7,11 +7,10 @@ from datetime import datetime
 import os
 import requests
 import base64
-
-app = FastAPI()
+from contextlib import asynccontextmanager
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Verbose diagnostic mode active..."
+LIVE_COMMENTARY = "AI Trading Floor: Initializing background trade engine..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -21,6 +20,7 @@ def log_activity(message: str, level: str = "info"):
     if len(SYSTEM_LOGS) > 60:
         SYSTEM_LOGS.pop()
     LIVE_COMMENTARY = f"[{timestamp}] {message}"
+    print(f"[{level.upper()}] {timestamp} - {message}")
 
 T212_API_KEY = os.getenv("T212_API_KEY", "")
 T212_API_SECRET = os.getenv("T212_API_SECRET", "")
@@ -66,29 +66,27 @@ def execute_t212_order(ticker: str, quantity: float, side: str = "BUY"):
         log_activity(f"T212 Exception: native error -> {str(e)}", "error")
         return "API ERROR"
 
-def get_broad_market_universe():
-    return ["AAPL", "NVDA", "TSLA", "MSFT"]
-
 async def market_scouring_agent():
-    await asyncio.sleep(5) # Wait for startup
+    log_activity("Background Scouring Agent started successfully.", "success")
+    await asyncio.sleep(5)
     while True:
-        log_activity("Diagnostic Scan: Testing live order placement against T212...", "info")
-        # Test with a single liquid ticker to inspect the exact gateway response
-        execution_status = execute_t212_order("AAPL", 1.0, "BUY")
-        log_activity(f"Diagnostic Test Result: {execution_status}", "info")
-        await asyncio.sleep(300)
+        try:
+            log_activity("Diagnostic Scan: Testing live order placement against T212...", "info")
+            execution_status = execute_t212_order("AAPL", 1.0, "BUY")
+            log_activity(f"Diagnostic Test Result: {execution_status}", "info")
+        except Exception as e:
+            log_activity(f"Agent loop exception: {str(e)}", "error")
+        
+        await asyncio.sleep(60)
 
-@app.on_event("startup")
-async def startup_event():
-    log_activity("Diagnostic Trading Desk online.", "success")
-    asyncio.create_task(market_scouring_agent())
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log_activity("PRV Trading Desk starting up...", "success")
+    task = asyncio.create_task(market_scouring_agent())
+    yield
+    task.cancel()
 
-def get_trades_from_db():
-    try:
-        response = db.client.table("trades").select("*").order("created_at", desc=True).execute()
-        return response.data if response.data else []
-    except Exception:
-        return []
+app = FastAPI(lifespan=lifespan)
 
 @app.api_route("/api/valuation", methods=["GET", "HEAD"])
 def get_live_valuation():
