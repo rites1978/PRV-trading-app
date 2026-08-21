@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Swarm Mode Online. Target: 100 Positions."
+LIVE_COMMENTARY = "AI Trading Floor: Full Fund Deployment Active. Target: £50K."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
@@ -27,6 +27,7 @@ AI_SELL_COOLDOWN = {}
 ALL_UK_TICKERS = []
 ALL_US_TICKERS = []
 MAX_OPEN_POSITIONS = 100
+TARGET_INVESTMENT_PER_TRADE = 500.0 # Target £500 per position
 
 def is_market_open(market_code: str) -> bool:
     now = datetime.utcnow()
@@ -62,7 +63,7 @@ def execute_live_order(exact_ticker: str, quantity: float):
         res = requests.post(f"{T212_BASE_URL}/orders/market", json=payload, headers=get_t212_auth_headers(), timeout=10)
         if res.status_code in [200, 201]:
             status = res.json().get("status", "FILLED")
-            log_activity(f"✅ {side} {exact_ticker} ({status})", "success")
+            log_activity(f"✅ {side} {exact_ticker} (Qty: {abs(quantity)})", "success")
             try:
                 db.client.table("trades").insert({
                     "ticker": exact_ticker, "side": side, "quantity": abs(quantity), "status": status
@@ -109,6 +110,7 @@ async def autonomous_ai_brain():
         try:
             fetch_live_data()
             owned_tickers = {pos.get("ticker"): pos for pos in CACHED_PORTFOLIO} if CACHED_PORTFOLIO else {}
+            free_cash = float(CACHED_ACCOUNT.get("free", 0))
             
             # --- PHASE 1: EVALUATE SELLS (5% TARGET / 3% STOP LOSS) ---
             for t212_ticker, pos in owned_tickers.items():
@@ -123,7 +125,7 @@ async def autonomous_ai_brain():
                     ret_pct = ((cur - avg) / avg) * 100
                     
                     if ret_pct >= 5.0:
-                        log_activity(f"🏆 PROFIT TARGET REACHED: Selling {t212_ticker} (+{ret_pct:.2f}%)", "success")
+                        log_activity(f"🏆 PROFIT SECURED: Selling {t212_ticker} (+{ret_pct:.2f}%)", "success")
                         execute_live_order(t212_ticker, -qty)
                         AI_SELL_COOLDOWN[t212_ticker] = time.time()
                     elif ret_pct <= -3.0:
@@ -131,7 +133,7 @@ async def autonomous_ai_brain():
                         execute_live_order(t212_ticker, -qty)
                         AI_SELL_COOLDOWN[t212_ticker] = time.time()
             
-            # --- PHASE 2: MASS ACQUISITION TO REACH 100 POSITIONS ---
+            # --- PHASE 2: FULL FUND DEPLOYMENT ---
             current_holdings = len(owned_tickers)
             if current_holdings < MAX_OPEN_POSITIONS:
                 slots_to_fill = MAX_OPEN_POSITIONS - current_holdings
@@ -140,12 +142,17 @@ async def autonomous_ai_brain():
                 if is_market_open("US"): available_pool.extend(ALL_US_TICKERS)
                 
                 if available_pool:
-                    # Scan a massive batch to find multiple setups at once
                     batch = random.sample(available_pool, min(200, len(available_pool)))
                     buys_this_cycle = 0
                     
                     for t212_ticker in batch:
                         if buys_this_cycle >= slots_to_fill: break
+                        
+                        # Hard stop if we run out of cash
+                        if free_cash < TARGET_INVESTMENT_PER_TRADE:
+                            log_activity("Fund fully deployed. Awaiting sell triggers...", "warning")
+                            break
+                            
                         if t212_ticker in owned_tickers or (time.time() - AI_BUY_COOLDOWN.get(t212_ticker, 0) < 120):
                             continue
                             
@@ -157,26 +164,34 @@ async def autonomous_ai_brain():
                         
                         if not data.empty and len(data) >= 3:
                             closes = [float(x) for x in data['Close'].values.flatten()]
+                            current_price = closes[-1]
                             recent_avg = sum(closes[-2:]) / 2.0
                             older_avg = sum(closes[-4:-2]) / 2.0 if len(closes) >= 4 else closes[0]
                             momentum = ((recent_avg - older_avg) / older_avg) * 100.0
                             
-                            if momentum > 0.01: # Slightly stricter momentum requirement to filter junk
-                                log_activity(f"🚀 SWARM BUY: {yf_ticker} ({momentum:+.3f}%)", "success")
-                                qty = 1500.0 if t212_ticker.endswith("l_EQ") else 10.0
+                            if momentum > 0.01 and current_price > 0: 
+                                log_activity(f"🚀 DEPLOYING CAPITAL: {yf_ticker} rising ({momentum:+.3f}%)", "success")
                                 
-                                # Fire order and immediately pause for 0.3s to avoid rate limit bans
+                                # DYNAMIC SIZING: Calculate exact shares to spend £500
+                                if t212_ticker.endswith("l_EQ"):
+                                    # UK penny stocks are priced in GBX (pence). £500 = 50,000 pence.
+                                    qty = max(1.0, round(50000.0 / current_price))
+                                else:
+                                    # US stocks are in USD. £500 is approx $650. Trading 212 allows US fractionals.
+                                    qty = round(650.0 / current_price, 4)
+                                
                                 execute_live_order(t212_ticker, qty)
                                 AI_BUY_COOLDOWN[t212_ticker] = time.time()
+                                free_cash -= TARGET_INVESTMENT_PER_TRADE # Deduct from local tracker
                                 buys_this_cycle += 1
                                 await asyncio.sleep(0.3)
                         
-                        await asyncio.sleep(0.1) # Fast chart polling
+                        await asyncio.sleep(0.1)
                         
         except Exception as e:
             log_activity(f"Brain Error: {str(e)}", "error")
             
-        await asyncio.sleep(3) # Short reset before the next sweep
+        await asyncio.sleep(3) 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -188,8 +203,8 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    if is_market_open("UK"): return execute_live_order("BARCl_EQ", 1500.0)
-    elif is_market_open("US"): return execute_live_order("AAPL_US_EQ", 10.0)
+    if is_market_open("UK"): return execute_live_order("BARCl_EQ", 50000.0 / 220.0)
+    elif is_market_open("US"): return execute_live_order("AAPL_US_EQ", 650.0 / 180.0)
     return {"status": "ERROR", "detail": "Markets are closed."}
 
 @app.api_route("/api/dashboard_data", methods=["GET"])
