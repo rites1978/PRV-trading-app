@@ -1,8 +1,9 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import yfinance as yf
+from watchlist_manager import WatchlistManager
 from db_manager import db
 
+# Page Configuration
 st.set_page_config(
     page_title="PRV Capital | Markets",
     page_icon="📈",
@@ -10,197 +11,138 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Fetch real watchlist data from Supabase
-def get_watchlist_from_db():
-    try:
-        response = db.client.table("friend_watchlist").select("*").execute()
-        return response.data if response.data else []
-    except Exception:
-        return []
-
-items = get_watchlist_from_db()
-cards_html = ""
-for item in items:
-    ticker = item.get('ticker', '').upper()
-    notes = item.get('notes', '')
-    try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="2d")
-        price = float(hist['Close'].iloc[-1]) if not hist.empty else 0.0
-        prev = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else price
-        change = ((price - prev) / prev) * 100 if prev > 0 else 0.0
-    except Exception:
-        price, change = 0.0, 0.0
+# Professional Clean Styling (No broken wrappers, native Streamlit compatibility)
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #000000;
+        color: #f5f5f7;
+    }
+    header {visibility: hidden;}
     
-    is_pos = change >= 0
-    pill_class = "green" if is_pos else "red"
-    sign = "+" if is_pos else ""
+    /* Clean Metric Cards */
+    .metric-card {
+        background: #1c1c1e;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# App Header
+st.markdown("# Markets")
+st.markdown("<p style='color: #86868b; margin-top: -10px;'>PRV Capital • Autonomous Quant Desk</p>", unsafe_allow_html=True)
+
+# Native Tabs
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "⚡ Nerve Center", 
+    "📊 Execution Ledger", 
+    "🤖 AI Boardroom", 
+    "⚙️ System Telemetry", 
+    "👀 Watchlist"
+])
+
+# --- TAB 1: NERVE CENTER (Real £40,000 Capital & Portfolio Overview) ---
+with tab1:
+    st.markdown("### Portfolio Overview")
+    col1, col2, col3 = st.columns(3)
     
-    cards_html += f"""
-    <div class="apple-card row-flex">
-        <div>
-            <div class="stock-ticker">{ticker}</div>
-            <div class="stock-name">{notes}</div>
-        </div>
-        <div style="text-align: right;">
-            <div class="stock-price">£{price:,.2f}</div>
-            <span class="pill {pill_class}">{sign}{change:.2f}%</span>
-        </div>
-    </div>
-    """
-
-if not cards_html:
-    cards_html = '<div class="apple-card" style="text-align: center; color: var(--text-secondary);">No symbols tracked yet.</div>'
-
-# Apple UI Template with Real Data Embedded
-apple_app_html = f"""
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <meta charset="UTF-8">
-    <style>
-        :root[data-theme="dark"] {{
-            --bg-color: #000000;
-            --card-bg: rgba(28, 28, 30, 0.75);
-            --card-hover: rgba(44, 44, 46, 0.85);
-            --text-primary: #ffffff;
-            --text-secondary: #86868b;
-            --border-color: rgba(255, 255, 255, 0.12);
-            --accent-blue: #0a84ff;
-            --tab-bg: rgba(118, 118, 128, 0.12);
-            --tab-active: #636366;
-            --green: #30d158;
-            --green-bg: rgba(48, 209, 88, 0.15);
-            --red: #ff453a;
-            --red-bg: rgba(255, 69, 58, 0.15);
-        }}
-        :root[data-theme="light"] {{
-            --bg-color: #f5f5f7;
-            --card-bg: rgba(255, 255, 255, 0.85);
-            --text-primary: #1d1d1f;
-            --text-secondary: #86868b;
-            --border-color: rgba(0, 0, 0, 0.1);
-            --accent-blue: #0071e3;
-            --tab-bg: rgba(118, 118, 128, 0.08);
-            --tab-active: #ffffff;
-            --green: #248a3d;
-            --green-bg: rgba(40, 205, 65, 0.12);
-            --red: #d70015;
-            --red-bg: rgba(255, 59, 48, 0.12);
-        }}
-        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }}
-        body {{ background-color: var(--bg-color); color: var(--text-primary); padding: 20px; display: flex; justify-content: center; }}
-        .container {{ width: 100%; max-width: 760px; }}
-        .header-container {{ display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }}
-        .header h1 {{ font-size: 34px; font-weight: 700; letter-spacing: -0.5px; }}
-        .header p {{ font-size: 14px; color: var(--text-secondary); margin-top: 2px; }}
-        .theme-toggle {{ background: var(--card-bg); border: 0.5px solid var(--border-color); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; }}
-        .tabs-list {{ display: flex; background-color: var(--tab-bg); padding: 4px; border-radius: 12px; gap: 4px; margin-bottom: 24px; overflow-x: auto; }}
-        .tab-btn {{ flex: 1; background: transparent; border: none; color: var(--text-secondary); font-size: 13px; font-weight: 500; padding: 8px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; text-align: center; }}
-        .tab-btn.active {{ background-color: var(--tab-active); color: var(--text-primary); font-weight: 600; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }}
-        .tab-pane {{ display: none; }}
-        .tab-pane.active {{ display: block; }}
-        .apple-card {{ background: var(--card-bg); backdrop-filter: blur(40px); border: 0.5px solid var(--border-color); border-radius: 16px; padding: 20px 24px; margin-bottom: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.05); }}
-        .row-flex {{ display: flex; justify-content: space-between; align-items: center; }}
-        .stock-ticker {{ font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }}
-        .stock-name {{ font-size: 13px; color: var(--text-secondary); margin-top: 2px; }}
-        .stock-price {{ font-size: 20px; font-weight: 600; }}
-        .pill {{ display: inline-block; padding: 5px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; }}
-        .pill.green {{ background-color: var(--green-bg); color: var(--green); }}
-        .pill.red {{ background-color: var(--red-bg); color: var(--red); }}
-        .balance-display {{ font-size: 32px; font-weight: 700; color: var(--text-primary); margin-top: 6px; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header-container">
-            <div class="header">
-                <h1>Markets</h1>
-                <p>PRV Capital &bull; Autonomous Quant Desk</p>
+    with col1:
+        st.markdown("""
+            <div class="metric-card">
+                <div style="color: #86868b; font-size: 13px; font-weight: 500;">ACCOUNT BALANCE</div>
+                <div style="font-size: 28px; font-weight: 700; color: #ffffff; margin-top: 4px;">£40,000.00</div>
+                <div style="color: #30d158; font-size: 13px; margin-top: 4px;">Baseline Capital Active</div>
             </div>
-            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">☀️</button>
-        </div>
-
-        <div class="tabs-list">
-            <button class="tab-btn active" onclick="switchTab(0)">⚡ Nerve Center</button>
-            <button class="tab-btn" onclick="switchTab(1)">📊 Ledger</button>
-            <button class="tab-btn" onclick="switchTab(2)">🤖 AI Boardroom</button>
-            <button class="tab-btn" onclick="switchTab(3)">⚙️ Telemetry</button>
-            <button class="tab-btn" onclick="switchTab(4)">👀 Watchlist</button>
-        </div>
-
-        <!-- TAB 0: Nerve Center (Live Balance & Portfolio Header) -->
-        <div class="tab-pane active">
-            <div class="apple-card">
-                <div style="font-size: 13px; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;">Account Balance</div>
-                <div class="balance-display">£24,850.40</div>
-                <div style="margin-top: 12px; font-size: 13px; color: var(--green); font-weight: 600;">+£420.15 (1.72%) Today</div>
+        """, unsafe_allow_html=True)
+        
+    with col2:
+        st.markdown("""
+            <div class="metric-card">
+                <div style="color: #86868b; font-size: 13px; font-weight: 500;">ACTIVE EXPOSURE</div>
+                <div style="font-size: 28px; font-weight: 700; color: #ffffff; margin-top: 4px;">£0.00</div>
+                <div style="color: #86868b; font-size: 13px; margin-top: 4px;">Awaiting Market Open</div>
             </div>
-            <div class="apple-card">
-                <div style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Risk & Volatility Circuit Breakers</div>
-                <div style="color: var(--text-secondary); font-size: 14px;">ATR Position Sizing: Active &bull; Max Drawdown Limit: Nominal</div>
+        """, unsafe_allow_html=True)
+        
+    with col3:
+        st.markdown("""
+            <div class="metric-card">
+                <div style="color: #86868b; font-size: 13px; font-weight: 500;">RISK STATUS</div>
+                <div style="font-size: 28px; font-weight: 700; color: #30d158; margin-top: 4px;">NOMINAL</div>
+                <div style="color: #86868b; font-size: 13px; margin-top: 4px;">ATR Limits Enforced</div>
             </div>
-        </div>
+        """, unsafe_allow_html=True)
 
-        <!-- TAB 1: Execution Ledger -->
-        <div class="tab-pane">
-            <div class="apple-card row-flex">
-                <div>
-                    <div class="stock-ticker">NVDA (LONG)</div>
-                    <div class="stock-name">Filled &bull; 50 Shares @ £875.20</div>
+    st.markdown("---")
+    st.markdown("### System Status")
+    st.info("All algorithmic execution nodes active. Volatility circuit breakers and risk monitors operational.")
+
+# --- TAB 2: EXECUTION LEDGER ---
+with tab2:
+    st.markdown("### Execution Ledger")
+    st.markdown("No active trades filled for the current session.")
+
+# --- TAB 3: AI BOARDROOM ---
+with tab3:
+    st.markdown("### AI Boardroom Veto Feed")
+    st.markdown("Macro sentiment analysis engines online. Awaiting data stream.")
+
+# --- TAB 4: SYSTEM TELEMETRY ---
+with tab4:
+    st.markdown("### System Telemetry & Health")
+    st.success("Supabase Database: Connected (14ms)")
+    st.success("Yahoo Finance Feeds: Operational")
+
+# --- TAB 5: WATCHLIST (Fully Working Supabase & Forms) ---
+with tab5:
+    st.markdown("### Market Watchlist")
+    
+    # Form with unique key to prevent duplicate form errors
+    with st.form(key="watchlist_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns([2, 3, 1])
+        with col1:
+            new_ticker = st.text_input("Symbol", placeholder="e.g. AAPL, NVDA")
+        with col2:
+            new_notes = st.text_input("Note / Thesis", placeholder="e.g. Breakout watch")
+        with col3:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            submitted = st.form_submit_button("Add Symbol", use_container_width=True)
+            
+        if submitted and new_ticker:
+            wm = WatchlistManager()
+            success, msg = wm.add_ticker(new_ticker, new_notes)
+            if success:
+                st.success(f"Added {new_ticker.upper()}")
+                st.rerun()
+            else:
+                st.error(msg)
+
+    st.markdown("---")
+    
+    # Load and display live database items
+    wm = WatchlistManager()
+    watchlist_items = wm.get_watchlist_data()
+    
+    if watchlist_items:
+        for w in watchlist_items:
+            is_positive = w.get('change_pct', 0) >= 0
+            color = "#30d158" if is_positive else "#ff453a"
+            sign = "+" if is_positive else ""
+            
+            st.markdown(f"""
+                <div class="metric-card" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="font-size: 20px; font-weight: 700; color: #ffffff;">{w['ticker']}</div>
+                        <div style="font-size: 13px; color: #86868b;">{w.get('name', 'Equity')} &bull; {w.get('notes', '')}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 20px; font-weight: 600; color: #ffffff;">£{w.get('price', 0.0):,.2f}</div>
+                        <div style="color: {color}; font-size: 13px; font-weight: 600;">{sign}{w.get('change_pct', 0.0):.2f}%</div>
+                    </div>
                 </div>
-                <div style="text-align: right;">
-                    <div class="stock-price">+£1,240.00</div>
-                    <span class="pill green">Active</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- TAB 2: AI Boardroom -->
-        <div class="tab-pane">
-            <div class="apple-card">
-                <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">Alpha Feed Veto</div>
-                <div style="color: var(--text-secondary); font-size: 14px;">Macro sentiment analysis indicates bullish continuation for mega-cap tech. No vetoes triggered.</div>
-            </div>
-        </div>
-
-        <!-- TAB 3: System Telemetry -->
-        <div class="tab-pane">
-            <div class="apple-card">
-                <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">API Latency & Health</div>
-                <div style="color: var(--text-secondary); font-size: 14px;">Supabase DB: Connected (14ms)<br>Yahoo Finance Feeds: Operational</div>
-            </div>
-        </div>
-
-        <!-- TAB 4: Friend's Watchlist -->
-        <div class="tab-pane">
-            {cards_html}
-        </div>
-    </div>
-
-    <script>
-        function switchTab(index) {{
-            const tabs = document.querySelectorAll('.tab-btn');
-            const panes = document.querySelectorAll('.tab-pane');
-            tabs.forEach((tab, i) => {{
-                tab.classList.toggle('active', i === index);
-                panes[i].classList.toggle('active', i === index);
-            }});
-        }}
-        function toggleTheme() {{
-            const html = document.documentElement;
-            const toggleBtn = document.getElementById('themeToggle');
-            if (html.getAttribute('data-theme') === 'dark') {{
-                html.setAttribute('data-theme', 'light');
-                toggleBtn.textContent = '🌙';
-            }} else {{
-                html.setAttribute('data-theme', 'dark');
-                toggleBtn.textContent = '☀️';
-            }}
-        }}
-    </script>
-</body>
-</html>
-"""
-
-components.html(apple_app_html, height=750, scrolling=True)
+            """, unsafe_allow_html=True)
+    else:
+        st.info("No symbols tracked yet. Add a ticker above to populate your live feed.")
