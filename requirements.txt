@@ -1,10 +1,5 @@
-streamlit
-plotly
-pandas
-numpy
+streamlit>=1.30.0
 yfinance
 supabase
+pandas
 requests
-reportlab
-python-dotenvfastapi
-uvicorn
