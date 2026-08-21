@@ -7,17 +7,15 @@ from datetime import datetime
 
 app = FastAPI()
 
-# Global in-memory log store for background daemon activity
 SYSTEM_LOGS = []
 
 def log_activity(message: str, level: str = "info"):
     timestamp = datetime.now().strftime("%H:%M:%S")
     entry = {"time": timestamp, "msg": message, "level": level}
     SYSTEM_LOGS.insert(0, entry)
-    if len(SYSTEM_LOGS) > 20:  # Keep last 20 logs
+    if len(SYSTEM_LOGS) > 20:
         SYSTEM_LOGS.pop()
 
-# Background Daemon Loop (Runs every 60 seconds on Render)
 async def background_market_scanner():
     while True:
         log_activity("Scanning market feeds & validating ATR risk limits...", "info")
