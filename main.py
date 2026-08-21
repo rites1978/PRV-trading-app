@@ -16,12 +16,11 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Autonomous Compounding & Profit-Banking Engine Online."
+LIVE_COMMENTARY = "AI Trading Floor: Precision & Error-Correction Engine Online."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
 
-# Profit Banking State
 BASE_CAPITAL_TARGET = 50000.00
 BANKED_PROFITS = 0.00
 
@@ -30,7 +29,6 @@ AI_SELL_COOLDOWN = {}
 
 ALL_UK_TICKERS = []
 ALL_US_TICKERS = []
-TARGET_INVESTMENT_PER_TRADE = 500.0 
 
 def is_market_open(market_code: str) -> bool:
     now = datetime.utcnow()
@@ -74,7 +72,9 @@ def execute_live_order(exact_ticker: str, quantity: float):
             except Exception: pass
             return True
         else:
-            log_activity(f"Rejected {exact_ticker}: {res.text}", "error")
+            # Clean up error text so logs remain readable
+            err_msg = res.json().get("detail", res.text) if res.headers.get("content-type", "").startswith("application/json") else res.text
+            log_activity(f"Skipped {exact_ticker}: {err_msg}", "warning")
             return False
     except Exception as e:
         log_activity(f"Exception on {exact_ticker}: {str(e)}", "error")
@@ -89,13 +89,10 @@ def fetch_live_data():
         if res_cash.status_code == 200: 
             CACHED_ACCOUNT = res_cash.json()
             total_eq = float(CACHED_ACCOUNT.get("total", 50000.00))
-            
-            # --- PROFIT BANKING LOGIC ---
-            # If total account equity exceeds our £50k base, sweep the extra into the bank bucket
             if total_eq > BASE_CAPITAL_TARGET:
                 excess = total_eq - BASE_CAPITAL_TARGET
                 BANKED_PROFITS += excess
-                log_activity(f"💰 PROFIT SWEEP: Banked £{excess:.2f} excess earnings! Total Banked: £{BANKED_PROFITS:.2f}", "success")
+                log_activity(f"💰 PROFIT SWEEP: Banked £{excess:.2f} excess earnings!", "success")
     except Exception: pass
     
     try:
@@ -126,9 +123,10 @@ async def autonomous_ai_brain():
             owned_tickers = {pos.get("ticker"): pos for pos in CACHED_PORTFOLIO} if CACHED_PORTFOLIO else {}
             free_cash = float(CACHED_ACCOUNT.get("free", 0))
             
-            # --- PHASE 1: UNRESTRICTED INTELLIGENT EXITS (TAKE PROFIT / CUT LOSS) ---
+            # --- PHASE 1: UNRESTRICTED INTELLIGENT EXITS ---
             for t212_ticker, pos in owned_tickers.items():
-                if t212_ticker in AI_SELL_COOLDOWN and (time.time() - AI_SELL_COOLDOWN[t212_ticker] < 40):
+                # FIX: Extended sell cooldown to 120s to prevent duplicate sell spam while orders are queued
+                if t212_ticker in AI_SELL_COOLDOWN and (time.time() - AI_SELL_COOLDOWN[t212_ticker] < 120):
                     continue 
 
                 qty = float(pos.get("quantity", 0))
@@ -138,7 +136,6 @@ async def autonomous_ai_brain():
                 if avg > 0:
                     ret_pct = ((cur - avg) / avg) * 100
                     
-                    # AI flexibility: Take micro profits to compound quickly, or cut losers fast
                     if ret_pct >= 0.3:
                         log_activity(f"🎯 SECURING GAIN: Selling {t212_ticker} (+{ret_pct:.2f}%)", "success")
                         execute_live_order(t212_ticker, -qty)
@@ -148,18 +145,20 @@ async def autonomous_ai_brain():
                         execute_live_order(t212_ticker, -qty)
                         AI_SELL_COOLDOWN[t212_ticker] = time.time()
             
-            # --- PHASE 2: AGGRESSIVE CAPITAL DEPLOYMENT ---
-            if free_cash > TARGET_INVESTMENT_PER_TRADE:
+            # --- PHASE 2: DYNAMIC CAPITAL DEPLOYMENT ---
+            if free_cash > 50.0: # Only buy if we have meaningful cash
                 available_pool = []
                 if is_market_open("UK"): available_pool.extend(ALL_UK_TICKERS)
                 if is_market_open("US"): available_pool.extend(ALL_US_TICKERS)
                 
                 if available_pool:
-                    batch = random.sample(available_pool, min(300, len(available_pool)))
+                    batch = random.sample(available_pool, min(200, len(available_pool)))
                     
                     for t212_ticker in batch:
-                        if free_cash < TARGET_INVESTMENT_PER_TRADE: break
-                        if t212_ticker in owned_tickers or (time.time() - AI_BUY_COOLDOWN.get(t212_ticker, 0) < 40):
+                        free_cash = float(CACHED_ACCOUNT.get("free", 0))
+                        if free_cash < 50.0: break
+                        
+                        if t212_ticker in owned_tickers or (time.time() - AI_BUY_COOLDOWN.get(t212_ticker, 0) < 60):
                             continue
                             
                         if "l_EQ" in t212_ticker: yf_ticker = t212_ticker.replace("l_EQ", ".L")
@@ -177,19 +176,22 @@ async def autonomous_ai_brain():
                             momentum = ((recent_avg - older_avg) / older_avg) * 100.0
                             
                             if momentum > 0.001 and current_price > 0: 
-                                log_activity(f"🚀 AI STRIKE: {yf_ticker} momentum detected ({momentum:+.3f}%)", "success")
+                                # Dynamic position size: use £500 or whatever cash is left if under £500
+                                target_spend = min(500.0, free_cash)
                                 
                                 if "l_EQ" in t212_ticker or "L_EQ" in t212_ticker:
-                                    qty = max(1.0, round(50000.0 / current_price))
+                                    qty = max(1.0, round((target_spend * 100.0) / current_price))
                                 else:
-                                    qty = round(650.0 / current_price, 4)
+                                    # FIX: Strictly round US fractional shares to 2 decimal places to prevent precision errors
+                                    qty = round(target_spend / current_price, 2)
+                                    if qty <= 0: continue
                                 
+                                log_activity(f"🚀 AI STRIKE: {yf_ticker} momentum ({momentum:+.3f}%)", "success")
                                 execute_live_order(t212_ticker, qty)
                                 AI_BUY_COOLDOWN[t212_ticker] = time.time()
-                                free_cash -= TARGET_INVESTMENT_PER_TRADE
-                                await asyncio.sleep(0.1)
+                                await asyncio.sleep(0.2)
                         
-                        await asyncio.sleep(0.02)
+                        await asyncio.sleep(0.05)
                         
         except Exception as e:
             log_activity(f"Brain Error: {str(e)}", "error")
@@ -206,7 +208,7 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    if is_market_open("US"): return execute_live_order("AAPL_US_EQ", 650.0 / 180.0)
+    if is_market_open("US"): return execute_live_order("AAPL_US_EQ", round(500.0 / 180.0, 2))
     elif is_market_open("UK"): return execute_live_order("BARCl_EQ", 50000.0 / 220.0)
     return {"status": "ERROR", "detail": "Markets are closed."}
 
