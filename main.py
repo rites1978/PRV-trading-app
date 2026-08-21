@@ -7,12 +7,11 @@ import requests
 import base64
 from contextlib import asynccontextmanager
 from db_manager import db
-import yfinance as yf
 
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Engine updated with official T212 API schema..."
+LIVE_COMMENTARY = "AI Trading Floor: Initialized with official Trading 212 order schema..."
 
 def log_activity(message: str, level: str = "info"):
     global LIVE_COMMENTARY
@@ -32,7 +31,7 @@ def get_t212_auth_headers():
     encoded = base64.b64encode(raw_credentials.encode('utf-8')).decode('utf-8')
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
-def execute_live_order(ticker: str, quantity: int = 1):
+def execute_live_order(ticker: str, quantity: float = 1.0):
     if not T212_API_KEY or not T212_API_SECRET:
         log_activity("Execution Error: Missing API credentials.", "error")
         return {"status": "ERROR", "detail": "Missing Credentials"}
@@ -43,15 +42,14 @@ def execute_live_order(ticker: str, quantity: int = 1):
 
     headers = get_t212_auth_headers()
     
-    # Official Trading 212 Equity Market Order Schema
+    # Official Trading 212 Market Order Payload (Only ticker and quantity)
     payload = {
-        "quantity": int(quantity),
-        "ticker": clean_ticker,
-        "timeValidity": "DAY"
+        "quantity": float(quantity),
+        "ticker": clean_ticker
     }
     
     url = f"{T212_BASE_URL}/orders/market"
-    log_activity(f"Sending official market order schema for {clean_ticker} (Qty: {quantity})", "info")
+    log_activity(f"Sending official market order to T212 for {clean_ticker} (Qty: {quantity})", "info")
     
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=15)
@@ -96,7 +94,7 @@ def get_trades_from_db():
 
 @app.get("/api/trigger-trade")
 def trigger_manual_trade():
-    result = execute_live_order("AAPL", 1)
+    result = execute_live_order("AAPL", 1.0)
     return result
 
 @app.api_route("/api/valuation", methods=["GET", "HEAD"])
@@ -183,7 +181,7 @@ def read_root():
                 const res = await fetch('/api/valuation');
                 const data = await res.json();
                 document.getElementById('logStream').innerHTML = data.commentary;
-                document.getElementById('valuation'].innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                document.getElementById('valuation').innerText = '£' + data.valuation.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 
                 const tbody = document.getElementById('tradeTable');
                 if (data.trades && data.trades.length > 0) {
