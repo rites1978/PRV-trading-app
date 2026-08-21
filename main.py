@@ -6,6 +6,7 @@ import os
 import requests
 import base64
 import time
+import random
 from contextlib import asynccontextmanager
 from db_manager import db
 import yfinance as yf
@@ -15,27 +16,15 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: Multi-Market Engine Online. Tracking Global Hours."
+LIVE_COMMENTARY = "AI Trading Floor: Unrestricted Market Hunter Online."
 
 CACHED_PORTFOLIO = []
 CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
-AI_COOLDOWN_MEMORY = {} 
-VALID_T212_TICKERS = set()
+AI_COOLDOWN_MEMORY = {}
 
-MARKET_UNIVERSE = {
-    "BARC.L": {"t212": "BARC_l_EQ", "market": "UK", "qty": 25.0},
-    "LLOY.L": {"t212": "LLOY_l_EQ", "market": "UK", "qty": 50.0},
-    "BP.L": {"t212": "BP_l_EQ", "market": "UK", "qty": 10.0},
-    "VOD.L": {"t212": "VOD_l_EQ", "market": "UK", "qty": 50.0},
-    "TSCO.L": {"t212": "TSCO_l_EQ", "market": "UK", "qty": 15.0},
-    "SHEL.L": {"t212": "SHEL_l_EQ", "market": "UK", "qty": 5.0},
-    "AAPL": {"t212": "AAPL_US_EQ", "market": "US", "qty": 1.0},
-    "NVDA": {"t212": "NVDA_US_EQ", "market": "US", "qty": 1.0},
-    "TSLA": {"t212": "TSLA_US_EQ", "market": "US", "qty": 1.0},
-    "MSFT": {"t212": "MSFT_US_EQ", "market": "US", "qty": 1.0},
-    "AMZN": {"t212": "AMZN_US_EQ", "market": "US", "qty": 1.0},
-    "META": {"t212": "META_US_EQ", "market": "US", "qty": 1.0}
-}
+# Dynamic Pools for True AI Exploration
+ALL_UK_TICKERS = []
+ALL_US_TICKERS = []
 
 def is_market_open(market_code: str) -> bool:
     now = datetime.utcnow()
@@ -100,16 +89,22 @@ def fetch_live_data():
 
 async def autonomous_ai_brain():
     await asyncio.sleep(2)
+    
+    # 1. Sync ALL 17,000+ valid tickers and categorize them dynamically
     try:
         res = requests.get(f"{T212_BASE_URL}/metadata/instruments", headers=get_t212_auth_headers(), timeout=15)
         if res.status_code == 200:
             for inst in res.json():
-                if inst.get("ticker"): VALID_T212_TICKERS.add(inst["ticker"])
-            log_activity(f"Synced {len(VALID_T212_TICKERS)} official instrument codes.", "success")
+                ticker = inst.get("ticker", "")
+                if "_US_EQ" in ticker:
+                    ALL_US_TICKERS.append(ticker)
+                elif "_l_EQ" in ticker or "_GB_EQ" in ticker:
+                    ALL_UK_TICKERS.append(ticker)
+            log_activity(f"Brain Loaded: {len(ALL_UK_TICKERS)} UK Stocks | {len(ALL_US_TICKERS)} US Stocks.", "success")
     except Exception: pass
 
     await asyncio.sleep(3)
-    log_activity("HFT Global Brain Online: Scanning actively open markets...", "success")
+    log_activity("AI Roaming Mode Active: Hunting across massive dataset...", "success")
     
     while True:
         try:
@@ -117,10 +112,12 @@ async def autonomous_ai_brain():
             owned_tickers = {pos.get("ticker"): pos for pos in CACHED_PORTFOLIO} if CACHED_PORTFOLIO else {}
             action_taken = False
             
+            # --- PHASE 1: EVALUATE SELLS (TAKE PROFIT / STOP LOSS) ---
             for t212_ticker, pos in owned_tickers.items():
                 qty = float(pos.get("quantity", 0))
                 avg = float(pos.get("averagePrice", 0))
                 cur = float(pos.get("currentPrice", 0))
+                
                 if avg > 0:
                     ret_pct = ((cur - avg) / avg) * 100
                     if ret_pct >= 0.05 or ret_pct <= -0.05:
@@ -133,31 +130,46 @@ async def autonomous_ai_brain():
                 await asyncio.sleep(5)
                 continue 
                 
-            for yf_ticker, info in MARKET_UNIVERSE.items():
-                market_code = info["market"]
-                t212_ticker = info["t212"]
+            # --- PHASE 2: UNRESTRICTED MARKET EXPLORATION ---
+            available_pool = []
+            if is_market_open("UK"): available_pool.extend(ALL_UK_TICKERS)
+            if is_market_open("US"): available_pool.extend(ALL_US_TICKERS)
+            
+            if available_pool:
+                # The AI grabs a random batch of 10 unknown stocks to analyze this cycle
+                batch = random.sample(available_pool, min(10, len(available_pool)))
                 
-                if not is_market_open(market_code) or t212_ticker not in VALID_T212_TICKERS: continue
-                if t212_ticker in owned_tickers or (time.time() - AI_COOLDOWN_MEMORY.get(t212_ticker, 0) < 60): continue 
-                
-                data = yf.download(yf_ticker, period="1d", interval="1m", progress=False)
-                if not data.empty and len(data) >= 3:
-                    closes = [float(x) for x in data['Close'].values.flatten()]
-                    recent_avg = sum(closes[-2:]) / 2.0
-                    older_avg = sum(closes[-4:-2]) / 2.0 if len(closes) >= 4 else closes[0]
-                    momentum = ((recent_avg - older_avg) / older_avg) * 100.0
+                for t212_ticker in batch:
+                    if t212_ticker in owned_tickers or (time.time() - AI_COOLDOWN_MEMORY.get(t212_ticker, 0) < 60):
+                        continue
+                        
+                    # Translate T212 ticker to Yahoo Finance dynamically
+                    yf_ticker = t212_ticker.split("_")[0]
+                    if "_l_EQ" in t212_ticker or "_GB_EQ" in t212_ticker:
+                        yf_ticker += ".L"
                     
-                    if momentum > 0.005: 
-                        log_activity(f"🚀 RAPID MOMENTUM on {yf_ticker} ({momentum:+.3f}%). Executing BUY...", "success")
-                        execute_live_order(t212_ticker, info["qty"])
-                        AI_COOLDOWN_MEMORY[t212_ticker] = time.time()
-                        action_taken = True
-                        break 
+                    data = yf.download(yf_ticker, period="1d", interval="1m", progress=False)
+                    
+                    if not data.empty and len(data) >= 3:
+                        closes = [float(x) for x in data['Close'].values.flatten()]
+                        recent_avg = sum(closes[-2:]) / 2.0
+                        older_avg = sum(closes[-4:-2]) / 2.0 if len(closes) >= 4 else closes[0]
+                        momentum = ((recent_avg - older_avg) / older_avg) * 100.0
+                        
+                        if momentum > 0.005: 
+                            log_activity(f"🚀 UNEXPECTED OPPORTUNITY: {yf_ticker} rising ({momentum:+.3f}%). AI Striking...", "success")
+                            qty = 20.0 if ".L" in yf_ticker else 1.0
+                            execute_live_order(t212_ticker, qty)
+                            AI_COOLDOWN_MEMORY[t212_ticker] = time.time()
+                            action_taken = True
+                            break 
+                    
+                    await asyncio.sleep(1) # Gentle polling to avoid IP ban
                 
-                await asyncio.sleep(1) 
         except Exception as e:
             log_activity(f"AI Brain error: {str(e)}", "error")
-        await asyncio.sleep(10)
+            
+        await asyncio.sleep(5)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
