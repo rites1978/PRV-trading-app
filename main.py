@@ -14,11 +14,11 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 SYSTEM_LOGS = []
-LIVE_COMMENTARY = "AI Trading Floor: HFT Engine online. Scanning 10 markets continuously..."
+LIVE_COMMENTARY = "AI Trading Floor: HFT Engine online. Bug-fixes applied."
 TICKER_MAP = {} 
 
 CACHED_PORTFOLIO = []
-CACHED_CASH = 50000.00
+CACHED_ACCOUNT = {"total": 50000.00, "free": 50000.00}
 
 # Expanded UK Blue-Chip Universe for High Volume Trading
 MARKET_UNIVERSE = {
@@ -53,7 +53,6 @@ def get_t212_auth_headers():
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
 def execute_live_order(exact_ticker: str, quantity: float):
-    # Official T212 API format: Positive quantity = BUY, Negative quantity = SELL
     payload = {"ticker": exact_ticker, "quantity": quantity}
     side = "BUY" if quantity > 0 else "SELL"
     
@@ -77,25 +76,24 @@ def execute_live_order(exact_ticker: str, quantity: float):
         log_activity(f"Order Exception: {str(e)}", "error")
         return {"status": "EXCEPTION", "detail": str(e)}
 
-def get_live_portfolio():
-    global CACHED_PORTFOLIO
-    if not T212_API_KEY: return CACHED_PORTFOLIO
+def fetch_live_data():
+    global CACHED_PORTFOLIO, CACHED_ACCOUNT
+    if not T212_API_KEY: return
+    headers = get_t212_auth_headers()
+    
+    # 1. Fetch exact cash and total equity directly from broker (No manual addition needed)
     try:
-        res = requests.get(f"{T212_BASE_URL}/portfolio", headers=get_t212_auth_headers(), timeout=10)
-        if res.status_code == 200:
-            CACHED_PORTFOLIO = res.json()
+        res_cash = requests.get(f"{T212_BASE_URL}/account/cash", headers=headers, timeout=10)
+        if res_cash.status_code == 200:
+            CACHED_ACCOUNT = res_cash.json()
     except Exception: pass
-    return CACHED_PORTFOLIO
-
-def get_account_cash():
-    global CACHED_CASH
-    if not T212_API_KEY: return CACHED_CASH
+    
+    # 2. Fetch live portfolio positions
     try:
-        res = requests.get(f"{T212_BASE_URL}/account/cash", headers=get_t212_auth_headers(), timeout=10)
-        if res.status_code == 200:
-            CACHED_CASH = float(res.json().get("total", 50000.00))
+        res_port = requests.get(f"{T212_BASE_URL}/portfolio", headers=headers, timeout=10)
+        if res_port.status_code == 200:
+            CACHED_PORTFOLIO = res_port.json()
     except Exception: pass
-    return CACHED_CASH
 
 async def autonomous_ai_brain():
     await asyncio.sleep(2)
@@ -114,8 +112,8 @@ async def autonomous_ai_brain():
     
     while True:
         try:
-            portfolio = get_live_portfolio()
-            owned_tickers = {pos.get("ticker"): pos for pos in portfolio} if portfolio else {}
+            fetch_live_data()
+            owned_tickers = {pos.get("ticker"): pos for pos in CACHED_PORTFOLIO} if CACHED_PORTFOLIO else {}
             action_taken = False
             
             # --- PHASE 1: EVALUATE SELLS (TAKE PROFIT / STOP LOSS) ---
@@ -126,14 +124,12 @@ async def autonomous_ai_brain():
                 
                 if avg > 0:
                     ret_pct = ((cur - avg) / avg) * 100
-                    # SELL CONDITION: Auto-sell if profit > +0.05% or loss < -0.05%
                     if ret_pct >= 0.05 or ret_pct <= -0.05:
                         log_activity(f"⚡ HFT TRIGGER: Auto-Selling {t212_ticker} (P/L: {ret_pct:+.2f}%)", "warning" if ret_pct < 0 else "success")
-                        execute_live_order(t212_ticker, -qty) # Negative quantity triggers SELL
+                        execute_live_order(t212_ticker, -qty)
                         action_taken = True
                         break 
             
-            # Pause briefly if we sold something to prevent rate limits
             if action_taken:
                 await asyncio.sleep(5)
                 continue 
@@ -145,30 +141,29 @@ async def autonomous_ai_brain():
                 if not exact_ticker or exact_ticker in owned_tickers:
                     continue 
                 
-                # Fetch 1-minute data for hyper-fast response
                 data = yf.download(yf_ticker, period="1d", interval="1m", progress=False)
                 
-                if len(data) >= 3:
-                    closes = data['Close'].values
-                    current_price = float(closes[-1].item())
-                    recent_avg = sum(closes[-2:]) / 2
-                    older_avg = sum(closes[-4:-2]) / 2 if len(closes) >= 4 else closes[0].item()
-                    momentum = ((recent_avg - older_avg) / older_avg) * 100
+                if not data.empty and len(data) >= 3:
+                    # FIX: Force extraction into pure Python floats to prevent numpy format crash
+                    closes = [float(x) for x in data['Close'].values.flatten()]
                     
-                    # BUY CONDITION: Hyper-sensitive trigger (just 0.005% upward movement)
+                    current_price = closes[-1]
+                    recent_avg = sum(closes[-2:]) / 2.0
+                    older_avg = sum(closes[-4:-2]) / 2.0 if len(closes) >= 4 else closes[0]
+                    momentum = ((recent_avg - older_avg) / older_avg) * 100.0
+                    
                     if momentum > 0.005: 
                         log_activity(f"🚀 RAPID MOMENTUM on {yf_ticker} ({momentum:+.3f}%). Executing BUY...", "success")
                         qty = 25.0 if "GB_EQ" in exact_ticker or "UK" in exact_ticker or "L_EQ" in exact_ticker else 1.0
-                        execute_live_order(exact_ticker, qty) # Positive quantity triggers BUY
+                        execute_live_order(exact_ticker, qty)
                         action_taken = True
                         break 
                 
-                await asyncio.sleep(1) # Tiny pause between Yahoo Finance checks
+                await asyncio.sleep(1) 
                 
         except Exception as e:
             log_activity(f"AI Brain error: {str(e)}", "error")
             
-        # Loop every 10 seconds for constant, non-stop trading analysis
         await asyncio.sleep(10)
 
 @asynccontextmanager
@@ -187,14 +182,15 @@ def trigger_manual_trade():
 
 @app.api_route("/api/dashboard_data", methods=["GET"])
 def get_dashboard_data():
-    portfolio = get_live_portfolio()
-    cash = get_account_cash()
-    invested_value = sum(float(p.get("currentPrice", 0)) * float(p.get("quantity", 0)) for p in portfolio) if portfolio else 0.0
+    fetch_live_data()
+    # Pull exact values directly from broker response, no manual equity addition
+    total_equity = float(CACHED_ACCOUNT.get("total", 50000.00))
+    cash_balance = float(CACHED_ACCOUNT.get("free", 50000.00))
     
     return {
-        "total_equity": cash + invested_value,
-        "cash_balance": cash,
-        "portfolio": portfolio,
+        "total_equity": total_equity,
+        "cash_balance": cash_balance,
+        "portfolio": CACHED_PORTFOLIO,
         "system_logs": SYSTEM_LOGS[:15]
     }
 
