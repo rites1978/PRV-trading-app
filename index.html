@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PRV Autonomous AI Trading Floor</title>
+    <style>
+        body { background: #0b0f19; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1f2937; padding-bottom: 15px; margin-bottom: 20px; }
+        h1 { color: #38bdf8; font-size: 24px; margin: 0; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: #111827; border: 1px solid #1f2937; padding: 20px; border-radius: 12px; }
+        .full-width { grid-column: span 2; }
+        h2 { color: #94a3b8; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-top: 0; border-bottom: 1px solid #1f2937; padding-bottom: 8px; }
+        .value-large { font-size: 36px; font-weight: bold; color: #f3f4f6; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+        th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #1f2937; }
+        th { color: #6b7280; font-weight: 500; }
+        .pos { color: #34d399; font-weight: bold; }
+        .neg { color: #f87171; font-weight: bold; }
+        .log-box { background: #030712; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px; height: 250px; overflow-y: auto; border: 1px solid #374151; }
+        .log-entry { margin-bottom: 6px; }
+        .log-time { color: #6b7280; margin-right: 8px; }
+        .log-info { color: #94a3b8; }
+        .log-success { color: #34d399; font-weight: bold; }
+        .log-error { color: #f87171; font-weight: bold; }
+        .log-warning { color: #facc15; font-weight: bold; }
+        .btn { background: #38bdf8; color: #0b0f19; font-weight: bold; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-right: 15px; }
+        .btn:hover { background: #0ea5e9; }
+        .market-status { display: flex; gap: 15px; padding: 8px 12px; background: #1f2937; border-radius: 6px; border: 1px solid #374151; }
+        .market-indicator { font-size: 12px; font-weight: bold; display: flex; align-items: center; gap: 5px; }
+        .dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>PRV HFT Autonomous AI Engine</h1>
+        <div style="display: flex; align-items: center;">
+            <button class="btn" onclick="triggerTrade()">Force Open Market Trade</button>
+            <div class="market-status">
+                <div class="market-indicator" id="ukStatus"><span class="dot" style="background: #6b7280;"></span> UK: LSE</div>
+                <div class="market-indicator" id="usStatus"><span class="dot" style="background: #6b7280;"></span> US: NYSE</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Total Portfolio Equity</h2>
+            <div class="value-large" id="totalEquity">£--.--</div>
+            <div style="color: #94a3b8; margin-top: 5px;">Available Cash: <span id="cashBal" style="color: #f3f4f6;">£--.--</span></div>
+        </div>
+
+        <div class="card">
+            <h2>AI Global Execution Logs</h2>
+            <div class="log-box" id="logStream">Initializing market routing...</div>
+        </div>
+
+        <div class="card full-width">
+            <h2>Live Active Holdings (Constant Refresh)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Instrument</th>
+                        <th>Shares</th>
+                        <th>Avg Buy Price</th>
+                        <th>Current Price</th>
+                        <th>Return (P/L)</th>
+                    </tr>
+                </thead>
+                <tbody id="portfolioTable">
+                    <tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 30px;">HFT Scanner starting. Awaiting targets on open markets...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function triggerTrade() {
+            try {
+                await fetch('/api/trigger-trade');
+                updateDashboard();
+            } catch(e) {}
+        }
+
+        async function updateDashboard() {
+            try {
+                const res = await fetch('/api/dashboard_data');
+                const data = await res.json();
+                
+                document.getElementById('totalEquity').innerText = '£' + data.total_equity.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                document.getElementById('cashBal').innerText = '£' + data.cash_balance.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                
+                const ukOpen = data.markets.UK;
+                const usOpen = data.markets.US;
+                
+                document.getElementById('ukStatus').innerHTML = `<span class="dot" style="background: ${ukOpen ? '#34d399' : '#f87171'};"></span> UK: ${ukOpen ? 'OPEN' : 'CLOSED'}`;
+                document.getElementById('ukStatus').style.color = ukOpen ? '#34d399' : '#94a3b8';
+                
+                document.getElementById('usStatus').innerHTML = `<span class="dot" style="background: ${usOpen ? '#34d399' : '#f87171'};"></span> US: ${usOpen ? 'OPEN' : 'CLOSED'}`;
+                document.getElementById('usStatus').style.color = usOpen ? '#34d399' : '#94a3b8';
+
+                const logHtml = data.system_logs.map(log => {
+                    let colorClass = log.level === 'success' ? 'log-success' : (log.level === 'error' ? 'log-error' : (log.level === 'warning' ? 'log-warning' : 'log-info'));
+                    return `<div class="log-entry"><span class="log-time">[${log.time}]</span><span class="${colorClass}">${log.msg}</span></div>`;
+                }).join('');
+                document.getElementById('logStream').innerHTML = logHtml;
+
+                const tbody = document.getElementById('portfolioTable');
+                if (data.portfolio && data.portfolio.length > 0) {
+                    tbody.innerHTML = data.portfolio.map(pos => {
+                        const avg = parseFloat(pos.averagePrice);
+                        const cur = parseFloat(pos.currentPrice);
+                        const retPct = ((cur - avg) / avg) * 100;
+                        const retClass = retPct >= 0 ? 'pos' : 'neg';
+                        const retSign = retPct >= 0 ? '+' : '';
+                        const cleanTicker = pos.ticker.replace('_l_EQ', '').replace('_US_EQ', '');
+                        
+                        return `
+                        <tr>
+                            <td style="font-weight: bold;">${cleanTicker}</td>
+                            <td>${pos.quantity}</td>
+                            <td>${pos.averagePrice.toFixed(4)}</td>
+                            <td>${pos.currentPrice.toFixed(4)}</td>
+                            <td class="${retClass}">${retSign}${retPct.toFixed(3)}%</td>
+                        </tr>
+                        `;
+                    }).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 20px;">No active positions. Scanning open markets for entry point...</td></tr>';
+                }
+            } catch(e) {}
+        }
+        
+        setInterval(updateDashboard, 5000);
+        updateDashboard();
+    </script>
+</body>
+</html>
