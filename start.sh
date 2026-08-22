@@ -8,7 +8,7 @@ echo "========================================================"
 # Run database migrations / table initialisation
 python -c "from src.database.db import db; print('✅ Database Initialized.')"
 
-# Launch FastAPI directly on Render's dynamic $PORT (fallback to 8000)
+# Launch Unified FastAPI Gateway directly on Render's dynamic $PORT
 TARGET_PORT="${PORT:-8000}"
-echo "🌐 Binding FastAPI Gateway to 0.0.0.0:${TARGET_PORT}"
-exec uvicorn src.api.routes:app --host 0.0.0.0 --port "${TARGET_PORT}"
+echo "🌐 Binding Unified FastAPI Gateway to 0.0.0.0:${TARGET_PORT}"
+exec uvicorn main:app --host 0.0.0.0 --port "${TARGET_PORT}"

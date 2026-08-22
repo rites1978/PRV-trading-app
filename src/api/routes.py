@@ -235,3 +235,58 @@ def dispatch_daily_executive_report(date: Optional[str] = None):
 def get_daily_reports_history(limit: int = 30):
     """Retrieve historical daily executive report records from SQLite."""
     return db.get_daily_executive_reports_history(limit=limit)
+
+# --- Legacy & Monitoring Endpoints for Unified Compatibility ---
+from fastapi.responses import JSONResponse
+from src.portfolio.dust_cleaner import dust_cleaner
+from src.data.market_hours import market_hours
+from src.risk.risk_engine import risk_engine
+from src.catalyst.catalyst_engine import catalyst_engine
+
+@app.api_route("/api/trigger-trade", methods=["GET", "POST"])
+def trigger_trade():
+    res = quant_engine.run_cycle()
+    return JSONResponse(content={"status": "executed", "result": res})
+
+@app.api_route("/api/clean-dust", methods=["POST"])
+def clean_dust():
+    res = dust_cleaner.liquidate_dust_positions(is_paper=quant_engine.paper_mode)
+    return JSONResponse(content=res)
+
+@app.get("/api/monitoring/daily")
+def get_daily_monitoring():
+    account = broker.get_account_summary()
+    positions = broker.get_open_positions()
+    cap_state = capital_manager.get_capital_state(account.get("total_value", 50000.0), account.get("invested", 0.0), account.get("available_cash", 50000.0))
+    regime, _ = capital_manager.determine_market_regime(70.0, 75.0)
+    data = monitoring_service.get_daily_dashboard(account, positions, cap_state, regime)
+    return JSONResponse(content=data)
+
+@app.get("/api/monitoring/trades")
+def get_trade_ledger_monitoring():
+    ledger = monitoring_service.get_trade_ledger(limit=100)
+    return JSONResponse(content={"count": len(ledger), "ledger": ledger})
+
+@app.get("/api/monitoring/risk")
+def get_risk_monitoring():
+    account = broker.get_account_summary()
+    positions = broker.get_open_positions()
+    regime, _ = capital_manager.determine_market_regime(70.0, 75.0)
+    risk_data = monitoring_service.get_risk_dashboard(account.get("total_value", 50000.0), 50000.0, positions, regime)
+    return JSONResponse(content=risk_data)
+
+@app.get("/api/monitoring/broker")
+def get_broker_monitoring():
+    account = broker.get_account_summary()
+    positions = broker.get_open_positions()
+    cap_state = capital_manager.get_capital_state(account.get("total_value", 50000.0), account.get("invested", 0.0), account.get("available_cash", 50000.0))
+    broker_data = monitoring_service.get_broker_audit_dashboard(account, cap_state, positions)
+    return JSONResponse(content=broker_data)
+
+@app.get("/api/monitoring/market_hours")
+def get_market_hours_status():
+    return JSONResponse(content=market_hours.get_market_status())
+
+@app.get("/api/monitoring/catalysts")
+def get_catalyst_monitoring():
+    return JSONResponse(content=catalyst_engine.get_dashboard_payload())
