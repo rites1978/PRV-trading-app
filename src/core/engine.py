@@ -180,7 +180,7 @@ class PRVQuantEngine:
                 )
                 if success:
                     capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
-                    self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, exit_msg, is_paper=self.paper_mode)
+                    self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, exit_msg, is_paper=self.paper_mode, pnl_pct=pnl_pct * 100.0, pnl_gbp=realized_pnl)
                     closed_trades.append(t212_ticker)
                     if t212_ticker in self.position_peaks:
                         del self.position_peaks[t212_ticker]
@@ -222,7 +222,7 @@ class PRVQuantEngine:
                 )
                 if success:
                     capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
-                    self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, f"{exit_msg} | Vaulted: £{realized_pnl:+.2f}", is_paper=self.paper_mode)
+                    self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, f"{exit_msg} | Vaulted: £{realized_pnl:+.2f}", is_paper=self.paper_mode, pnl_pct=pnl_pct * 100.0, pnl_gbp=realized_pnl)
                     closed_trades.append(t212_ticker)
                     if t212_ticker in self.position_peaks:
                         del self.position_peaks[t212_ticker]
@@ -450,13 +450,24 @@ class PRVQuantEngine:
         }
 
     def _execution_loop(self):
+        last_open_state = None
         while not self._stop_event.is_set():
             try:
                 m_status = market_hours.get_market_status()
-                if m_status["any_market_open"]:
+                is_open = m_status.get("any_market_open", False)
+                
+                # Session transition alerts
+                if last_open_state is not None:
+                    if not last_open_state and is_open:
+                        self.notifier.notify_market_open(active_universe_count=len(universe_manager.get_all()))
+                    elif last_open_state and not is_open:
+                        self.notifier.notify_market_close(nav=capital_manager.starting_capital)
+                last_open_state = is_open
+
+                if is_open:
                     self.run_cycle()
                 else:
-                    # Markets closed - sync broker data & update daily snapshot quietly
+                    # Markets closed - idle quietly
                     pass
             except Exception as e:
                 print(f"[QuantEngine Loop Error] {e}")
