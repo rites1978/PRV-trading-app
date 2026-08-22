@@ -99,7 +99,7 @@ class ProductionMonitoringService:
         peak_nav = max(starting_nav, current_nav)
         drawdown_pct = round(max(0.0, (peak_nav - current_nav) / peak_nav * 100.0), 2)
         
-        # Sector Concentration
+        # Sector Concentration Calculations
         sector_dist = {}
         for p in positions:
             sec = p.get("sector", "Technology")
@@ -107,7 +107,21 @@ class ProductionMonitoringService:
             sector_dist[sec] = sector_dist.get(sec, 0.0) + val
             
         tot_val = sum(sector_dist.values())
-        sector_pcts = {k: round((v / max(1.0, tot_val)) * 100.0, 1) for k, v in sector_dist.items()}
+        
+        sector_breakdown = []
+        for sec, val in sector_dist.items():
+            pct_nav = round((val / max(1.0, current_nav)) * 100.0, 2)
+            pct_inv = round((val / max(1.0, tot_val)) * 100.0, 1)
+            sector_breakdown.append({
+                "sector": sec,
+                "exposure_gbp": round(val, 2),
+                "pct_of_nav": pct_nav,
+                "pct_of_invested": pct_inv,
+                "risk_limit_pct_nav": 30.0,
+                "status": "COMPLIANT" if pct_nav <= 30.0 else "BREACH"
+            })
+            
+        sector_pcts = {k: round((v / max(1.0, current_nav)) * 100.0, 2) for k, v in sector_dist.items()}
         
         kill_switch_active = drawdown_pct >= 8.50
         
@@ -117,9 +131,10 @@ class ProductionMonitoringService:
             "tier1_warning_threshold": 3.00,
             "tier2_circuit_threshold": 5.00,
             "peak_nav": peak_nav,
-            "gross_exposure_gbp": tot_val,
+            "gross_exposure_gbp": round(tot_val, 2),
             "gross_exposure_pct": round((tot_val / max(1.0, current_nav)) * 100.0, 1),
             "sector_concentration": sector_pcts,
+            "sector_breakdown": sector_breakdown,
             "market_regime": regime,
             "kill_switch_status": "TRIPPED_HALT" if kill_switch_active else "NORMAL_ARMED"
         }

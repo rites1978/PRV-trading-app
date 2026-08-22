@@ -305,14 +305,16 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Sector Concentration</th>
+                        <th>Sector Name</th>
                         <th>Exposure (£)</th>
-                        <th>Portfolio Share (%)</th>
-                        <th>Risk Limit (30.0%)</th>
+                        <th>% of Total NAV</th>
+                        <th>% of Invested Capital</th>
+                        <th>Risk Limit (% of NAV)</th>
+                        <th>Compliance Status</th>
                     </tr>
                 </thead>
                 <tbody id="riskSectorTable">
-                    <tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 20px;">Auditing sector exposures...</td></tr>
+                    <tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 20px;">Auditing sector exposures...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -543,18 +545,20 @@
                     document.getElementById('riskExposure').innerText = (d.gross_exposure_pct || 0).toFixed(1) + '%';
                     
                     const tbody = document.getElementById('riskSectorTable');
-                    const sectors = d.sector_concentration || {};
-                    if (Object.keys(sectors).length > 0) {
-                        tbody.innerHTML = Object.entries(sectors).map(([sec, pct]) => `
+                    const breakdowns = d.sector_breakdown || [];
+                    if (breakdowns.length > 0) {
+                        tbody.innerHTML = breakdowns.map(item => `
                             <tr>
-                                <td style="font-weight: bold; color: #f3f4f6;">${sec}</td>
-                                <td>£${((pct / 100) * d.gross_exposure_gbp).toFixed(2)}</td>
-                                <td style="font-weight: bold; color: #38bdf8;">${pct}%</td>
-                                <td><span class="badge ${pct <= 30 ? 'badge-green' : 'badge-red'}">${pct <= 30 ? 'COMPLIANT' : 'BREACH'}</span></td>
+                                <td style="font-weight: bold; color: #f3f4f6;">${item.sector}</td>
+                                <td>£${(item.exposure_gbp || 0).toFixed(2)}</td>
+                                <td style="font-weight: bold; color: #38bdf8;">${(item.pct_of_nav || 0).toFixed(2)}%</td>
+                                <td style="color: #94a3b8;">${(item.pct_of_invested || 0).toFixed(1)}%</td>
+                                <td>${(item.risk_limit_pct_nav || 30.0).toFixed(1)}% of NAV</td>
+                                <td><span class="badge ${item.status === 'COMPLIANT' ? 'badge-green' : 'badge-red'}">${item.status}</span></td>
                             </tr>
                         `).join('');
                     } else {
-                        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 20px;">No active sector exposure (Holding cash).</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 20px;">No active sector exposure (Holding cash).</td></tr>';
                     }
                 } catch(e) {}
             } else if (activeTabName === 'brokerTab') {
