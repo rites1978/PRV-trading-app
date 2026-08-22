@@ -133,6 +133,26 @@ class ExposureBasedRiskEngine:
         if self.tier1_triggered:
             return False, "VETO: Tier 1 drawdown active. New buying paused until recovery."
 
+        # Phase 47 Forward Validation Protocol: 10-Day Post-Stop Cooldown for Trades 51+
+        historical_trades = db.get_trades(limit=500)
+        if len(historical_trades) >= 50:
+            from datetime import datetime, timezone
+            for t in historical_trades:
+                if t.get("symbol") == symbol or t.get("symbol") == t212_ticker:
+                    t_time_str = t.get("timestamp", "")
+                    if t_time_str:
+                        try:
+                            t_time = datetime.fromisoformat(t_time_str.replace("Z", "+00:00"))
+                            if t_time.tzinfo is None:
+                                t_time = t_time.replace(tzinfo=timezone.utc)
+                            now = datetime.now(timezone.utc)
+                            days_since = (now - t_time).total_seconds() / 86400.0
+                            if days_since < 10.0 and "STOP" in t.get("trade_reason", ""):
+                                return False, f"VETO: 10-Day Cooldown active for '{symbol}' ({days_since:.1f}/10.0 days elapsed since stop-loss exit)."
+                        except Exception:
+                            pass
+                    break
+
         min_cash_required = core_capital * settings.MIN_CASH_BUFFER_PCT
         if (available_cash - order_cost) < min_cash_required:
             return False, f"VETO: Order cost (£{order_cost:.2f}) breaches minimum cash safety buffer of £{min_cash_required:.2f}."
