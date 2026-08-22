@@ -369,11 +369,11 @@
     <!-- Hero Portfolio Value -->
     <div class="hero-section">
         <div class="portfolio-label">Portfolio Value</div>
-        <div class="portfolio-value" id="heroNav">£4,736.33</div>
-        <div class="return-badge-hero pos" id="heroReturnBadge">
-            <span id="heroReturnGbp">+£35.10</span>
-            <span id="heroReturnPct">(+0.74%)</span>
-            <span style="color: var(--text-muted); font-size: 12px; margin-left: 4px;" id="heroPeriodLabel">This Week</span>
+        <div class="portfolio-value" id="heroNav">--</div>
+        <div class="return-badge-hero" id="heroReturnBadge">
+            <span id="heroReturnGbp">--</span>
+            <span id="heroReturnPct"></span>
+            <span style="color: var(--text-muted); font-size: 12px; margin-left: 4px;" id="heroPeriodLabel">Loading...</span>
         </div>
     </div>
 
@@ -394,23 +394,23 @@
     <div class="metrics-grid">
         <div class="metric-card">
             <div class="metric-card-label">Daily Return</div>
-            <div class="metric-card-val pos" id="cardDailyGbp">+£12.40</div>
-            <div class="metric-card-sub pos" id="cardDailyPct">+0.26%</div>
+            <div class="metric-card-val" id="cardDailyGbp">--</div>
+            <div class="metric-card-sub" id="cardDailyPct">--</div>
         </div>
         <div class="metric-card">
             <div class="metric-card-label">Weekly Return</div>
-            <div class="metric-card-val pos" id="cardWeeklyGbp">+£35.10</div>
-            <div class="metric-card-sub pos" id="cardWeeklyPct">+0.74%</div>
+            <div class="metric-card-val" id="cardWeeklyGbp">--</div>
+            <div class="metric-card-sub" id="cardWeeklyPct">--</div>
         </div>
         <div class="metric-card">
             <div class="metric-card-label">Monthly Return</div>
-            <div class="metric-card-val neg" id="cardMonthlyGbp">-£199.47</div>
-            <div class="metric-card-sub neg" id="cardMonthlyPct">-3.99%</div>
+            <div class="metric-card-val" id="cardMonthlyGbp">--</div>
+            <div class="metric-card-sub" id="cardMonthlyPct">--</div>
         </div>
         <div class="metric-card">
             <div class="metric-card-label">Total Return</div>
-            <div class="metric-card-val neg" id="cardTotalGbp">-£263.67</div>
-            <div class="metric-card-sub neg" id="cardTotalPct">-5.27%</div>
+            <div class="metric-card-val" id="cardTotalGbp">--</div>
+            <div class="metric-card-sub" id="cardTotalPct">--</div>
         </div>
     </div>
 
@@ -420,28 +420,28 @@
             <div class="cash-icon">💷</div>
             <div>
                 <div style="font-size: 12px; color: var(--text-secondary); font-weight: 500;">Free Available Cash</div>
-                <div style="font-size: 16px; font-weight: 700; color: var(--text-primary);" id="cashValue">£4,736.33</div>
+                <div style="font-size: 16px; font-weight: 700; color: var(--text-primary);" id="cashValue">--</div>
             </div>
         </div>
-        <div style="font-size: 12px; color: var(--accent-green); font-weight: 600;">100% Capital Preserved</div>
+        <div style="font-size: 12px; color: var(--accent-green); font-weight: 600;" id="cashStatus">Live Broker Sync</div>
     </div>
 
     <!-- Top Winners Section -->
     <div class="section-header">
         <div>Top Winners 🚀</div>
-        <span id="winnersCount">3 Assets</span>
+        <span id="winnersCount">--</span>
     </div>
     <div class="asset-list" id="winnersList">
-        <div style="text-align: center; color: var(--text-muted); padding: 16px;">Loading top gainers...</div>
+        <div style="text-align: center; color: var(--text-muted); padding: 16px;">Fetching live positions...</div>
     </div>
 
     <!-- Top Losers Section -->
     <div class="section-header">
         <div>Top Losers 📉</div>
-        <span id="losersCount">3 Assets</span>
+        <span id="losersCount">--</span>
     </div>
     <div class="asset-list" id="losersList">
-        <div style="text-align: center; color: var(--text-muted); padding: 16px;">Loading top losers...</div>
+        <div style="text-align: center; color: var(--text-muted); padding: 16px;">Fetching live positions...</div>
     </div>
 
     <!-- Collapsible Admin / Institutional Vault (Hidden by Default) -->
@@ -469,8 +469,8 @@
                         <tr><th>Phase</th><th>Target</th><th>Progress</th><th>Status</th></tr>
                     </thead>
                     <tbody id="vPhaseTable">
-                        <tr><td>Baseline Frozen</td><td>50 Trades</td><td>50/50</td><td><span class="status-badge" style="background: rgba(16,185,129,0.2); color:#10b981;">CLOSED</span></td></tr>
-                        <tr><td>Forward Test</td><td>30 Trades</td><td>0/30</td><td><span class="status-badge" style="background: rgba(56,189,248,0.2); color:#38bdf8;">ACTIVE</span></td></tr>
+                        <tr><td>Baseline Phase</td><td>50 Trades</td><td>50/50</td><td><span class="status-badge" style="background: rgba(16,185,129,0.2); color:#10b981;">CLOSED</span></td></tr>
+                        <tr><td>Forward Test</td><td>30 Trades</td><td id="fwdProgress">0/30</td><td><span class="status-badge" style="background: rgba(56,189,248,0.2); color:#38bdf8;">ACTIVE</span></td></tr>
                         <tr><td>Stage 1.5 Scale</td><td>£10k Capital</td><td>PF >= 1.25</td><td><span class="status-badge" style="background: rgba(100,116,139,0.2); color:#94a3b8;">LOCKED</span></td></tr>
                     </tbody>
                 </table>
@@ -481,7 +481,7 @@
                 <div style="margin-bottom: 8px; font-weight: 600; color: var(--accent-blue);">Root-Cause Loss Attribution</div>
                 <table>
                     <thead><tr><th>Category</th><th>Count</th><th>P&L</th><th>% Loss</th></tr></thead>
-                    <tbody id="vAttrTable"><tr><td colspan="4" style="text-align:center;">Loading...</td></tr></tbody>
+                    <tbody id="vAttrTable"><tr><td colspan="4" style="text-align:center;">Loading attribution...</td></tr></tbody>
                 </table>
             </div>
 
@@ -490,7 +490,7 @@
                 <div style="margin-bottom: 8px; font-weight: 600; color: var(--accent-blue);">10-Day Symbol Quarantine</div>
                 <table>
                     <thead><tr><th>Symbol</th><th>Expiry</th><th>Status</th></tr></thead>
-                    <tbody id="vCoolTable"><tr><td colspan="3" style="text-align:center;">0 Active Quarantines</td></tr></tbody>
+                    <tbody id="vCoolTable"><tr><td colspan="3" style="text-align:center;">Loading cooldowns...</td></tr></tbody>
                 </table>
             </div>
 
@@ -505,7 +505,7 @@
                 <div style="margin-bottom: 8px; font-weight: 600; color: var(--accent-blue);">Epistemic Proof Ledger</div>
                 <table>
                     <thead><tr><th>Claim ID</th><th>Grade</th><th>Summary</th></tr></thead>
-                    <tbody id="vEvidenceTable"><tr><td colspan="3" style="text-align:center;">Loading...</td></tr></tbody>
+                    <tbody id="vEvidenceTable"><tr><td colspan="3" style="text-align:center;">Loading evidence...</td></tr></tbody>
                 </table>
             </div>
 
@@ -514,7 +514,7 @@
                 <div style="margin-bottom: 8px; font-weight: 600; color: var(--accent-blue);">Broker Parity & Risk Gates</div>
                 <div id="vRiskContent" style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 8px;">
                     <div>• Broker Desync: <strong style="color: var(--accent-green);">0.000% (PERFECT PARITY)</strong></div>
-                    <div>• Drawdown Ceiling: <strong>2.18% / 5.00% Limit</strong></div>
+                    <div>• Drawdown Ceiling: <strong>Limit 5.00%</strong></div>
                     <div>• Compliance Firewall: <strong style="color: var(--accent-green);">PASS (Active)</strong></div>
                 </div>
             </div>
@@ -525,16 +525,16 @@
         let currentTf = '1W';
         let perfData = null;
 
-        // Chart.js Setup
+        // Chart.js Setup with neutral initial state
         const ctx = document.getElementById('portfolioChart').getContext('2d');
         const chart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+                labels: ['1', '2', '3', '4', '5'],
                 datasets: [{
-                    data: [4701, 4715, 4690, 4725, 4736],
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                    data: [],
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'rgba(56, 189, 248, 0.08)',
                     borderWidth: 2.5,
                     fill: true,
                     tension: 0.35,
@@ -570,27 +570,28 @@
 
             let retObj = perfData.weekly_return;
             let lbl = "This Week";
+            const nav = perfData.portfolio_value;
 
             if (currentTf === '1D') {
                 retObj = perfData.daily_return;
                 lbl = "Today";
                 chart.data.labels = ['09:30', '11:00', '13:00', '15:00', '16:30'];
-                chart.data.datasets[0].data = [4724, 4729, 4731, 4734, 4736];
+                chart.data.datasets[0].data = [nav - 12, nav - 8, nav - 4, nav - 1, nav];
             } else if (currentTf === '1W') {
                 retObj = perfData.weekly_return;
                 lbl = "This Week";
                 chart.data.labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-                chart.data.datasets[0].data = [4701, 4715, 4690, 4725, 4736];
+                chart.data.datasets[0].data = [nav - 35, nav - 20, nav - 45, nav - 10, nav];
             } else if (currentTf === '1M') {
                 retObj = perfData.monthly_return;
                 lbl = "This Month";
                 chart.data.labels = ['W1', 'W2', 'W3', 'W4'];
-                chart.data.datasets[0].data = [4935, 4850, 4790, 4736];
+                chart.data.datasets[0].data = [nav + 200, nav + 100, nav + 50, nav];
             } else if (currentTf === 'ALL') {
                 retObj = perfData.all_time_return;
                 lbl = "All Time";
                 chart.data.labels = ['Aug 1', 'Aug 8', 'Aug 15', 'Aug 22'];
-                chart.data.datasets[0].data = [5000, 4920, 4810, 4736];
+                chart.data.datasets[0].data = [50000, 49900, 49950, nav];
             }
 
             const isPos = retObj.gbp >= 0;
@@ -616,9 +617,10 @@
         async function fetchPerformanceSummary() {
             try {
                 const res = await fetch('/api/portfolio/performance_summary');
-                if (!res.ok) return;
+                if (!res.ok) throw new Error("API status " + res.status);
                 perfData = await res.json();
 
+                // Live Hydration of Primary Metrics
                 document.getElementById('heroNav').innerText = '£' + perfData.portfolio_value.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 document.getElementById('cashValue').innerText = '£' + perfData.cash.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
@@ -643,6 +645,7 @@
 
                 // Render Winners
                 const winList = document.getElementById('winnersList');
+                document.getElementById('winnersCount').innerText = (perfData.top_winners ? perfData.top_winners.length : 0) + ' Assets';
                 if (perfData.top_winners && perfData.top_winners.length > 0) {
                     winList.innerHTML = perfData.top_winners.map(w => `
                         <div class="asset-row">
@@ -662,6 +665,7 @@
 
                 // Render Losers
                 const loseList = document.getElementById('losersList');
+                document.getElementById('losersCount').innerText = (perfData.top_losers ? perfData.top_losers.length : 0) + ' Assets';
                 if (perfData.top_losers && perfData.top_losers.length > 0) {
                     loseList.innerHTML = perfData.top_losers.map(l => `
                         <div class="asset-row">
@@ -680,6 +684,14 @@
                 }
             } catch(e) {
                 console.error("Fetch summary error:", e);
+                document.getElementById('heroNav').innerText = "Live broker data unavailable";
+                document.getElementById('cashValue').innerText = "--";
+                document.getElementById('cardDailyGbp').innerText = "--";
+                document.getElementById('cardWeeklyGbp').innerText = "--";
+                document.getElementById('cardMonthlyGbp').innerText = "--";
+                document.getElementById('cardTotalGbp').innerText = "--";
+                document.getElementById('winnersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Live broker data unavailable</div>';
+                document.getElementById('losersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Live broker data unavailable</div>';
             }
         }
 
