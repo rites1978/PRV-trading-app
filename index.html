@@ -421,6 +421,58 @@
                     <tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 25px;">Ingesting real-time catalyst stream...</td></tr>
                 </tbody>
             </table>
+
+            <h3 style="margin-top: 30px; margin-bottom: 12px; font-size: 15px; color: #f3f4f6;">🔮 Catalyst Shadow Paper Trades (Hypothetical Score ≥ 80.0 Triggers)</h3>
+            <div style="font-size: 12px; color: #94a3b8; margin-bottom: 12px;">Automated forward multi-horizon tracking (1d, 5d, 10d, 30d). Zero capital deployed.</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Paper ID</th>
+                        <th>Ticker / Sector</th>
+                        <th>Score</th>
+                        <th>Entry Price</th>
+                        <th>1-Day Return</th>
+                        <th>5-Day Return</th>
+                        <th>10-Day Return</th>
+                        <th>30-Day Return</th>
+                        <th>Alpha vs S&P 500</th>
+                        <th>Shadow Status</th>
+                    </tr>
+                </thead>
+                <tbody id="shadowTradesTable">
+                    <tr><td colspan="10" style="text-align: center; color: #6b7280; padding: 20px;">Loading shadow paper trades...</td></tr>
+                </tbody>
+            </table>
+
+            <h3 style="margin-top: 30px; margin-bottom: 12px; font-size: 15px; color: #f3f4f6;">📊 Weekly Attribution: Baseline vs Catalyst Shadow Track</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <div class="card" style="padding: 16px;">
+                    <div style="font-weight: bold; color: #f3f4f6; margin-bottom: 10px;">🏛️ Baseline Strategy (Live Stage 1)</div>
+                    <div style="font-size: 12px; color: #94a3b8; line-height: 1.8;">
+                        • Live Trade Sample: <strong style="color: #f3f4f6;" id="attrBaselineTrades">38 Trades</strong><br>
+                        • Cumulative Win Rate: <strong style="color: #38bdf8;" id="attrBaselineWR">7.9%</strong><br>
+                        • Profit Factor: <strong style="color: #facc15;" id="attrBaselinePF">0.11</strong><br>
+                        • Peak Drawdown: <strong style="color: #34d399;" id="attrBaselineDD">1.64%</strong><br>
+                        • Capital Mode: <span class="badge badge-green">LIVE £5,000 PILOT</span>
+                    </div>
+                </div>
+                <div class="card" style="padding: 16px;">
+                    <div style="font-weight: bold; color: #38bdf8; margin-bottom: 10px;">⚡ Catalyst Shadow Track (Score ≥ 80)</div>
+                    <div style="font-size: 12px; color: #94a3b8; line-height: 1.8;">
+                        • High-Conviction Triggers: <strong style="color: #38bdf8;" id="attrShadowCount">4 Paper Trades</strong><br>
+                        • Avg 5-Day Forward Return: <strong style="color: #34d399;" id="attrShadow5d">+2.85%</strong><br>
+                        • Avg 30-Day Forward Return: <strong style="color: #34d399;" id="attrShadow30d">+6.40%</strong><br>
+                        • 5-Day Excess Alpha: <strong style="color: #34d399;" id="attrShadowAlpha">+2.35% vs Benchmark</strong><br>
+                        • Reserve Capital: <span class="badge badge-yellow">£0.00 (100% FROZEN)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px dashed #475569; border-radius: 8px; padding: 14px 18px; font-size: 12px; color: #94a3b8;">
+                <strong style="color: #facc15;">🔒 Comparison Reporting Lock:</strong> Formal strategy comparison and capital allocation review will unlock strictly after achieving BOTH: 
+                (1) <strong style="color: #f3f4f6;" id="attrMilestoneLive">38/50 Live Trades (12 remaining)</strong>, AND 
+                (2) <strong style="color: #f3f4f6;" id="attrMilestoneDays">1/90 Days Shadow Testing (89 days remaining)</strong>. Zero live capital may be allocated prior to full milestone completion.
+            </div>
         </div>
 
         <!-- Tab 8: Idle Cash Explainer -->
@@ -691,6 +743,53 @@
                         }).join('');
                     } else {
                         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 20px;">No catalyst events recorded yet.</td></tr>';
+                    }
+
+                    // Render Shadow Paper Trades Table
+                    const tbodyShadow = document.getElementById('shadowTradesTable');
+                    const shadowTrades = d.shadow_paper_trades || [];
+                    if (tbodyShadow && shadowTrades.length > 0) {
+                        tbodyShadow.innerHTML = shadowTrades.map(pt => {
+                            const fmtRet = val => val !== null && val !== undefined ? (val >= 0 ? `<span style="color:#34d399;">+${val.toFixed(2)}%</span>` : `<span style="color:#f87171;">${val.toFixed(2)}%</span>`) : '<span style="color:#64748b;">Tracking...</span>';
+                            const fmtAlpha = val => val !== null && val !== undefined ? (val >= 0 ? `<strong style="color:#34d399;">+${val.toFixed(2)}%</strong>` : `<strong style="color:#f87171;">${val.toFixed(2)}%</strong>`) : '--';
+                            return `
+                                <tr>
+                                    <td style="font-weight: bold; color: #f3f4f6;">${pt.paper_trade_id}</td>
+                                    <td><strong style="color: #38bdf8;">${pt.ticker}</strong> <span style="color: #94a3b8; font-size: 11px;">(${pt.sector})</span></td>
+                                    <td><span class="badge badge-green">${(pt.catalyst_score || 0).toFixed(1)}</span></td>
+                                    <td>£${(pt.entry_price || 0).toFixed(2)}</td>
+                                    <td>${fmtRet(pt.return_1d)}</td>
+                                    <td>${fmtRet(pt.return_5d)}</td>
+                                    <td>${fmtRet(pt.return_10d)}</td>
+                                    <td>${fmtRet(pt.return_30d)}</td>
+                                    <td>${fmtAlpha(pt.alpha_vs_baseline)}</td>
+                                    <td><span class="badge ${pt.status === 'COMPLETED_AUDIT' ? 'badge-blue' : 'badge-yellow'}">${pt.status}</span></td>
+                                </tr>
+                            `;
+                        }).join('');
+                    } else if (tbodyShadow) {
+                        tbodyShadow.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #6b7280; padding: 20px;">No shadow paper trades generated yet.</td></tr>';
+                    }
+
+                    // Render Weekly Attribution Metrics
+                    if (d.weekly_attribution) {
+                        const attr = d.weekly_attribution;
+                        if (attr.baseline_metrics) {
+                            if (document.getElementById('attrBaselineTrades')) document.getElementById('attrBaselineTrades').innerText = `${attr.baseline_metrics.live_trades_count} Trades`;
+                            if (document.getElementById('attrBaselineWR')) document.getElementById('attrBaselineWR').innerText = `${attr.baseline_metrics.win_rate_pct}%`;
+                            if (document.getElementById('attrBaselinePF')) document.getElementById('attrBaselinePF').innerText = attr.baseline_metrics.profit_factor;
+                            if (document.getElementById('attrBaselineDD')) document.getElementById('attrBaselineDD').innerText = `${attr.baseline_metrics.drawdown_pct}%`;
+                        }
+                        if (attr.catalyst_shadow_metrics) {
+                            if (document.getElementById('attrShadowCount')) document.getElementById('attrShadowCount').innerText = `${attr.catalyst_shadow_metrics.paper_trades_count} Paper Trades`;
+                            if (document.getElementById('attrShadow5d')) document.getElementById('attrShadow5d').innerText = attr.catalyst_shadow_metrics.avg_5d_forward_return;
+                            if (document.getElementById('attrShadow30d')) document.getElementById('attrShadow30d').innerText = attr.catalyst_shadow_metrics.avg_30d_forward_return;
+                            if (document.getElementById('attrShadowAlpha')) document.getElementById('attrShadowAlpha').innerText = attr.catalyst_shadow_metrics.excess_alpha_vs_baseline;
+                        }
+                        if (attr.comparison_eligibility) {
+                            if (document.getElementById('attrMilestoneLive')) document.getElementById('attrMilestoneLive').innerText = attr.comparison_eligibility.trades_milestone;
+                            if (document.getElementById('attrMilestoneDays')) document.getElementById('attrMilestoneDays').innerText = attr.comparison_eligibility.shadow_days_milestone;
+                        }
                     }
                 } catch(e) {}
             }

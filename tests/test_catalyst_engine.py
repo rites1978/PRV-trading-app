@@ -46,10 +46,30 @@ class TestCatalystIntelligenceEngine(unittest.TestCase):
 
     def test_catalyst_dashboard_payload(self):
         payload = catalyst_engine.get_dashboard_payload()
-        self.assertEqual(payload["module_status"], "RESEARCH_MONITOR_ACTIVE")
+        self.assertEqual(payload["module_status"], "SHADOW_MODE_ACTIVE")
         self.assertGreaterEqual(payload["active_catalysts_count"], 1)
         self.assertIn("active_catalysts", payload)
-        self.assertIn("catalyst_reserve_capital", payload)
+        self.assertIn("shadow_paper_trades", payload)
+        self.assertIn("weekly_attribution", payload)
+        self.assertEqual(payload["catalyst_reserve_capital"]["current_deployed_gbp"], 0.0)
+
+    def test_shadow_paper_trades_generation(self):
+        res = catalyst_engine.generate_shadow_paper_trade(
+            event_id="TEST-EV-999",
+            ticker="GOOGL",
+            sector="Technology",
+            catalyst_score=88.5,
+            entry_price=175.0
+        )
+        self.assertTrue(res["created"])
+        self.assertEqual(res["paper_trade"]["status"], "ACTIVE_SHADOW")
+
+    def test_weekly_attribution_metrics(self):
+        attr = catalyst_engine.generate_weekly_attribution()
+        self.assertEqual(attr["baseline_metrics"]["live_trades_count"], 38)
+        self.assertEqual(attr["baseline_metrics"]["profit_factor"], 0.11)
+        self.assertIn("avg_5d_forward_return", attr["catalyst_shadow_metrics"])
+        self.assertEqual(attr["comparison_eligibility"]["formal_review_status"], "LOCKED_UNTIL_MILESTONES_MET")
 
 if __name__ == "__main__":
     unittest.main()

@@ -132,6 +132,28 @@ CREATE TABLE IF NOT EXISTS catalyst_events (
     deployment_flag INTEGER DEFAULT 0,
     trade_outcome TEXT DEFAULT 'MONITORING'
 );
+
+CREATE TABLE IF NOT EXISTS catalyst_paper_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_trade_id TEXT UNIQUE,
+    event_id TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ticker TEXT NOT NULL,
+    sector TEXT,
+    catalyst_score REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    current_price REAL NOT NULL,
+    return_1d REAL,
+    return_5d REAL,
+    return_10d REAL,
+    return_30d REAL,
+    benchmark_return_1d REAL,
+    benchmark_return_5d REAL,
+    benchmark_return_10d REAL,
+    benchmark_return_30d REAL,
+    alpha_vs_baseline REAL,
+    status TEXT DEFAULT 'ACTIVE'
+);
 """
 
 class Database:
@@ -303,5 +325,54 @@ class Database:
             cur = conn.cursor()
             cur.execute("SELECT * FROM catalyst_events ORDER BY id DESC LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
+
+    # --- Catalyst Shadow Paper Trades ---
+    def record_catalyst_paper_trade(self, trade: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT OR REPLACE INTO catalyst_paper_trades (
+                    paper_trade_id, event_id, timestamp, ticker, sector,
+                    catalyst_score, entry_price, current_price,
+                    return_1d, return_5d, return_10d, return_30d,
+                    benchmark_return_1d, benchmark_return_5d, benchmark_return_10d, benchmark_return_30d,
+                    alpha_vs_baseline, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                trade.get("paper_trade_id", f"ptrade_{int(datetime.now().timestamp())}"),
+                trade.get("event_id", ""),
+                trade.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                trade.get("ticker", "SPY"),
+                trade.get("sector", "General"),
+                float(trade.get("catalyst_score", 0.0)),
+                float(trade.get("entry_price", 100.0)),
+                float(trade.get("current_price", 100.0)),
+                trade.get("return_1d"),
+                trade.get("return_5d"),
+                trade.get("return_10d"),
+                trade.get("return_30d"),
+                trade.get("benchmark_return_1d"),
+                trade.get("benchmark_return_5d"),
+                trade.get("benchmark_return_10d"),
+                trade.get("benchmark_return_30d"),
+                trade.get("alpha_vs_baseline", 0.0),
+                trade.get("status", "ACTIVE")
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_catalyst_paper_trades(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM catalyst_paper_trades ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def update_catalyst_paper_trade(self, paper_trade_id: str, updates: Dict[str, Any]):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            set_clauses = [f"{k} = ?" for k in updates.keys()]
+            values = list(updates.values()) + [paper_trade_id]
+            cur.execute(f"UPDATE catalyst_paper_trades SET {', '.join(set_clauses)} WHERE paper_trade_id = ?", values)
+            conn.commit()
 
 db = Database()
