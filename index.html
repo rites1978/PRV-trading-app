@@ -708,11 +708,14 @@
                     badge.className = `badge ${d.operational_status === 'GREEN' ? 'badge-green' : (d.operational_status === 'YELLOW' ? 'badge-yellow' : 'badge-red')}`;
                     
                     const tbody = document.getElementById('phaseGateTable');
+                    const sched = d.validation_schedule || {};
                     tbody.innerHTML = `
-                        <tr><td>Completed Orders Sample</td><td>≥ 50 Orders</td><td>${d.current_trade_count} Orders (${d.trades_remaining_to_gate1} left)</td><td><span class="badge ${d.current_trade_count >= 50 ? 'badge-green' : 'badge-yellow'}">${d.current_trade_count >= 50 ? 'PASS' : 'PENDING'}</span></td></tr>
-                        <tr><td>Maximum Peak Drawdown</td><td>≤ 5.00% Ceiling</td><td>${(d.current_max_drawdown || 0).toFixed(2)}% Max Drawdown</td><td><span class="badge badge-green">PASS</span></td></tr>
-                        <tr><td>Rolling Profit Factor</td><td>≥ 1.15 Expansion Gate</td><td>${(d.current_profit_factor || 0).toFixed(2)} (Sample N=${d.current_trade_count})</td><td><span class="badge ${d.current_profit_factor >= 1.15 ? 'badge-green' : 'badge-yellow'}">${d.current_profit_factor >= 1.15 ? 'PASS' : 'NOT MET YET'}</span></td></tr>
-                        <tr><td>Broker Synchronization</td><td>0 Failures (100%)</td><td>0 Discrepancies</td><td><span class="badge badge-green">PASS</span></td></tr>
+                        <tr><td>Phase 1: Baseline Benchmark</td><td>50 Completed Orders</td><td>${d.current_trade_count} Orders (${d.trades_remaining_to_gate1} left)</td><td><span class="badge ${d.current_trade_count >= 50 ? 'badge-green' : 'badge-yellow'}">${d.current_trade_count >= 50 ? 'PASS' : 'ACTIVE (Fixed -2.5%)'}</span></td></tr>
+                        <tr><td>Active Stop Protocol</td><td>Dynamic 2.5x ATR at N=50</td><td>${d.active_stop_protocol}</td><td><span class="badge ${d.current_trade_count >= 50 ? 'badge-green' : 'badge-blue'}">${d.current_trade_count >= 50 ? 'ARMED' : 'FROZEN UNTIL N=50'}</span></td></tr>
+                        <tr><td>Phase 2: Forward ATR Test</td><td>N=30 Forward Live Trades</td><td>${(sched['Phase 2 - Forward ATR Test'] || {}).progress || '0/30'} Trades</td><td><span class="badge ${d.current_trade_count >= 80 ? 'badge-green' : 'badge-yellow'}">${(sched['Phase 2 - Forward ATR Test'] || {}).status || 'QUEUED'}</span></td></tr>
+                        <tr><td>Forward Profit Factor Gate</td><td>≥ 1.25 Expansion Gate</td><td>${(d.current_profit_factor || 0).toFixed(2)} (Target: ≥ 1.25)</td><td><span class="badge ${d.current_profit_factor >= 1.25 ? 'badge-green' : 'badge-yellow'}">${d.current_profit_factor >= 1.25 ? 'PASS' : 'VALIDATING'}</span></td></tr>
+                        <tr><td>Drawdown Risk Ceiling</td><td>≤ 5.00% Ceiling</td><td>${(d.current_max_drawdown || 0).toFixed(2)}% Max Drawdown</td><td><span class="badge badge-green">PASS</span></td></tr>
+                        <tr><td>Stage 1.5 Capital Gate</td><td>£10,000 Scale-Up</td><td>${d.capital_scaling_lock}</td><td><span class="badge ${d.scale_eligibility ? 'badge-green' : 'badge-yellow'}">${d.scale_eligibility ? 'ELIGIBLE' : 'LOCKED'}</span></td></tr>
                     `;
                 } catch(e) {}
             } else if (activeTabName === 'catalystTab') {

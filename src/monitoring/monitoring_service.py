@@ -161,32 +161,36 @@ class ProductionMonitoringService:
         }
 
     def get_phase_gate_dashboard(self, total_trades: int, rolling_pf: float, max_drawdown: float) -> Dict[str, Any]:
-        """Section 3E: Phase Gate Dashboard"""
+        """Section 3E: Phase Gate Dashboard - Phase 38 Out-of-Sample ATR Validation Protocol"""
         gate1_trades_met = total_trades >= 50
         gate1_dd_met = max_drawdown <= 5.00
-        gate1_pf_met = rolling_pf >= 1.15
         
-        eligible_for_stage2 = gate1_trades_met and gate1_dd_met and gate1_pf_met
+        # Out-of-sample forward ATR window (Trades #51 to #80)
+        atr_window_active = total_trades >= 50
+        atr_trades_count = max(0, total_trades - 50)
+        atr_target_met = atr_trades_count >= 30 and rolling_pf >= 1.25 and max_drawdown <= 5.00
         
-        current_status = "GREEN" if eligible_for_stage2 else ("YELLOW" if max_drawdown <= 5.0 else ("ORANGE" if max_drawdown <= 8.5 else "RED"))
+        eligible_for_stage1_5 = gate1_trades_met and atr_target_met
+        current_status = "GREEN" if eligible_for_stage1_5 else ("YELLOW" if max_drawdown <= 5.0 else ("ORANGE" if max_drawdown <= 8.5 else "RED"))
         
         return {
             "current_stage": "STAGE 1: MICRO-LIVE PILOT (£5,000)",
-            "next_stage": "STAGE 2: SCALED PILOT (£10,000)",
+            "active_stop_protocol": "FIXED_2.5_PCT" if total_trades < 50 else "DYNAMIC_2.5X_ATR_FORWARD_VALIDATION",
+            "next_stage": "STAGE 1.5: CAPITAL EXPANSION (£10,000)",
             "current_trade_count": total_trades,
-            "required_trade_count": 50,
+            "baseline_milestone": "38/50 Completed Trades (12 remaining to ATR deployment)",
             "trades_remaining_to_gate1": max(0, 50 - total_trades),
             "current_profit_factor": rolling_pf,
-            "required_profit_factor": 1.15,
+            "required_profit_factor": 1.25,
             "current_max_drawdown": max_drawdown,
             "max_allowed_drawdown": 5.00,
-            "scale_eligibility": eligible_for_stage2,
+            "scale_eligibility": eligible_for_stage1_5,
             "operational_status": current_status,
-            "milestone_schedule": {
-                "Milestone 1": {"trades": 50, "status": "PENDING" if total_trades < 50 else "COMPLETED"},
-                "Milestone 2": {"trades": 75, "status": "PENDING" if total_trades < 75 else "COMPLETED"},
-                "Milestone 3": {"trades": 100, "status": "PENDING" if total_trades < 100 else "COMPLETED"},
-                "Milestone 4": {"trades": 145, "status": "PENDING" if total_trades < 145 else "COMPLETED"}
+            "capital_scaling_lock": "LOCKED (£5,000 ONLY - ZERO INCREASE UNTIL N=30 FORWARD ATR TRADES)",
+            "validation_schedule": {
+                "Phase 1 - Baseline Frozen": {"target": "50 Trades", "progress": f"{min(50, total_trades)}/50", "status": "ACTIVE" if total_trades < 50 else "COMPLETED", "stop_type": "Fixed -2.5%"},
+                "Phase 2 - Forward ATR Test": {"target": "30 Fresh Trades (#51-#80)", "progress": f"{atr_trades_count}/30", "status": "QUEUED" if total_trades < 50 else ("ACTIVE" if atr_trades_count < 30 else "COMPLETED"), "stop_type": "Dynamic 2.5x ATR"},
+                "Phase 3 - Stage 1.5 Scale Review": {"target": "£10,000 Capital", "progress": "PF >= 1.25 & DD <= 5.0%", "status": "LOCKED", "capital": "£10,000"}
             }
         }
 

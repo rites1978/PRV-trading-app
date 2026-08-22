@@ -141,12 +141,18 @@ class PRVQuantEngine:
             # Fetch ATR for Trailing Stop
             yf_ticker = t212_ticker.replace("_US_EQ", "").replace("_EQ", "").replace("l", ".L")
             snap = market_data.get_market_snapshot(yf_ticker)
-            atr = snap.get("indicators", {}).get("atr", avg_price * 0.02) if snap.get("success") else avg_price * 0.02
+            # Phase 38 Protocol: Fixed -2.5% for Trades 1-50; Dynamic 2.5x ATR for Trades 51+
+            total_historical_trades = len(db.get_trades(limit=500))
+            if total_historical_trades < 50:
+                base_stop_pct = -settings.DEFAULT_STOP_LOSS_PCT  # Baseline -2.5% (Stage 1 Benchmark)
+            else:
+                # Dynamic 2.5x ATR Stop Loss (Out-of-sample forward test on £5,000 account)
+                base_stop_pct = -min(0.065, max(0.025, (2.5 * atr) / avg_price))
 
             # Exit Rule 1: Breakeven Stop Ratchet after +3.0% Peak Gain
-            effective_stop_pct = -settings.DEFAULT_STOP_LOSS_PCT # Baseline -2.5%
+            effective_stop_pct = base_stop_pct
             if peak_gain_pct >= 0.030:
-                effective_stop_pct = 0.001 # Breakeven (+0.1% covering friction)
+                effective_stop_pct = 0.001  # Breakeven (+0.1% covering friction)
 
             # Exit Rule 2: ATR Trailing Stop (2.5x ATR from Peak once in profit)
             atr_trailing_triggered = False
