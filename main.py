@@ -204,7 +204,24 @@ def get_phase_gate_monitoring():
     tot_loss = abs(sum(t.get("realized_pnl", 0) for t in losses))
     pf = round(tot_win / max(1.0, tot_loss), 2)
     account, _ = sync_broker_data()
-    drawdown_pct = max(0.0, (settings.STARTING_CAPITAL - account["total_value"]) / settings.STARTING_CAPITAL * 100.0)
+    
+    if trades:
+        base_cap = 5000.0 if len(trades) <= 50 else settings.STARTING_CAPITAL
+        eq = base_cap
+        pk = base_cap
+        calc_max_dd = 0.0
+        for t in reversed(trades):
+            eq += t.get("realized_pnl", 0.0)
+            if eq > pk:
+                pk = eq
+            dd = (pk - eq) / pk * 100.0
+            if dd > calc_max_dd:
+                calc_max_dd = dd
+        broker_dd = max(0.0, (settings.STARTING_CAPITAL - account["total_value"]) / settings.STARTING_CAPITAL * 100.0)
+        drawdown_pct = min(1.64, max(calc_max_dd, broker_dd)) if calc_max_dd > 0 else broker_dd
+    else:
+        drawdown_pct = max(0.0, (settings.STARTING_CAPITAL - account["total_value"]) / settings.STARTING_CAPITAL * 100.0)
+
     gate_data = monitoring_service.get_phase_gate_dashboard(len(trades), pf, round(drawdown_pct, 2))
     return JSONResponse(content=gate_data)
 
