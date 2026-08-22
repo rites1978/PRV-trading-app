@@ -1017,10 +1017,31 @@
             return Number(val).toFixed(decimals);
         };
 
+        // 🛡️ Safe Fetch with AbortController Timeout (3.5s limit)
+        async function safeFetch(url, options = {}, timeoutMs = 3500) {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(url, { ...options, signal: controller.signal });
+                clearTimeout(id);
+                return response;
+            } catch (err) {
+                clearTimeout(id);
+                throw err;
+            }
+        }
+
+        // 🔒 In-Flight Concurrency Locks
+        let isSummaryInFlight = false;
+        let isPositionsInFlight = false;
+        let isParityInFlight = false;
+
         // 🚀 Fast-Paint Instant Hydration (< 50ms)
         async function fetchFastSummary() {
+            if (isSummaryInFlight) return;
+            isSummaryInFlight = true;
             try {
-                const res = await fetch(API_BASE + '/api/portfolio/summary_fast');
+                const res = await safeFetch(API_BASE + '/api/portfolio/summary_fast');
                 if (!res.ok) throw new Error("Fast API status " + res.status);
                 const fastData = await res.json();
                 perfData = { ...(perfData || {}), ...fastData };
@@ -1053,17 +1074,19 @@
                 fmtCard('cardTotalGbp', 'cardTotalPct', fastData.all_time_return);
 
                 updateHeroBadge();
-                fetchBrokerParity();
             } catch(e) {
-                console.error("Fast summary error, falling back to full summary:", e);
-                fetchPerformanceSummary();
+                console.warn("Fast summary poll skipped/error:", e);
+            } finally {
+                isSummaryInFlight = false;
             }
         }
 
-        // 🔄 Background Positions & Enricher Loader
+        // 🔄 Background Positions & Enricher Loader (Run once after first paint)
         async function fetchPositionsBackground() {
+            if (isPositionsInFlight) return;
+            isPositionsInFlight = true;
             try {
-                const res = await fetch(API_BASE + '/api/portfolio/positions');
+                const res = await safeFetch(API_BASE + '/api/portfolio/positions', {}, 4000);
                 if (!res.ok) return;
                 const posData = await res.json();
                 
@@ -1125,22 +1148,21 @@
                     loseList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Zero losing positions.</div>';
                 }
             } catch(e) {
-                console.error("Background positions load error:", e);
+                console.warn("Background positions load error:", e);
+            } finally {
+                isPositionsInFlight = false;
             }
         }
 
-        async function fetchPerformanceSummary() {
-            await fetchFastSummary();
-            fetchPositionsBackground();
-        }
-
         async function fetchBrokerParity() {
+            if (isParityInFlight) return;
+            isParityInFlight = true;
             try {
                 let navParam = '';
                 if (perfData && perfData.portfolio_value !== null && perfData.portfolio_value !== undefined) {
                     navParam = `?dashboard_nav=${perfData.portfolio_value}`;
                 }
-                const res = await fetch(API_BASE + '/api/integrity/broker_parity' + navParam);
+                const res = await safeFetch(API_BASE + '/api/integrity/broker_parity' + navParam, {}, 4000);
                 if (!res.ok) return;
                 const p = await res.json();
 
@@ -1175,7 +1197,9 @@
                 document.getElementById('parityLastSync').innerText = p.last_broker_sync || '--';
                 document.getElementById('parityLastHydration').innerText = p.last_ui_hydration || '--';
             } catch(e) {
-                console.error("Broker parity check error:", e);
+                console.warn("Broker parity check error:", e);
+            } finally {
+                isParityInFlight = false;
             }
         }
 
@@ -1599,11 +1623,16 @@
             }
         }
 
-        // Initialize & Poll
-        fetchPerformanceSummary();
-        setInterval(fetchPerformanceSummary, 5000);
-        // Pre-load default active tab in vault
-        loadAdminTabData('vReport');
+        // 🚀 Initialize Page (Fast first paint + decoupled secondary loader)
+        fetchFastSummary().then(() => {
+            setTimeout(() => {
+                fetchBrokerParity();
+                fetchPositionsBackground();
+            }, 100);
+        });
+
+        // ⏱️ Lightweight periodic poll (Summary Only, Single In-Flight Lock)
+        setInterval(fetchFastSummary, 5000);
     </script>
 </body>
 </html>

@@ -29,6 +29,8 @@ class Trading212Broker:
         # In-memory short-lived snapshot cache
         self._cached_summary: Optional[Dict[str, Any]] = None
         self._cached_summary_time: float = 0.0
+        self._cached_positions: List[Dict[str, Any]] = []
+        self._cached_positions_time: float = 0.0
         self._cache_ttl_seconds: float = 2.0
         
         # Last verified live state
@@ -48,23 +50,23 @@ class Trading212Broker:
 
     def _request_with_retry(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        max_retries = 3
-        backoff = 1.5
+        max_retries = 1
+        backoff = 0.5
 
         for attempt in range(max_retries):
             self._rate_limit()
             try:
                 if method.upper() == "GET":
-                    res = requests.get(url, auth=self.auth, timeout=10, **kwargs)
+                    res = requests.get(url, auth=self.auth, timeout=2.0, **kwargs)
                 elif method.upper() == "POST":
-                    res = requests.post(url, auth=self.auth, timeout=10, **kwargs)
+                    res = requests.post(url, auth=self.auth, timeout=2.0, **kwargs)
                 elif method.upper() == "DELETE":
-                    res = requests.delete(url, auth=self.auth, timeout=10, **kwargs)
+                    res = requests.delete(url, auth=self.auth, timeout=2.0, **kwargs)
                 else:
                     raise ValueError(f"Unsupported HTTP method {method}")
 
                 if res.status_code == 429:
-                    time.sleep(backoff * (attempt + 1))
+                    time.sleep(backoff)
                     continue
                 return res
             except Exception as e:
@@ -152,16 +154,23 @@ class Trading212Broker:
                     "available_cash": self._last_verified_cash
                 }
 
-    def get_open_positions(self) -> List[Dict[str, Any]]:
-        """Fetch all active positions with retry protection."""
+    def get_open_positions(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """Fetch all active positions with read-through cache and retry protection."""
         with self._lock:
+            now = time.time()
+            if not force_refresh and self._cached_positions and (now - self._cached_positions_time) < self._cache_ttl_seconds:
+                return list(self._cached_positions)
+
             try:
                 res = self._request_with_retry("GET", "equity/portfolio")
                 if res.status_code == 200:
-                    return res.json()
-                return []
+                    data = res.json()
+                    self._cached_positions = data
+                    self._cached_positions_time = now
+                    return list(data)
+                return list(self._cached_positions)
             except Exception:
-                return []
+                return list(self._cached_positions)
 
     def get_position(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get position details for a specific instrument."""
