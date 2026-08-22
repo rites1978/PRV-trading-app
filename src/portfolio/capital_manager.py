@@ -93,7 +93,16 @@ class CapitalManager:
             "deploy_condition": "Never deployed (permanent liquidity safeguard)"
         })
         
-        _, target_pct = self.determine_market_regime(70.0, 75.0)
+        if market_regime == "BULL" or market_regime == "EXCEPTIONAL" or market_regime == "STRONG":
+            target_pct = settings.MAX_DEPLOYMENT_BULL
+            deploy_cond = "Maximum Bull allocation capacity (75% of Core Capital). 20% preserved as macro volatility safeguard."
+        elif market_regime == "BEAR":
+            target_pct = settings.MAX_DEPLOYMENT_BEAR
+            deploy_cond = "Requires Market Regime upgrade to NEUTRAL / BULL (Breadth > 45%, S&P 500 trend recovery)."
+        else:
+            target_pct = settings.MAX_DEPLOYMENT_NEUTRAL
+            deploy_cond = "Requires Market Regime upgrade to BULL (S&P 500 breakout + breadth > 70%)."
+
         unallocated_regime_reserve = max(0.0, core_capital * (1.0 - target_pct) - cash_buffer)
         
         if unallocated_regime_reserve > 0:
@@ -103,7 +112,7 @@ class CapitalManager:
                 "pct_of_idle": round((unallocated_regime_reserve / idle_cash * 100.0) if idle_cash > 0 else 0.0, 1),
                 "status": "MACRO_GATED",
                 "reason": f"Regime is {market_regime} (capping active exposure at {target_pct * 100:.0f}% of Core Capital)",
-                "deploy_condition": "Requires Market Regime upgrade to BULL (S&P 500 breakout + breadth > 70%)"
+                "deploy_condition": deploy_cond
             })
 
         active_deployable_queue = max(0.0, idle_cash - cash_buffer - unallocated_regime_reserve)
