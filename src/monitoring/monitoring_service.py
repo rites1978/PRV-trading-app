@@ -147,8 +147,10 @@ class ProductionMonitoringService:
         
         evidence_recorder.record_broker_sync(broker_nav, internal_nav, len(positions), len(positions))
         
+        is_online = bool(broker_acc.get("success", True))
         return {
-            "broker_status": "ONLINE" if broker_acc.get("success") else "ERROR",
+            "broker_status": "ONLINE (200 OK)" if is_online else "ERROR (DISCONNECTED)",
+            "is_connected": is_online,
             "broker_nav": broker_nav,
             "internal_nav": internal_nav,
             "nav_parity_discrepancy_pct": discrepancy_pct,

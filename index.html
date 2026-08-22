@@ -565,7 +565,8 @@
                 try {
                     const res = await fetch('/api/monitoring/broker');
                     const d = await res.json();
-                    document.getElementById('brokerApiStatus').innerText = d.broker_status + ' (200 OK)';
+                    document.getElementById('brokerApiStatus').innerText = d.broker_status;
+                    document.getElementById('brokerApiStatus').style.color = d.is_connected ? '#34d399' : '#f87171';
                     document.getElementById('brokerDiscrepancy').innerText = (d.nav_parity_discrepancy_pct || 0).toFixed(3) + '%';
                     document.getElementById('brokerParityStatus').innerText = d.parity_status;
                     

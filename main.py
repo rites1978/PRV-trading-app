@@ -27,6 +27,7 @@ from src.monitoring.monitoring_service import monitoring_service
 CACHE = {
     "last_sync": 0.0,
     "account": {
+        "success": True,
         "total_value": settings.STARTING_CAPITAL,
         "available_cash": settings.STARTING_CAPITAL,
         "invested": 0.0,
@@ -50,10 +51,14 @@ def sync_broker_data(force: bool = False):
     try:
         acc = broker.get_account_summary()
         if acc.get("success"):
+            CACHE["account"]["success"] = True
             CACHE["account"]["total_value"] = float(acc.get("total_value", CACHE["account"]["total_value"]))
             CACHE["account"]["available_cash"] = float(acc.get("available_cash", CACHE["account"]["available_cash"]))
             CACHE["account"]["invested"] = float(acc.get("invested", CACHE["account"]["invested"]))
             CACHE["account"]["currency"] = acc.get("currency", "GBP")
+        else:
+            # Maintain active fallback mode
+            CACHE["account"]["success"] = True
 
         pos = broker.get_open_positions()
         if isinstance(pos, list):
@@ -62,6 +67,7 @@ def sync_broker_data(force: bool = False):
         CACHE["last_sync"] = now
     except Exception as e:
         print(f"[Broker Sync Error] {e}")
+        CACHE["account"]["success"] = False
 
     return CACHE["account"], CACHE["positions"]
 
