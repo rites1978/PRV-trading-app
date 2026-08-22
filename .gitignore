@@ -10,12 +10,20 @@ venv/
 .venv/
 env/
 
-# Databases & local state
+# Databases, WAL files & backups
 *.db
+*.db-shm
+*.db-wal
+*.db.bak
 *.sqlite3
+backups/
 bot_logs.json
 bot_state.json
 trade_history.json
+
+# Test artifacts & reports
+.pytest_cache/
+test_reports/
 
 # OS & Editor files
 .DS_Store

@@ -154,6 +154,87 @@ CREATE TABLE IF NOT EXISTS catalyst_paper_trades (
     alpha_vs_baseline REAL,
     status TEXT DEFAULT 'ACTIVE'
 );
+
+CREATE TABLE IF NOT EXISTS symbol_cooldowns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    t212_ticker TEXT NOT NULL,
+    triggering_trade_id INTEGER NOT NULL,
+    cooldown_start_timestamp DATETIME NOT NULL,
+    cooldown_expiry_timestamp DATETIME NOT NULL,
+    duration_days INTEGER NOT NULL DEFAULT 10,
+    status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'EXPIRED', 'ADMIN_OVERRIDDEN')),
+    quarantine_reason TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS market_regimes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL UNIQUE,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    spy_close REAL NOT NULL,
+    spy_sma20 REAL NOT NULL,
+    spy_sma50 REAL NOT NULL,
+    spy_sma200 REAL NOT NULL,
+    vix_level REAL NOT NULL,
+    regime_classification TEXT NOT NULL,
+    risk_capacity_pct REAL NOT NULL,
+    trading_permission TEXT NOT NULL,
+    diagnostic_rationale TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS evidence_registry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    claim_id TEXT NOT NULL UNIQUE,
+    claim_statement TEXT NOT NULL,
+    epistemic_grade TEXT NOT NULL,
+    empirical_evidence_summary TEXT NOT NULL,
+    sample_size_evaluated INTEGER NOT NULL,
+    verified_by TEXT NOT NULL,
+    last_audit_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS trade_attributions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    exit_timestamp DATETIME NOT NULL,
+    realized_pnl REAL NOT NULL,
+    realized_pnl_pct REAL NOT NULL,
+    exit_reason TEXT NOT NULL,
+    pre_entry_latency_days REAL NOT NULL DEFAULT 0.0,
+    entry_atr14 REAL NOT NULL DEFAULT 0.0,
+    post_exit_mfe_20d_pct REAL NOT NULL DEFAULT 0.0,
+    post_exit_mae_20d_pct REAL NOT NULL DEFAULT 0.0,
+    days_since_prior_stop INTEGER DEFAULT NULL,
+    macro_regime_at_entry TEXT NOT NULL,
+    earnings_proximity_days INTEGER DEFAULT NULL,
+    slippage_pct REAL NOT NULL DEFAULT 0.0,
+    root_cause_category TEXT NOT NULL,
+    attribution_confidence REAL NOT NULL,
+    forensic_notes TEXT NOT NULL,
+    classified_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS trade_trajectories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    entry_timestamp DATETIME NOT NULL,
+    exit_timestamp DATETIME NOT NULL,
+    entry_price REAL NOT NULL,
+    exit_price REAL NOT NULL,
+    entry_atr14 REAL NOT NULL,
+    duration_hours REAL NOT NULL,
+    max_favorable_excursion_pct REAL NOT NULL,
+    max_adverse_excursion_pct REAL NOT NULL,
+    post_exit_mfe_5d_pct REAL NOT NULL DEFAULT 0.0,
+    post_exit_mfe_10d_pct REAL NOT NULL DEFAULT 0.0,
+    post_exit_mfe_20d_pct REAL NOT NULL DEFAULT 0.0,
+    post_exit_mae_20d_pct REAL NOT NULL DEFAULT 0.0,
+    reached_target_post_exit INTEGER NOT NULL DEFAULT 0,
+    trajectory_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 class Database:
@@ -162,7 +243,9 @@ class Database:
         self._init_db()
 
     def get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=5.0)
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA journal_mode = WAL;")
         conn.row_factory = sqlite3.Row
         return conn
 

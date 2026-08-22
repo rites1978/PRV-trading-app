@@ -21,6 +21,9 @@ from src.agents.boardroom import boardroom
 from src.execution.order_router import order_router
 from src.data.market_hours import market_hours
 from src.monitoring.evidence_recorder import evidence_recorder
+from src.compliance.integrity_guard import integrity_guard
+from src.analytics.attribution_service import attribution_service
+from src.analytics.trajectory_service import trajectory_service
 from telegram_notifier import TelegramNotifier
 
 class PRVQuantEngine:
@@ -181,6 +184,29 @@ class PRVQuantEngine:
                     closed_trades.append(t212_ticker)
                     if t212_ticker in self.position_peaks:
                         del self.position_peaks[t212_ticker]
+                    # Post-trade attribution & trajectory capture
+                    try:
+                        latest_trades = db.get_trades(limit=1)
+                        t_id = latest_trades[0]["id"] if latest_trades else 1
+                        attribution_service.classify_trade_outcome(
+                            trade_id=t_id,
+                            trade_data={"symbol": yf_ticker, "realized_pnl": realized_pnl, "realized_pnl_pct": pnl_pct * 100.0, "exit_reason": exit_msg},
+                            telemetry={"pre_entry_latency_days": 0.0, "post_exit_mfe_20d_pct": 0.0, "entry_atr14": atr}
+                        )
+                        trajectory_service.record_trajectory(
+                            trade_id=t_id,
+                            symbol=yf_ticker,
+                            entry_timestamp=datetime.now(timezone.utc).isoformat(),
+                            exit_timestamp=datetime.now(timezone.utc).isoformat(),
+                            entry_price=avg_price,
+                            exit_price=cur_price,
+                            entry_atr=atr,
+                            duration_hours=24.0,
+                            in_trade_mfe_pct=peak_gain_pct * 100.0,
+                            in_trade_mae_pct=pnl_pct * 100.0
+                        )
+                    except Exception:
+                        pass
 
             # Trigger ATR Trailing Stop
             elif atr_trailing_triggered:
@@ -200,6 +226,16 @@ class PRVQuantEngine:
                     closed_trades.append(t212_ticker)
                     if t212_ticker in self.position_peaks:
                         del self.position_peaks[t212_ticker]
+                    try:
+                        latest_trades = db.get_trades(limit=1)
+                        t_id = latest_trades[0]["id"] if latest_trades else 1
+                        attribution_service.classify_trade_outcome(
+                            trade_id=t_id,
+                            trade_data={"symbol": yf_ticker, "realized_pnl": realized_pnl, "realized_pnl_pct": pnl_pct * 100.0, "exit_reason": exit_msg},
+                            telemetry={"pre_entry_latency_days": 0.0, "post_exit_mfe_20d_pct": 0.0, "entry_atr14": atr}
+                        )
+                    except Exception:
+                        pass
 
         # 6. Quantitative Universe Scanning & Dynamic Sizing (3% - 8%)
         universe = universe_manager.get_all()
@@ -296,6 +332,18 @@ class PRVQuantEngine:
                 current_positions=open_positions,
                 remaining_regime_allowance=remaining_allowance
             )
+
+            # Automated Pre-Trade Compliance & Integrity Guard
+            comp_ok, comp_reason, _ = integrity_guard.validate_pre_flight_compliance(
+                symbol=symbol,
+                t212_ticker=t212_ticker,
+                order_cost_gbp=nominal_cost,
+                current_nav_gbp=core_capital,
+                current_drawdown_pct=daily_drawdown * 100.0
+            )
+            if not comp_ok:
+                risk_approved = False
+                risk_reason = comp_reason
 
             # Boardroom Deliberation (Technical Entry Signal)
             approved_by_boardroom, decision_data = boardroom.convene_boardroom(

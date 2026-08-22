@@ -202,6 +202,10 @@
             <button class="tab-btn" onclick="switchTab(event, 'riskTab')">🛡️ Risk Dashboard</button>
             <button class="tab-btn" onclick="switchTab(event, 'brokerTab')">🏛️ Broker Audit</button>
             <button class="tab-btn" onclick="switchTab(event, 'phaseGateTab')">🎯 Phase Gates</button>
+            <button class="tab-btn" onclick="switchTab(event, 'attributionTab')">🔍 Attribution</button>
+            <button class="tab-btn" onclick="switchTab(event, 'cooldownTab')">⏱️ Cooldowns</button>
+            <button class="tab-btn" onclick="switchTab(event, 'regimeTab')">🌐 Market Regime</button>
+            <button class="tab-btn" onclick="switchTab(event, 'evidenceTab')">📜 Evidence Ledger</button>
             <button class="tab-btn" onclick="switchTab(event, 'catalystTab')">⚡ Catalyst Intelligence</button>
             <button class="tab-btn" onclick="switchTab(event, 'idleCashTab')">💰 Idle Cash Audit</button>
             <button class="tab-btn" onclick="switchTab(event, 'logsTab')">⚡ AI Execution Stream</button>
@@ -501,6 +505,79 @@
         <div id="logsTab" class="tab-content">
             <div class="log-box" id="logStream">Connecting to PRV Capital core engine...</div>
         </div>
+
+        <!-- Tab 9: Attribution Analytics -->
+        <div id="attributionTab" class="tab-content">
+            <div style="margin-bottom: 15px; color: #94a3b8; font-size: 13px;">
+                Deterministic root-cause attribution of trade outcomes across all completed and forward cycles.
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Root Cause Category</th>
+                        <th>Trades Count</th>
+                        <th>Total Realized P&L</th>
+                        <th>% of Total Losses</th>
+                    </tr>
+                </thead>
+                <tbody id="attributionTableBody">
+                    <tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 25px;">Loading attribution breakdown...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Tab 10: Cooldown Registry -->
+        <div id="cooldownTab" class="tab-content">
+            <div style="margin-bottom: 15px; color: #94a3b8; font-size: 13px;">
+                Active 10-day post-stop symbol quarantine ledger to prevent whipsaw re-entries.
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Ticker</th>
+                        <th>Expiry Timestamp</th>
+                        <th>Quarantine Reason</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="cooldownTableBody">
+                    <tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 25px;">Zero symbols currently quarantined. All instruments eligible.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Tab 11: Market Regime Monitor -->
+        <div id="regimeTab" class="tab-content">
+            <div style="margin-bottom: 15px; color: #94a3b8; font-size: 13px;">
+                Macro S&P 500 trend and VIX volatility classification state machine.
+            </div>
+            <div id="regimePanelContent" style="padding: 15px; background: #111827; border-radius: 8px; border: 1px solid #1f2937;">
+                Loading daily market regime telemetry...
+            </div>
+        </div>
+
+        <!-- Tab 12: Evidence Ledger -->
+        <div id="evidenceTab" class="tab-content">
+            <div style="margin-bottom: 15px; color: #94a3b8; font-size: 13px;">
+                Epistemic research claims and empirical proof audit registry.
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Claim ID</th>
+                        <th>Statement</th>
+                        <th>Grade</th>
+                        <th>Empirical Proof Summary</th>
+                        <th>Sample N</th>
+                        <th>Verified By</th>
+                    </tr>
+                </thead>
+                <tbody id="evidenceTableBody">
+                    <tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 25px;">Loading evidence ledger...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <script>
@@ -793,6 +870,85 @@
                             if (document.getElementById('attrMilestoneLive')) document.getElementById('attrMilestoneLive').innerText = attr.comparison_eligibility.trades_milestone;
                             if (document.getElementById('attrMilestoneDays')) document.getElementById('attrMilestoneDays').innerText = attr.comparison_eligibility.shadow_days_milestone;
                         }
+                    }
+                } catch(e) {}
+            } else if (activeTabName === 'attributionTab') {
+                try {
+                    const res = await fetch('/api/attribution/summary');
+                    const d = await res.json();
+                    const tbody = document.getElementById('attributionTableBody');
+                    if (d.breakdown && Object.keys(d.breakdown).length > 0) {
+                        tbody.innerHTML = Object.entries(d.breakdown).map(([cat, item]) => {
+                            const pnlClass = item.total_pnl_gbp >= 0 ? 'pos' : 'neg';
+                            return `
+                                <tr>
+                                    <td style="font-weight: bold; color: #f3f4f6;">${cat}</td>
+                                    <td>${item.count}</td>
+                                    <td class="${pnlClass}">£${item.total_pnl_gbp.toFixed(2)}</td>
+                                    <td style="color: #f87171; font-weight: bold;">${item.pct_of_losses || 0.0}%</td>
+                                </tr>
+                            `;
+                        }).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #6b7280; padding: 25px;">No attributed trade outcomes classified yet.</td></tr>';
+                    }
+                } catch(e) {}
+            } else if (activeTabName === 'cooldownTab') {
+                try {
+                    const res = await fetch('/api/governance/cooldowns');
+                    const list = await res.json();
+                    const tbody = document.getElementById('cooldownTableBody');
+                    if (list.length > 0) {
+                        tbody.innerHTML = list.map(c => `
+                            <tr>
+                                <td style="font-weight: bold; color: #38bdf8;">${c.symbol}</td>
+                                <td>${c.t212_ticker}</td>
+                                <td style="color: #facc15;">${c.expires_at}</td>
+                                <td style="color: #94a3b8;">${c.reason}</td>
+                                <td><span class="badge badge-yellow">QUARANTINED</span></td>
+                            </tr>
+                        `).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #34d399; padding: 25px;">✅ Zero symbols currently quarantined. All universe instruments eligible.</td></tr>';
+                    }
+                } catch(e) {}
+            } else if (activeTabName === 'regimeTab') {
+                try {
+                    const res = await fetch('/api/regime/current');
+                    const r = await res.json();
+                    const container = document.getElementById('regimePanelContent');
+                    const color = r.regime_classification.includes('BULL') ? '#34d399' : (r.regime_classification.includes('BEAR') ? '#f87171' : '#facc15');
+                    container.innerHTML = `
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 15px;">
+                            <div><span style="color: #94a3b8; font-size: 11px;">CLASSIFICATION</span><br><strong style="color: ${color}; font-size: 16px;">${r.regime_classification}</strong></div>
+                            <div><span style="color: #94a3b8; font-size: 11px;">TRADING PERMISSION</span><br><strong style="color: #f3f4f6; font-size: 14px;">${r.trading_permission}</strong></div>
+                            <div><span style="color: #94a3b8; font-size: 11px;">RISK CAPACITY</span><br><strong style="color: #38bdf8; font-size: 16px;">${r.risk_capacity_pct}%</strong></div>
+                            <div><span style="color: #94a3b8; font-size: 11px;">S&P 500 / VIX</span><br><strong style="color: #f3f4f6; font-size: 14px;">$${r.spy_close} / ${r.vix_level}</strong></div>
+                        </div>
+                        <div style="color: #cbd5e1; font-size: 13px; border-top: 1px solid #1f2937; padding-top: 10px;">
+                            <strong>Diagnostic:</strong> ${r.diagnostic_rationale}
+                        </div>
+                    `;
+                } catch(e) {}
+            } else if (activeTabName === 'evidenceTab') {
+                try {
+                    const res = await fetch('/api/governance/evidence');
+                    const claims = await res.json();
+                    const tbody = document.getElementById('evidenceTableBody');
+                    if (claims.length > 0) {
+                        tbody.innerHTML = claims.map(c => {
+                            const badge = c.epistemic_grade === 'PROVEN' ? 'badge-green' : (c.epistemic_grade === 'SUPPORTED' ? 'badge-blue' : 'badge-yellow');
+                            return `
+                                <tr>
+                                    <td style="font-weight: bold; color: #38bdf8;">${c.claim_id}</td>
+                                    <td style="color: #f3f4f6;">${c.claim_statement}</td>
+                                    <td><span class="badge ${badge}">${c.epistemic_grade}</span></td>
+                                    <td style="color: #94a3b8;">${c.empirical_evidence_summary}</td>
+                                    <td>${c.sample_size_evaluated}</td>
+                                    <td style="color: #64748b;">${c.verified_by}</td>
+                                </tr>
+                            `;
+                        }).join('');
                     }
                 } catch(e) {}
             }
