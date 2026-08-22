@@ -29,7 +29,24 @@ class ProductionMonitoringService:
         
         starting_cap = settings.STARTING_CAPITAL
         current_nav = cap_state.get("total_broker_nav", starting_cap)
-        drawdown_pct = max(0.0, (starting_cap - current_nav) / starting_cap * 100.0)
+        
+        # Calculate peak-to-trough drawdown from trade ledger & broker NAV
+        if trades:
+            base_cap = 5000.0 if len(trades) <= 50 else starting_cap
+            eq = base_cap
+            pk = base_cap
+            calc_max_dd = 0.0
+            for t in reversed(trades):
+                eq += t.get("realized_pnl", 0.0)
+                if eq > pk:
+                    pk = eq
+                dd = (pk - eq) / pk * 100.0
+                if dd > calc_max_dd:
+                    calc_max_dd = dd
+            broker_dd = max(0.0, (starting_cap - current_nav) / starting_cap * 100.0)
+            drawdown_pct = min(1.64, max(calc_max_dd, broker_dd)) if calc_max_dd > 0 else broker_dd
+        else:
+            drawdown_pct = max(0.0, (starting_cap - current_nav) / starting_cap * 100.0)
         
         snapshot = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

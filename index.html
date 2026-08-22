@@ -485,24 +485,29 @@
         }
 
         async function updateActiveTabContent() {
-            if (activeTabName === 'dailyTab') {
-                try {
-                    const res = await fetch('/api/monitoring/daily');
-                    const d = await res.json();
+            // Always fetch Daily metrics so top cards and dailyTab are perpetually fresh
+            try {
+                const resDaily = await fetch('/api/monitoring/daily');
+                const d = await resDaily.json();
+                if (document.getElementById('monWinRate')) {
                     document.getElementById('monWinRate').innerText = (d.win_rate || 0).toFixed(1) + '%';
                     document.getElementById('monPF').innerText = (d.profit_factor || 0).toFixed(2);
                     document.getElementById('monDrawdown').innerText = (d.drawdown_pct || 0).toFixed(2) + '%';
                     document.getElementById('monTradeCount').innerText = d.completed_trades_count || 0;
 
                     const tbody = document.getElementById('dailyMetricsTable');
-                    tbody.innerHTML = `
-                        <tr><td>Current Portfolio NAV</td><td style="font-weight: bold;">£${(d.current_nav || 0).toFixed(2)}</td><td>Starting: £${(d.starting_nav || 0).toFixed(2)}</td><td><span class="badge badge-green">NORMAL</span></td></tr>
-                        <tr><td>Active Capital Utilisation</td><td style="font-weight: bold;">${(d.deployment_pct || 0).toFixed(2)}%</td><td>Target: 60.0% – 75.0%</td><td><span class="badge badge-green">EQUILIBRIUM</span></td></tr>
-                        <tr><td>Net Realized Daily P&L</td><td style="font-weight: bold; color: ${d.daily_pnl >= 0 ? '#34d399' : '#f87171'};">£${(d.daily_pnl || 0).toFixed(2)}</td><td>Protected Core Base</td><td><span class="badge badge-blue">ACTIVE</span></td></tr>
-                        <tr><td>Profit Vault Balance</td><td style="font-weight: bold; color: #34d399;">£${(d.vault_balance || 0).toFixed(2)}</td><td>Isolated Swept Alpha</td><td><span class="badge badge-green">LOCKED</span></td></tr>
-                    `;
-                } catch(e) {}
-            } else if (activeTabName === 'tradesTab') {
+                    if (tbody) {
+                        tbody.innerHTML = `
+                            <tr><td>Current Portfolio NAV</td><td style="font-weight: bold;">£${(d.current_nav || 0).toFixed(2)}</td><td>Starting: £${(d.starting_nav || 0).toFixed(2)}</td><td><span class="badge badge-green">NORMAL</span></td></tr>
+                            <tr><td>Active Capital Utilisation</td><td style="font-weight: bold;">${(d.deployment_pct || 0).toFixed(2)}%</td><td>Target: 60.0% – 75.0%</td><td><span class="badge badge-green">EQUILIBRIUM</span></td></tr>
+                            <tr><td>Net Realized Daily P&L</td><td style="font-weight: bold; color: ${d.daily_pnl >= 0 ? '#34d399' : '#f87171'};">£${(d.daily_pnl || 0).toFixed(2)}</td><td>Protected Core Base</td><td><span class="badge badge-blue">ACTIVE</span></td></tr>
+                            <tr><td>Profit Vault Balance</td><td style="font-weight: bold; color: #34d399;">£${(d.vault_balance || 0).toFixed(2)}</td><td>Isolated Swept Alpha</td><td><span class="badge badge-green">LOCKED</span></td></tr>
+                        `;
+                    }
+                }
+            } catch(e) {}
+
+            if (activeTabName === 'tradesTab') {
                 try {
                     const res = await fetch('/api/monitoring/trades');
                     const d = await res.json();
