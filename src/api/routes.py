@@ -112,7 +112,7 @@ def get_portfolio_performance_summary():
     invested = float(account.get("invested", 0.0))
     
     positions = broker.get_open_positions()
-    active_cycle = cycle_manager.get_active_cycle()
+    active_cycle = db.get_active_cycle()
     cycle_id = active_cycle["cycle_id"] if active_cycle else "CYCLE-002"
     trades = db.get_trades(limit=500, cycle_id=cycle_id)
     
@@ -231,6 +231,29 @@ def reset_performance_cycle(req: CycleResetRequest):
     and activate a fresh zero-baseline cycle.
     """
     return cycle_manager.reset_and_archive_cycle(req.dict())
+
+# --- Broker Parity & Data Integrity Monitor Endpoints ---
+from src.monitoring.broker_parity_monitor import parity_monitor
+
+@app.get("/api/integrity/broker_parity")
+def get_broker_parity(dashboard_nav: Optional[float] = None, drill_break: Optional[float] = None):
+    """Real-time 4-way parity check across Trading212, Backend API, SQLite, and Dashboard DOM."""
+    return parity_monitor.check_broker_parity(
+        dashboard_nav=dashboard_nav,
+        force_discrepancy_for_test=drill_break
+    )
+
+@app.post("/api/integrity/heartbeat")
+def post_ui_heartbeat(req: Dict[str, Any]):
+    """Register client DOM hydration NAV to maintain live continuous parity check."""
+    nav = req.get("dashboard_nav", 50000.0)
+    parity_monitor.record_ui_hydration(nav)
+    return {"status": "recorded", "dashboard_nav": nav}
+
+@app.get("/api/integrity/alerts")
+def get_integrity_alerts(limit: int = 50):
+    """Retrieve recent data integrity alerts."""
+    return parity_monitor.get_integrity_alerts(limit=limit)
 
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard

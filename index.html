@@ -414,6 +414,46 @@
         </div>
     </div>
 
+    <!-- 🛡 Data Integrity & Broker Parity Monitor Card -->
+    <div class="integrity-card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--card-border); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="font-size: 13px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+                <span>🛡️ Data Integrity & Broker Parity Monitor</span>
+            </div>
+            <span id="parityStatusBadge" class="status-badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 700; font-size: 11px;">
+                ✅ VERIFIED
+            </span>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px;">
+            <div style="background: #1e293b; padding: 8px; border-radius: 6px;">
+                <div style="color: var(--text-muted); font-size: 9px; text-transform: uppercase;">Broker NAV (T212)</div>
+                <div id="parityBrokerNav" style="font-weight: 700; font-size: 13px; color: #fff;">£50,000.00</div>
+            </div>
+            <div style="background: #1e293b; padding: 8px; border-radius: 6px;">
+                <div style="color: var(--text-muted); font-size: 9px; text-transform: uppercase;">API NAV</div>
+                <div id="parityApiNav" style="font-weight: 700; font-size: 13px; color: #fff;">£50,000.00</div>
+            </div>
+            <div style="background: #1e293b; padding: 8px; border-radius: 6px;">
+                <div style="color: var(--text-muted); font-size: 9px; text-transform: uppercase;">Dashboard NAV</div>
+                <div id="parityDashboardNav" style="font-weight: 700; font-size: 13px; color: #fff;">£50,000.00</div>
+            </div>
+            <div style="background: #1e293b; padding: 8px; border-radius: 6px;">
+                <div style="color: var(--text-muted); font-size: 9px; text-transform: uppercase;">Variance</div>
+                <div id="parityVariance" style="font-weight: 700; font-size: 13px; color: #10b981;">£0.00</div>
+            </div>
+        </div>
+        
+        <div id="parityAlertBanner" style="display: none; background: rgba(244, 63, 94, 0.15); border: 1px solid #f43f5e; color: #f43f5e; padding: 8px 10px; border-radius: 6px; font-size: 11px; margin-top: 6px;">
+            ⚠️ <strong>DATA_INTEGRITY_ALERT</strong>: <span id="parityAlertMsg">Discrepancy detected across portfolio data lineage.</span>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-top: 4px;">
+            <span>Last Sync: <strong id="parityLastSync" style="color: var(--text-secondary);">--</strong></span>
+            <span>Last Hydration: <strong id="parityLastHydration" style="color: var(--text-secondary);">--</strong></span>
+        </div>
+    </div>
+
     <!-- Cash Balance Card -->
     <div class="cash-card">
         <div class="cash-left">
@@ -578,6 +618,34 @@
                     </div>
                 </div>
 
+                <!-- 📊 Evaluation Confidence Card -->
+                <div style="background:rgba(0,0,0,0.25); padding:12px; border-radius:10px; border:1px solid var(--card-border); margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <div style="font-weight:700; font-size:13px; color:#38bdf8;">📊 Statistical Validity & Evaluation Confidence</div>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <span id="statValidityBadge" class="status-badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-weight:700;">🟡 Insufficient Sample Size</span>
+                            <span id="confidenceLevelBadge" class="status-badge" style="background:rgba(100,116,139,0.2); color:#94a3b8; font-weight:700;">CONFIDENCE: LOW</span>
+                        </div>
+                    </div>
+                    <div id="statValidityReason" style="font-size:11px; color:var(--text-secondary); margin-bottom:10px; line-height:1.4;">
+                        Trades: 0 / 20 | Days: 0 / 30 | Round-Trip: 0 / 10. More trading evidence required before evaluation.
+                    </div>
+                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;">
+                        <div style="background:#1e293b; padding:6px 8px; border-radius:6px; font-size:11px;">
+                            <div style="color:var(--text-muted); font-size:9px;">TRADES GATE (≥20)</div>
+                            <div id="gateTrades" style="font-weight:700;">0 / 20</div>
+                        </div>
+                        <div style="background:#1e293b; padding:6px 8px; border-radius:6px; font-size:11px;">
+                            <div style="color:var(--text-muted); font-size:9px;">RUNTIME GATE (≥30D)</div>
+                            <div id="gateDays" style="font-weight:700;">0 / 30 Days</div>
+                        </div>
+                        <div style="background:#1e293b; padding:6px 8px; border-radius:6px; font-size:11px;">
+                            <div style="color:var(--text-muted); font-size:9px;">ROUND-TRIP (≥10)</div>
+                            <div id="gateRoundTrip" style="font-weight:700;">0 / 10</div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Reset Modal Form (Toggleable) -->
                 <div id="cycleResetBox" style="display:none; background:#1e293b; padding:12px; border-radius:10px; border:1px solid var(--accent-red); margin-bottom:14px;">
                     <div style="font-weight:700; font-size:13px; color:var(--accent-red); margin-bottom:6px;">⚠️ Start New AI Performance Evaluation Cycle</div>
@@ -631,6 +699,12 @@
                             <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">BASELINE (CYCLE B)</label>
                             <select id="selCycleB" onchange="runComparison()" style="width:100%; padding:5px; background:#0f172a; border:1px solid var(--card-border); color:#fff; border-radius:6px; font-size:11px;"></select>
                         </div>
+                    </div>
+
+                    <!-- Gating Warning Banner (Shown when sample size is insufficient) -->
+                    <div id="scorecardValidityNotice" style="display:none; background:rgba(245,158,11,0.15); border:1px solid #f59e0b; color:#f59e0b; padding:10px 12px; border-radius:6px; margin-bottom:10px; font-size:11px;">
+                        <div style="font-weight:700;">⚠️ INSUFFICIENT SAMPLE SIZE FOR STATISTICAL SCORING</div>
+                        <div id="scorecardValidityReasonText" style="color:var(--text-muted); margin-top:2px; font-size:10px;">More trading evidence required before evaluation.</div>
                     </div>
 
                     <!-- Hero AI Effectiveness Banner -->
@@ -691,12 +765,12 @@
                         <tr>
                             <th>Cycle</th>
                             <th>AI Ver</th>
-                            <th>Dates</th>
+                            <th>Duration</th>
                             <th>Trades</th>
+                            <th>Confidence</th>
                             <th>Return</th>
-                            <th>Win Rate</th>
+                            <th>Evaluation Status</th>
                             <th>Data Origin</th>
-                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody id="vCycleHistoryTable">
@@ -898,6 +972,8 @@
                 } else {
                     loseList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Zero losing positions.</div>';
                 }
+                // Check broker parity after hydration
+                fetchBrokerParity();
             } catch(e) {
                 console.error("Fetch summary error:", e);
                 document.getElementById('heroNav').innerText = "Live broker data unavailable";
@@ -908,6 +984,52 @@
                 document.getElementById('cardTotalGbp').innerText = "--";
                 document.getElementById('winnersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Live broker data unavailable</div>';
                 document.getElementById('losersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Live broker data unavailable</div>';
+                fetchBrokerParity();
+            }
+        }
+
+        async function fetchBrokerParity() {
+            try {
+                let navParam = '';
+                if (perfData && perfData.portfolio_value !== null && perfData.portfolio_value !== undefined) {
+                    navParam = `?dashboard_nav=${perfData.portfolio_value}`;
+                }
+                const res = await fetch(API_BASE + '/api/integrity/broker_parity' + navParam);
+                if (!res.ok) return;
+                const p = await res.json();
+
+                document.getElementById('parityBrokerNav').innerText = '£' + p.broker_nav.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                document.getElementById('parityApiNav').innerText = '£' + p.api_nav.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                document.getElementById('parityDashboardNav').innerText = '£' + p.dashboard_nav.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                
+                const isVerified = (p.status === 'VERIFIED');
+                const badge = document.getElementById('parityStatusBadge');
+                const varElem = document.getElementById('parityVariance');
+                const banner = document.getElementById('parityAlertBanner');
+
+                if (isVerified) {
+                    badge.innerText = '✅ VERIFIED';
+                    badge.style.background = 'rgba(16, 185, 129, 0.2)';
+                    badge.style.color = '#10b981';
+                    varElem.innerText = '£' + p.variance.toFixed(2);
+                    varElem.style.color = '#10b981';
+                    if (banner) banner.style.display = 'none';
+                } else {
+                    badge.innerText = '❌ MISMATCH DETECTED';
+                    badge.style.background = 'rgba(244, 63, 94, 0.2)';
+                    badge.style.color = '#f43f5e';
+                    varElem.innerText = '£' + p.variance.toFixed(2);
+                    varElem.style.color = '#f43f5e';
+                    if (banner) {
+                        banner.style.display = 'block';
+                        document.getElementById('parityAlertMsg').innerText = `Broker NAV (£${p.broker_nav.toFixed(2)}) differs from Dashboard NAV (£${p.dashboard_nav.toFixed(2)}) by £${p.variance.toFixed(2)}.`;
+                    }
+                }
+
+                document.getElementById('parityLastSync').innerText = p.last_broker_sync || '--';
+                document.getElementById('parityLastHydration').innerText = p.last_ui_hydration || '--';
+            } catch(e) {
+                console.error("Broker parity check error:", e);
             }
         }
 
@@ -1023,7 +1145,7 @@
                     const cur = await curRes.json();
                     const hist = await histRes.json();
 
-                    // Hydrate Active Cycle Card
+                    // Hydrate Active Cycle Card & Statistical Validity
                     document.getElementById('activeCycleBadge').innerText = cur.cycle_id + ' (ACTIVE)';
                     document.getElementById('activeCycleVer').innerText = cur.ai_version || 'v2.0';
                     document.getElementById('activeCycleName').innerText = cur.cycle_name;
@@ -1036,6 +1158,30 @@
                         actBadge.innerText = curIsLive ? '🟢 LIVE DATA' : '🧪 SIMULATED TEST DATA';
                         actBadge.style.background = curIsLive ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)';
                         actBadge.style.color = curIsLive ? '#10b981' : '#f59e0b';
+                    }
+
+                    // Hydrate Statistical Validity Card
+                    const isEligible = cur.evaluation_eligible;
+                    const confLevel = cur.confidence_level || 'LOW';
+                    const statBadge = document.getElementById('statValidityBadge');
+                    if (statBadge) {
+                        statBadge.innerText = isEligible ? '🟢 Statistically Valid' : '🟡 Insufficient Sample Size';
+                        statBadge.style.background = isEligible ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)';
+                        statBadge.style.color = isEligible ? '#10b981' : '#f59e0b';
+                    }
+                    const confBadge = document.getElementById('confidenceLevelBadge');
+                    if (confBadge) {
+                        confBadge.innerText = `CONFIDENCE: ${confLevel}`;
+                        confBadge.style.background = confLevel === 'VERY_HIGH' ? 'rgba(56,189,248,0.2)' : (confLevel === 'HIGH' ? 'rgba(16,185,129,0.2)' : (confLevel === 'MEDIUM' ? 'rgba(245,158,11,0.2)' : 'rgba(100,116,139,0.2)'));
+                        confBadge.style.color = confLevel === 'VERY_HIGH' ? '#38bdf8' : (confLevel === 'HIGH' ? '#10b981' : (confLevel === 'MEDIUM' ? '#f59e0b' : '#94a3b8'));
+                    }
+                    if (document.getElementById('statValidityReason')) {
+                        document.getElementById('statValidityReason').innerText = cur.evaluation_reason || '--';
+                    }
+                    if (cur.validity_thresholds) {
+                        document.getElementById('gateTrades').innerText = `${cur.validity_thresholds.trades_recorded} / ${cur.validity_thresholds.min_trades_required}`;
+                        document.getElementById('gateDays').innerText = `${cur.validity_thresholds.days_running} / ${cur.validity_thresholds.min_days_required} Days`;
+                        document.getElementById('gateRoundTrip').innerText = `${cur.validity_thresholds.round_trip_trades} / ${cur.validity_thresholds.min_round_trip_required}`;
                     }
 
                     const pnlSign = cur.total_return >= 0 ? '+' : '';
@@ -1051,25 +1197,28 @@
                     const tbody = document.getElementById('vCycleHistoryTable');
                     tbody.innerHTML = hist.map(c => {
                         const isAct = c.status === 'ACTIVE';
-                        const badgeStyle = isAct ? 'background:rgba(56,189,248,0.2); color:#38bdf8;' : 'background:rgba(100,116,139,0.2); color:#94a3b8;';
                         const isLive = c.data_source_type === 'LIVE';
                         const originBadge = isLive 
                             ? '<span class="status-badge" style="background:rgba(16,185,129,0.2); color:#10b981;">🟢 LIVE</span>' 
                             : '<span class="status-badge" style="background:rgba(245,158,11,0.2); color:#f59e0b;">🧪 SIMULATED</span>';
                         const sSign = (c.total_return || 0) >= 0 ? '+' : '';
                         const sClass = (c.total_return || 0) >= 0 ? 'pos' : 'neg';
-                        const sDate = (c.start_date || '').split(' ')[0].split('T')[0];
-                        const eDate = isAct ? 'Present' : (c.end_date || '').split(' ')[0].split('T')[0];
+                        const durDays = c.duration_days !== undefined ? c.duration_days : (isAct ? cur.days_running : '--');
+                        const conf = c.confidence_level || 'LOW';
+                        const validBadge = c.evaluation_eligible 
+                            ? '<span class="status-badge" style="background:rgba(16,185,129,0.2); color:#10b981;">🟢 VALID</span>' 
+                            : '<span class="status-badge" style="background:rgba(245,158,11,0.2); color:#f59e0b;">🟡 INSUFFICIENT DATA</span>';
+
                         return `
                             <tr>
                                 <td><strong style="color:var(--accent-blue);">${c.cycle_id}</strong><br><span style="font-size:10px; color:var(--text-muted);">${c.cycle_name}</span></td>
                                 <td>${c.ai_version || '--'}</td>
-                                <td style="font-size:10px;">${sDate} → ${eDate}</td>
+                                <td>${durDays} Days</td>
                                 <td>${c.trade_count || 0}</td>
+                                <td><span style="font-size:10px; font-weight:700;">${conf}</span></td>
                                 <td class="${sClass}">${sSign}£${Math.abs(c.total_return || 0).toFixed(2)} (${sSign}${(c.total_return_pct || 0).toFixed(2)}%)</td>
-                                <td>${(c.win_rate || 0).toFixed(1)}%</td>
+                                <td>${validBadge}</td>
                                 <td>${originBadge}</td>
-                                <td><span class="status-badge" style="${badgeStyle}">${c.status}</span></td>
                             </tr>
                         `;
                     }).join('');
@@ -1130,19 +1279,34 @@
                 const cABadge = cA.data_source_type === 'LIVE' ? '🟢 LIVE' : '🧪 SIMULATED';
                 const cBBadge = cB.data_source_type === 'LIVE' ? '🟢 LIVE' : '🧪 SIMULATED';
                 document.getElementById('scorecardCycleTitle').innerHTML = `${cA.cycle_id} (${cA.ai_version}) [${cABadge}] vs ${cB.cycle_id} (${cB.ai_version}) [${cBBadge}]`;
-                document.getElementById('scoreVal').innerText = data.ai_effectiveness_score.toFixed(1);
                 
+                // Sample Size Gating in Scorecard
+                const notice = document.getElementById('scorecardValidityNotice');
                 const classBadge = document.getElementById('scoreClassification');
-                classBadge.innerText = data.classification;
-                if (data.classification === 'EXCEPTIONAL' || data.classification === 'IMPROVED') {
-                    classBadge.style.background = 'rgba(16,185,129,0.2)';
-                    classBadge.style.color = '#10b981';
-                } else if (data.classification === 'NEUTRAL') {
-                    classBadge.style.background = 'rgba(56,189,248,0.2)';
-                    classBadge.style.color = '#38bdf8';
+
+                if (!data.evaluation_eligible) {
+                    if (notice) {
+                        notice.style.display = 'block';
+                        document.getElementById('scorecardValidityReasonText').innerText = data.evaluation_reason;
+                    }
+                    document.getElementById('scoreVal').innerText = '--';
+                    classBadge.innerText = '🟡 INSUFFICIENT DATA';
+                    classBadge.style.background = 'rgba(245,158,11,0.2)';
+                    classBadge.style.color = '#f59e0b';
                 } else {
-                    classBadge.style.background = 'rgba(244,63,94,0.2)';
-                    classBadge.style.color = '#f43f5e';
+                    if (notice) notice.style.display = 'none';
+                    document.getElementById('scoreVal').innerText = data.ai_effectiveness_score !== null ? data.ai_effectiveness_score.toFixed(1) : '--';
+                    classBadge.innerText = data.classification;
+                    if (data.classification === 'EXCEPTIONAL' || data.classification === 'IMPROVED') {
+                        classBadge.style.background = 'rgba(16,185,129,0.2)';
+                        classBadge.style.color = '#10b981';
+                    } else if (data.classification === 'NEUTRAL') {
+                        classBadge.style.background = 'rgba(56,189,248,0.2)';
+                        classBadge.style.color = '#38bdf8';
+                    } else {
+                        classBadge.style.background = 'rgba(244,63,94,0.2)';
+                        classBadge.style.color = '#f43f5e';
+                    }
                 }
 
                 // 4x deltas

@@ -273,6 +273,10 @@ CREATE TABLE IF NOT EXISTS ai_performance_cycles (
     feature_set TEXT,
     notes TEXT,
     data_source_type TEXT NOT NULL DEFAULT 'LIVE',
+    evaluation_eligible INTEGER NOT NULL DEFAULT 0,
+    sample_size_classification TEXT NOT NULL DEFAULT 'LOW',
+    confidence_level TEXT NOT NULL DEFAULT 'LOW',
+    evaluation_reason TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -286,10 +290,35 @@ CREATE TABLE IF NOT EXISTS ai_cycle_comparisons (
     win_rate_delta REAL NOT NULL,
     profit_factor_delta REAL NOT NULL,
     drawdown_delta REAL NOT NULL,
-    ai_effectiveness_score REAL NOT NULL,
+    ai_effectiveness_score REAL,
     classification TEXT NOT NULL,
     comparison_json TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS data_integrity_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    broker_nav REAL NOT NULL,
+    api_nav REAL NOT NULL,
+    dashboard_nav REAL,
+    variance REAL NOT NULL,
+    status TEXT NOT NULL,
+    message TEXT NOT NULL,
+    metadata JSON
+);
+
+CREATE TABLE IF NOT EXISTS evidence_broker_sync (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    broker_nav REAL NOT NULL,
+    internal_nav REAL NOT NULL,
+    nav_discrepancy_pct REAL NOT NULL,
+    open_positions_broker INTEGER NOT NULL,
+    open_positions_internal INTEGER NOT NULL,
+    status TEXT NOT NULL
 );
 """
 
@@ -331,7 +360,17 @@ class Database:
                 cur.execute("UPDATE ai_performance_cycles SET data_source_type = 'SIMULATED_TEST' WHERE cycle_id = 'CYCLE-001'")
                 cur.execute("UPDATE ai_performance_cycles SET data_source_type = 'LIVE' WHERE cycle_id != 'CYCLE-001'")
 
-            # 4. Seed initial cycles if ai_performance_cycles is empty
+            # 4. Automatic migration for statistical validity fields in ai_performance_cycles
+            if ccols and "evaluation_eligible" not in ccols:
+                cur.execute("ALTER TABLE ai_performance_cycles ADD COLUMN evaluation_eligible INTEGER NOT NULL DEFAULT 0")
+            if ccols and "sample_size_classification" not in ccols:
+                cur.execute("ALTER TABLE ai_performance_cycles ADD COLUMN sample_size_classification TEXT NOT NULL DEFAULT 'LOW'")
+            if ccols and "confidence_level" not in ccols:
+                cur.execute("ALTER TABLE ai_performance_cycles ADD COLUMN confidence_level TEXT NOT NULL DEFAULT 'LOW'")
+            if ccols and "evaluation_reason" not in ccols:
+                cur.execute("ALTER TABLE ai_performance_cycles ADD COLUMN evaluation_reason TEXT")
+
+            # Seed initial cycles if ai_performance_cycles is empty
             cur.execute("SELECT COUNT(*) as cnt FROM ai_performance_cycles")
             cnt = cur.fetchone()["cnt"]
             if cnt == 0:
@@ -341,12 +380,14 @@ class Database:
                         cycle_id, cycle_name, start_date, end_date, status,
                         starting_capital, ending_capital, realised_pnl, unrealised_pnl,
                         total_return, total_return_pct, trade_count, win_count, loss_count,
-                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes, data_source_type
+                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes, data_source_type,
+                        evaluation_eligible, sample_size_classification, confidence_level, evaluation_reason
                     ) VALUES (
                         'CYCLE-001', 'Phase 47 Forward-Test Baseline', '2026-07-07 15:30:00', '2026-08-22 16:00:00', 'ARCHIVED',
                         50000.0, 49800.53, -199.47, 0.0, -199.47, -0.40, 38, 4, 34,
                         10.5, 2.18, 0.11, '07179c6', 'v1.0-forward-test',
-                        'Phase 47 ATR Stop & Breakeven Rules', 'Archived legacy forward-testing baseline', 'SIMULATED_TEST'
+                        'Phase 47 ATR Stop & Breakeven Rules', 'Archived legacy forward-testing baseline', 'SIMULATED_TEST',
+                        1, 'MEDIUM', 'MEDIUM', 'Sample size criteria satisfied (38 trades, 46 days)'
                     )
                 """)
                 # Active Clean Evaluation Cycle (Cycle 2 - Reset Account £50,000 baseline)
@@ -355,13 +396,23 @@ class Database:
                         cycle_id, cycle_name, start_date, end_date, status,
                         starting_capital, ending_capital, realised_pnl, unrealised_pnl,
                         total_return, total_return_pct, trade_count, win_count, loss_count,
-                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes, data_source_type
+                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes, data_source_type,
+                        evaluation_eligible, sample_size_classification, confidence_level, evaluation_reason
                     ) VALUES (
                         'CYCLE-002', 'Cycle 2: Autonomous Production Engine v2.0', CURRENT_TIMESTAMP, NULL, 'ACTIVE',
                         50000.0, 50000.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0,
                         0.0, 0.0, 0.0, '07179c6', 'v2.0-lean-fastapi',
-                        'Unified Ingress, Single-Daily Executive Report, Strict Broker Parity', 'Clean evaluation cycle initialized after broker reset to £50,000.00', 'LIVE'
+                        'Unified Ingress, Single-Daily Executive Report, Strict Broker Parity', 'Clean evaluation cycle initialized after broker reset to £50,000.00', 'LIVE',
+                        0, 'LOW', 'LOW', 'Trades Recorded: 0 / 20, Days Running: 0 / 30. More trading evidence required.'
                     )
+                """)
+            else:
+                # Ensure existing historical records have updated validity status
+                cur.execute("""
+                    UPDATE ai_performance_cycles 
+                    SET evaluation_eligible = 1, sample_size_classification = 'MEDIUM', confidence_level = 'MEDIUM',
+                        evaluation_reason = 'Sample size criteria satisfied (38 trades, 46 days)'
+                    WHERE cycle_id = 'CYCLE-001'
                 """)
             conn.commit()
 
@@ -460,8 +511,9 @@ class Database:
                     cycle_id, cycle_name, start_date, end_date, status,
                     starting_capital, ending_capital, realised_pnl, unrealised_pnl,
                     total_return, total_return_pct, trade_count, win_count, loss_count,
-                    win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes, data_source_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes, data_source_type,
+                    evaluation_eligible, sample_size_classification, confidence_level, evaluation_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 cycle_data["cycle_id"],
                 cycle_data["cycle_name"],
@@ -484,7 +536,11 @@ class Database:
                 cycle_data.get("ai_version", "v2.0"),
                 cycle_data.get("feature_set", ""),
                 cycle_data.get("notes", ""),
-                cycle_data.get("data_source_type", "LIVE")
+                cycle_data.get("data_source_type", "LIVE"),
+                1 if cycle_data.get("evaluation_eligible") else 0,
+                cycle_data.get("sample_size_classification", "LOW"),
+                cycle_data.get("confidence_level", "LOW"),
+                cycle_data.get("evaluation_reason", "")
             ))
             conn.commit()
             return cycle_data["cycle_id"]
@@ -692,8 +748,8 @@ class Database:
             """, (
                 report_date,
                 json.dumps(report_data),
-                float(report_data.get("portfolio_summary", {}).get("nav", 49998.0)),
-                float(report_data.get("daily_pnl", {}).get("gbp", 0.0)),
+                float(report_data.get("portfolio_summary", {}).get("nav", 0.0) or 0.0),
+                float(report_data.get("daily_pnl", {}).get("gbp", 0.0) or 0.0),
                 int(len(report_data.get("trades_opened", []))),
                 int(len(report_data.get("trades_closed", []))),
                 str(report_data.get("compliance_events", {}).get("status", "PASS"))
@@ -718,6 +774,61 @@ class Database:
             cur = conn.cursor()
             cur.execute("SELECT id, report_date, nav, daily_pnl, trades_opened_count, trades_closed_count, compliance_status, created_at FROM daily_executive_reports ORDER BY id DESC LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
+
+    # --- Data Integrity & Broker Parity Logging ---
+    def record_data_integrity_alert(self, alert_data: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO data_integrity_alerts (
+                    alert_type, severity, broker_nav, api_nav, dashboard_nav,
+                    variance, status, message, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                alert_data.get("alert_type", "DATA_INTEGRITY_ALERT"),
+                alert_data.get("severity", "CRITICAL"),
+                float(alert_data.get("broker_nav", 0.0)),
+                float(alert_data.get("api_nav", 0.0)),
+                float(alert_data.get("dashboard_nav", 0.0)) if alert_data.get("dashboard_nav") is not None else None,
+                float(alert_data.get("variance", 0.0)),
+                alert_data.get("status", "MISMATCH_DETECTED"),
+                alert_data.get("message", "Broker NAV desynchronization detected"),
+                json.dumps(alert_data.get("metadata", {}))
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_recent_data_integrity_alerts(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM data_integrity_alerts ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def record_broker_sync_event(self, sync_data: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO evidence_broker_sync (
+                    broker_nav, internal_nav, nav_discrepancy_pct,
+                    open_positions_broker, open_positions_internal, status
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                float(sync_data.get("broker_nav", 0.0)),
+                float(sync_data.get("internal_nav", 0.0)),
+                float(sync_data.get("nav_discrepancy_pct", 0.0)),
+                int(sync_data.get("open_positions_broker", 0)),
+                int(sync_data.get("open_positions_internal", 0)),
+                sync_data.get("status", "SYNCED")
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_latest_broker_sync_event(self) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM evidence_broker_sync ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
 
 db = Database()
 
