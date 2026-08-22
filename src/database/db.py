@@ -249,6 +249,32 @@ CREATE TABLE IF NOT EXISTS trade_trajectories (
     reached_target_post_exit INTEGER NOT NULL DEFAULT 0,
     trajectory_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS ai_performance_cycles (
+    cycle_id TEXT PRIMARY KEY,
+    cycle_name TEXT NOT NULL,
+    start_date DATETIME NOT NULL,
+    end_date DATETIME,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    starting_capital REAL NOT NULL,
+    ending_capital REAL,
+    realised_pnl REAL DEFAULT 0.0,
+    unrealised_pnl REAL DEFAULT 0.0,
+    total_return REAL DEFAULT 0.0,
+    total_return_pct REAL DEFAULT 0.0,
+    trade_count INTEGER DEFAULT 0,
+    win_count INTEGER DEFAULT 0,
+    loss_count INTEGER DEFAULT 0,
+    win_rate REAL DEFAULT 0.0,
+    max_drawdown REAL DEFAULT 0.0,
+    profit_factor REAL DEFAULT 0.0,
+    git_commit TEXT,
+    ai_version TEXT,
+    feature_set TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 class Database:
@@ -266,12 +292,53 @@ class Database:
     def _init_db(self):
         with self.get_connection() as conn:
             conn.executescript(CREATE_TABLES_SQL)
-            # Automatic schema migration for existing SQLite databases
             cur = conn.cursor()
+            
+            # 1. Automatic schema migration for catalyst_type
             cur.execute("PRAGMA table_info(catalyst_paper_trades)")
             cols = [r["name"] for r in cur.fetchall()]
             if cols and "catalyst_type" not in cols:
                 cur.execute("ALTER TABLE catalyst_paper_trades ADD COLUMN catalyst_type TEXT NOT NULL DEFAULT 'MACRO_POLICY'")
+
+            # 2. Automatic schema migration for cycle_id on relevant tables
+            for tbl in ["trades", "trade_attributions", "daily_performance", "profit_vault", "daily_executive_reports", "boardroom_decisions"]:
+                cur.execute(f"PRAGMA table_info({tbl})")
+                tcols = [r["name"] for r in cur.fetchall()]
+                if tcols and "cycle_id" not in tcols:
+                    cur.execute(f"ALTER TABLE {tbl} ADD COLUMN cycle_id TEXT NOT NULL DEFAULT 'CYCLE-001'")
+
+            # 3. Seed initial cycles if ai_performance_cycles is empty
+            cur.execute("SELECT COUNT(*) as cnt FROM ai_performance_cycles")
+            cnt = cur.fetchone()["cnt"]
+            if cnt == 0:
+                # Historical Baseline (Cycle 1 - Archived with the 38 previous test trades)
+                cur.execute("""
+                    INSERT INTO ai_performance_cycles (
+                        cycle_id, cycle_name, start_date, end_date, status,
+                        starting_capital, ending_capital, realised_pnl, unrealised_pnl,
+                        total_return, total_return_pct, trade_count, win_count, loss_count,
+                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes
+                    ) VALUES (
+                        'CYCLE-001', 'Phase 47 Forward-Test Baseline', '2026-07-07 15:30:00', '2026-08-22 16:00:00', 'ARCHIVED',
+                        50000.0, 49800.53, -199.47, 0.0, -199.47, -0.40, 38, 4, 34,
+                        10.5, 2.18, 0.11, '07179c6', 'v1.0-forward-test',
+                        'Phase 47 ATR Stop & Breakeven Rules', 'Archived legacy forward-testing baseline'
+                    )
+                """)
+                # Active Clean Evaluation Cycle (Cycle 2 - Reset Account £50,000 baseline)
+                cur.execute("""
+                    INSERT INTO ai_performance_cycles (
+                        cycle_id, cycle_name, start_date, end_date, status,
+                        starting_capital, ending_capital, realised_pnl, unrealised_pnl,
+                        total_return, total_return_pct, trade_count, win_count, loss_count,
+                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes
+                    ) VALUES (
+                        'CYCLE-002', 'Cycle 2: Autonomous Production Engine v2.0', CURRENT_TIMESTAMP, NULL, 'ACTIVE',
+                        50000.0, 50000.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0,
+                        0.0, 0.0, 0.0, '07179c6', 'v2.0-lean-fastapi',
+                        'Unified Ingress, Single-Daily Executive Report, Strict Broker Parity', 'Clean evaluation cycle initialized after broker reset to £50,000.00'
+                    )
+                """)
             conn.commit()
 
     # --- Profit Vault ---
@@ -300,12 +367,17 @@ class Database:
     def record_trade(self, trade: Dict[str, Any]):
         with self.get_connection() as conn:
             cur = conn.cursor()
+            cycle_id = trade.get("cycle_id")
+            if not cycle_id:
+                active_cycle = self.get_active_cycle()
+                cycle_id = active_cycle["cycle_id"] if active_cycle else "CYCLE-001"
+
             cur.execute("""
                 INSERT INTO trades (
                     trade_id, symbol, action, quantity, price, total_cost,
                     spread_cost, slippage_cost, fx_cost, net_cost,
-                    realized_pnl, confidence_score, reward_risk_ratio, trade_reason, mode
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    realized_pnl, confidence_score, reward_risk_ratio, trade_reason, mode, cycle_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trade.get("trade_id", f"TRD_{int(datetime.now().timestamp())}"),
                 trade["symbol"],
@@ -321,15 +393,90 @@ class Database:
                 trade.get("confidence_score", 0.0),
                 trade.get("reward_risk_ratio", 0.0),
                 trade.get("trade_reason", ""),
-                trade.get("mode", "LIVE")
+                trade.get("mode", "LIVE"),
+                cycle_id
             ))
             conn.commit()
 
-    def get_trades(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_trades(self, limit: int = 100, cycle_id: Optional[str] = None) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,))
+            if cycle_id:
+                cur.execute("SELECT * FROM trades WHERE cycle_id = ? ORDER BY id DESC LIMIT ?", (cycle_id, limit))
+            else:
+                cur.execute("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
+
+    # --- AI Performance Cycles ---
+    def get_active_cycle(self) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM ai_performance_cycles WHERE status = 'ACTIVE' ORDER BY start_date DESC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_all_cycles(self) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM ai_performance_cycles ORDER BY start_date DESC")
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_cycle_by_id(self, cycle_id: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM ai_performance_cycles WHERE cycle_id = ?", (cycle_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def create_cycle(self, cycle_data: Dict[str, Any]) -> str:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO ai_performance_cycles (
+                    cycle_id, cycle_name, start_date, end_date, status,
+                    starting_capital, ending_capital, realised_pnl, unrealised_pnl,
+                    total_return, total_return_pct, trade_count, win_count, loss_count,
+                    win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                cycle_data["cycle_id"],
+                cycle_data["cycle_name"],
+                cycle_data.get("start_date", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")),
+                cycle_data.get("end_date"),
+                cycle_data.get("status", "ACTIVE"),
+                float(cycle_data.get("starting_capital", 50000.0)),
+                float(cycle_data.get("ending_capital", cycle_data.get("starting_capital", 50000.0))),
+                float(cycle_data.get("realised_pnl", 0.0)),
+                float(cycle_data.get("unrealised_pnl", 0.0)),
+                float(cycle_data.get("total_return", 0.0)),
+                float(cycle_data.get("total_return_pct", 0.0)),
+                int(cycle_data.get("trade_count", 0)),
+                int(cycle_data.get("win_count", 0)),
+                int(cycle_data.get("loss_count", 0)),
+                float(cycle_data.get("win_rate", 0.0)),
+                float(cycle_data.get("max_drawdown", 0.0)),
+                float(cycle_data.get("profit_factor", 0.0)),
+                cycle_data.get("git_commit", "HEAD"),
+                cycle_data.get("ai_version", "v2.0"),
+                cycle_data.get("feature_set", ""),
+                cycle_data.get("notes", "")
+            ))
+            conn.commit()
+            return cycle_data["cycle_id"]
+
+    def update_cycle(self, cycle_id: str, updates: Dict[str, Any]):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            set_clauses = []
+            values = []
+            for k, v in updates.items():
+                set_clauses.append(f"{k} = ?")
+                values.append(v)
+            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+            values.append(cycle_id)
+            sql = f"UPDATE ai_performance_cycles SET {', '.join(set_clauses)} WHERE cycle_id = ?"
+            cur.execute(sql, tuple(values))
+            conn.commit()
 
     # --- Audit Logs ---
     def record_audit(self, audit: Dict[str, Any]):

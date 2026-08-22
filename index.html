@@ -454,6 +454,7 @@
             <!-- Sub-Tabs inside Admin Vault -->
             <div class="vault-tabs">
                 <button class="vault-tab-btn active" onclick="switchVaultTab(event, 'vReport')">📊 Daily Executive Report</button>
+                <button class="vault-tab-btn" onclick="switchVaultTab(event, 'vCycleLab')">🔬 AI Performance Lab</button>
                 <button class="vault-tab-btn" onclick="switchVaultTab(event, 'vPhase')">🎯 Phase Gates</button>
                 <button class="vault-tab-btn" onclick="switchVaultTab(event, 'vAttr')">🔍 Attribution</button>
                 <button class="vault-tab-btn" onclick="switchVaultTab(event, 'vCool')">⏱️ Cooldowns</button>
@@ -532,6 +533,95 @@
                     <div>• Drawdown Ceiling: <strong>Limit 5.00%</strong></div>
                     <div>• Compliance Firewall: <strong style="color: var(--accent-green);">PASS (Active)</strong></div>
                 </div>
+            </div>
+
+            <!-- 7. AI Performance Lab Sub-View -->
+            <div id="vCycleLab" class="vault-view">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <div>
+                        <div style="font-weight:700; font-size:14px; color:var(--accent-blue);">🔬 AI Performance Lab & Evaluation Cycles</div>
+                        <div style="font-size:11px; color:var(--text-muted);">Strict evaluation boundaries | Zero historical metric contamination</div>
+                    </div>
+                    <button onclick="toggleResetModal(true)" style="background:rgba(244,63,94,0.15); color:var(--accent-red); border:1px solid var(--accent-red); padding:5px 10px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">🔄 Archive & Reset</button>
+                </div>
+
+                <!-- Current Active Cycle Card -->
+                <div style="background:rgba(0,0,0,0.25); padding:12px; border-radius:10px; border:1px solid var(--card-border); margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span id="activeCycleBadge" class="status-badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; font-weight:700;">ACTIVE CYCLE</span>
+                        <span id="activeCycleVer" style="font-size:11px; color:var(--text-muted);">--</span>
+                    </div>
+                    <div id="activeCycleName" style="font-size:15px; font-weight:700; margin-bottom:4px;">Loading Cycle...</div>
+                    <div id="activeCycleMeta" style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">Start Date: -- | Running: -- days | Git: --</div>
+
+                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-bottom:12px;">
+                        <div style="background:#1e293b; padding:8px; border-radius:6px;">
+                            <div style="color:var(--text-muted); font-size:10px;">CYCLE RETURN</div>
+                            <div id="labCycleReturn" style="font-weight:700; font-size:14px;">--</div>
+                        </div>
+                        <div style="background:#1e293b; padding:8px; border-radius:6px;">
+                            <div style="color:var(--text-muted); font-size:10px;">TRADES / WIN RATE</div>
+                            <div id="labCycleWinRate" style="font-weight:700; font-size:14px;">--</div>
+                        </div>
+                        <div style="background:#1e293b; padding:8px; border-radius:6px;">
+                            <div style="color:var(--text-muted); font-size:10px;">MAX DD / PF</div>
+                            <div id="labCycleDdPf" style="font-weight:700; font-size:14px;">--</div>
+                        </div>
+                    </div>
+
+                    <div style="font-size:11px; color:var(--text-secondary); line-height:1.5;">
+                        <div>• <strong>Features:</strong> <span id="labCycleFeatures">--</span></div>
+                        <div>• <strong>Notes:</strong> <span id="labCycleNotes">--</span></div>
+                    </div>
+                </div>
+
+                <!-- Reset Modal Form (Toggleable) -->
+                <div id="cycleResetBox" style="display:none; background:#1e293b; padding:12px; border-radius:10px; border:1px solid var(--accent-red); margin-bottom:14px;">
+                    <div style="font-weight:700; font-size:13px; color:var(--accent-red); margin-bottom:6px;">⚠️ Start New AI Performance Evaluation Cycle</div>
+                    <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">Freezes & archives current cycle metrics forever. Starts a fresh zero-baseline cycle with live broker capital.</div>
+                    
+                    <div style="margin-bottom:8px;">
+                        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">CYCLE NAME</label>
+                        <input id="newCycleName" type="text" placeholder="e.g. Cycle 3: Alpha Catalyst Model" style="width:100%; padding:6px 8px; background:#0f172a; border:1px solid var(--card-border); color:#fff; border-radius:6px; font-size:12px; box-sizing:border-box;">
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:8px;">
+                        <div>
+                            <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">AI VERSION</label>
+                            <input id="newCycleVer" type="text" placeholder="e.g. v2.1" style="width:100%; padding:6px 8px; background:#0f172a; border:1px solid var(--card-border); color:#fff; border-radius:6px; font-size:12px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">FEATURE SET</label>
+                            <input id="newCycleFeatures" type="text" placeholder="e.g. Breakout Veto, Catalyst Scoring" style="width:100%; padding:6px 8px; background:#0f172a; border:1px solid var(--card-border); color:#fff; border-radius:6px; font-size:12px; box-sizing:border-box;">
+                        </div>
+                    </div>
+                    <div style="margin-bottom:10px;">
+                        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">CYCLE NOTES</label>
+                        <input id="newCycleNotes" type="text" placeholder="Evaluation hypotheses and release notes..." style="width:100%; padding:6px 8px; background:#0f172a; border:1px solid var(--card-border); color:#fff; border-radius:6px; font-size:12px; box-sizing:border-box;">
+                    </div>
+                    <div style="display:flex; justify-content:flex-end; gap:8px;">
+                        <button onclick="toggleResetModal(false)" style="background:transparent; color:var(--text-muted); border:1px solid var(--card-border); padding:5px 12px; border-radius:6px; font-size:11px; cursor:pointer;">Cancel</button>
+                        <button onclick="executeCycleReset()" style="background:var(--accent-red); color:#fff; border:none; padding:5px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">Confirm Archive & Reset</button>
+                    </div>
+                </div>
+
+                <!-- Historical Cycle Archive Table -->
+                <div style="margin-bottom: 8px; font-weight: 600; color: var(--accent-blue);">Historical Cycle Archive & Comparison</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Cycle</th>
+                            <th>AI Ver</th>
+                            <th>Dates</th>
+                            <th>Trades</th>
+                            <th>Return</th>
+                            <th>Win Rate</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vCycleHistoryTable">
+                        <tr><td colspan="7" style="text-align:center;">Loading cycle archive...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </details>
@@ -843,6 +933,91 @@
                         </tr>
                     `).join('');
                 } catch(e) {}
+            } else if (viewId === 'vCycleLab') {
+                try {
+                    const [curRes, histRes] = await Promise.all([
+                        fetch(API_BASE + '/api/cycle/current'),
+                        fetch(API_BASE + '/api/cycle/history')
+                    ]);
+                    const cur = await curRes.json();
+                    const hist = await histRes.json();
+
+                    // Hydrate Active Cycle Card
+                    document.getElementById('activeCycleBadge').innerText = cur.cycle_id + ' (ACTIVE)';
+                    document.getElementById('activeCycleVer').innerText = cur.ai_version || 'v2.0';
+                    document.getElementById('activeCycleName').innerText = cur.cycle_name;
+                    const sDateStr = (cur.start_date || '').split('T')[0].split(' ')[0];
+                    document.getElementById('activeCycleMeta').innerText = `Started: ${sDateStr} | Running: ${cur.days_running} days | Git: ${cur.git_commit}`;
+                    
+                    const pnlSign = cur.total_return >= 0 ? '+' : '';
+                    const pnlClass = cur.total_return >= 0 ? 'pos' : 'neg';
+                    document.getElementById('labCycleReturn').className = pnlClass;
+                    document.getElementById('labCycleReturn').innerText = `${pnlSign}£${Math.abs(cur.total_return).toFixed(2)} (${pnlSign}${cur.total_return_pct.toFixed(2)}%)`;
+                    document.getElementById('labCycleWinRate').innerText = `${cur.trade_count} Trades (${cur.win_rate}%)`;
+                    document.getElementById('labCycleDdPf').innerText = `${cur.max_drawdown.toFixed(2)}% DD | ${cur.profit_factor.toFixed(2)} PF`;
+                    document.getElementById('labCycleFeatures').innerText = cur.feature_set || '--';
+                    document.getElementById('labCycleNotes').innerText = cur.notes || '--';
+
+                    // Hydrate Historical Cycle Table
+                    const tbody = document.getElementById('vCycleHistoryTable');
+                    tbody.innerHTML = hist.map(c => {
+                        const isAct = c.status === 'ACTIVE';
+                        const badgeStyle = isAct ? 'background:rgba(56,189,248,0.2); color:#38bdf8;' : 'background:rgba(100,116,139,0.2); color:#94a3b8;';
+                        const sSign = (c.total_return || 0) >= 0 ? '+' : '';
+                        const sClass = (c.total_return || 0) >= 0 ? 'pos' : 'neg';
+                        const sDate = (c.start_date || '').split(' ')[0].split('T')[0];
+                        const eDate = isAct ? 'Present' : (c.end_date || '').split(' ')[0].split('T')[0];
+                        return `
+                            <tr>
+                                <td><strong style="color:var(--accent-blue);">${c.cycle_id}</strong><br><span style="font-size:10px; color:var(--text-muted);">${c.cycle_name}</span></td>
+                                <td>${c.ai_version || '--'}</td>
+                                <td style="font-size:10px;">${sDate} → ${eDate}</td>
+                                <td>${c.trade_count || 0}</td>
+                                <td class="${sClass}">${sSign}£${Math.abs(c.total_return || 0).toFixed(2)} (${sSign}${(c.total_return_pct || 0).toFixed(2)}%)</td>
+                                <td>${(c.win_rate || 0).toFixed(1)}%</td>
+                                <td><span class="status-badge" style="${badgeStyle}">${c.status}</span></td>
+                            </tr>
+                        `;
+                    }).join('');
+                } catch(e) {
+                    console.error("Failed to load cycle lab:", e);
+                }
+            }
+        }
+
+        function toggleResetModal(show) {
+            document.getElementById('cycleResetBox').style.display = show ? 'block' : 'none';
+        }
+
+        async function executeCycleReset() {
+            const name = document.getElementById('newCycleName').value.trim();
+            const ver = document.getElementById('newCycleVer').value.trim();
+            const features = document.getElementById('newCycleFeatures').value.trim();
+            const notes = document.getElementById('newCycleNotes').value.trim();
+
+            if (!confirm("Are you sure you want to permanently archive the current evaluation cycle and initialize a new zero-baseline cycle?")) {
+                return;
+            }
+
+            try {
+                const res = await fetch(API_BASE + '/api/cycle/reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cycle_name: name || undefined,
+                        ai_version: ver || undefined,
+                        feature_set: features || undefined,
+                        notes: notes || undefined
+                    })
+                });
+                if (!res.ok) throw new Error("Reset failed: " + res.status);
+                const data = await res.json();
+                alert(`✅ Cycle reset successful!\nArchived: ${data.archived_cycle.cycle_id} (${data.archived_cycle.cycle_name})\nActive: ${data.new_cycle.cycle_id} (${data.new_cycle.cycle_name})`);
+                toggleResetModal(false);
+                fetchPerformanceSummary();
+                loadAdminTabData('vCycleLab');
+            } catch(e) {
+                alert("Error resetting cycle: " + e);
             }
         }
 

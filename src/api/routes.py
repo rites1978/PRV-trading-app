@@ -3,11 +3,18 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from src.core.engine import quant_engine
 from src.database.db import db
 from src.brokers.trading212 import broker
 from src.portfolio.capital_manager import capital_manager
+from src.cycles.cycle_manager import cycle_manager
+
+class CycleResetRequest(BaseModel):
+    cycle_name: Optional[str] = None
+    ai_version: Optional[str] = None
+    feature_set: Optional[str] = None
+    notes: Optional[str] = None
 
 app = FastAPI(
     title="PRV Capital Autonomous Quant Trading API",
@@ -104,7 +111,9 @@ def get_portfolio_performance_summary():
     invested = float(account.get("invested", 0.0))
     
     positions = broker.get_open_positions()
-    trades = db.get_trades(limit=500)
+    active_cycle = cycle_manager.get_active_cycle()
+    cycle_id = active_cycle["cycle_id"] if active_cycle else "CYCLE-002"
+    trades = db.get_trades(limit=500, cycle_id=cycle_id)
     
     # Calculate Winners and Losers from live open positions
     enriched_positions = []
@@ -145,10 +154,11 @@ def get_portfolio_performance_summary():
     monthly_pnl = round(monthly_realized + total_unrealized_pnl, 2)
     all_time_pnl = round(all_time_realized + total_unrealized_pnl, 2)
 
+    starting_cap = float(active_cycle.get("starting_capital", 50000.0)) if active_cycle else total_nav
     daily_pct = round((daily_pnl / max(1.0, total_nav - daily_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
     weekly_pct = round((weekly_pnl / max(1.0, total_nav - weekly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
     monthly_pct = round((monthly_pnl / max(1.0, total_nav - monthly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
-    all_time_pct = round((all_time_pnl / max(1.0, total_nav - all_time_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    all_time_pct = round((all_time_pnl / max(1.0, starting_cap)) * 100.0, 2) if total_nav > 0 else 0.0
 
     return {
         "portfolio_value": round(total_nav, 2),
@@ -172,8 +182,38 @@ def get_portfolio_performance_summary():
         },
         "top_winners": winners,
         "top_losers": losers,
-        "total_positions_count": len(positions)
+        "total_positions_count": len(positions),
+        "active_cycle_id": cycle_id,
+        "active_cycle_name": active_cycle.get("cycle_name") if active_cycle else "Cycle 2"
     }
+
+# --- AI Performance Cycle Framework Endpoints ---
+
+@app.get("/api/cycle/current")
+def get_current_cycle():
+    """Get active AI evaluation cycle with real-time performance telemetry."""
+    return cycle_manager.get_active_cycle_telemetry()
+
+@app.get("/api/cycle/history")
+def get_cycle_history():
+    """Get historical and active AI performance cycles for comparative analysis."""
+    return cycle_manager.get_cycle_history()
+
+@app.get("/api/cycle/{cycle_id}")
+def get_cycle_detail(cycle_id: str):
+    """Get deep telemetry and trade ledger for a specific cycle."""
+    detail = cycle_manager.get_cycle_detail(cycle_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail=f"Cycle {cycle_id} not found")
+    return detail
+
+@app.post("/api/cycle/reset")
+def reset_performance_cycle(req: CycleResetRequest):
+    """
+    Freeze current evaluation cycle, archive metrics forever in SQLite,
+    and activate a fresh zero-baseline cycle.
+    """
+    return cycle_manager.reset_and_archive_cycle(req.dict())
 
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard
