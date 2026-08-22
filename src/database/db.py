@@ -115,6 +115,23 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     exit_reason TEXT,
     final_result TEXT
 );
+
+CREATE TABLE IF NOT EXISTS catalyst_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT UNIQUE,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    source TEXT NOT NULL,
+    category TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    sector TEXT,
+    headline TEXT NOT NULL,
+    sentiment_score REAL NOT NULL,
+    importance_score REAL NOT NULL,
+    confidence_score REAL NOT NULL,
+    catalyst_score REAL NOT NULL,
+    deployment_flag INTEGER DEFAULT 0,
+    trade_outcome TEXT DEFAULT 'MONITORING'
+);
 """
 
 class Database:
@@ -252,5 +269,39 @@ class Database:
                 decision.get("reasoning", "")
             ))
             conn.commit()
+
+    # --- Catalyst Events ---
+    def record_catalyst_event(self, event: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT OR REPLACE INTO catalyst_events (
+                    event_id, timestamp, source, category, ticker, sector, headline,
+                    sentiment_score, importance_score, confidence_score, catalyst_score,
+                    deployment_flag, trade_outcome
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                event.get("event_id", f"cat_{int(datetime.now().timestamp())}"),
+                event.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                event.get("source", "GENERAL"),
+                event.get("category", "MARKET"),
+                event.get("ticker", "SPY"),
+                event.get("sector", "General"),
+                event.get("headline", ""),
+                float(event.get("sentiment_score", 0.0)),
+                float(event.get("importance_score", 0.0)),
+                float(event.get("confidence_score", 0.0)),
+                float(event.get("catalyst_score", 0.0)),
+                1 if event.get("deployment_flag") else 0,
+                event.get("trade_outcome", "MONITORING")
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_catalyst_events(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM catalyst_events ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
 
 db = Database()

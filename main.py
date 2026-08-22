@@ -225,6 +225,12 @@ def get_phase_gate_monitoring():
     gate_data = monitoring_service.get_phase_gate_dashboard(len(trades), pf, round(drawdown_pct, 2))
     return JSONResponse(content=gate_data)
 
+from src.catalyst.catalyst_engine import catalyst_engine
+
 @app.get("/api/monitoring/market_hours")
 def get_market_hours_status():
     return JSONResponse(content=market_hours.get_market_status())
+
+@app.get("/api/monitoring/catalysts")
+def get_catalyst_monitoring():
+    return JSONResponse(content=catalyst_engine.get_dashboard_payload())

@@ -202,6 +202,7 @@
             <button class="tab-btn" onclick="switchTab(event, 'riskTab')">🛡️ Risk Dashboard</button>
             <button class="tab-btn" onclick="switchTab(event, 'brokerTab')">🏛️ Broker Audit</button>
             <button class="tab-btn" onclick="switchTab(event, 'phaseGateTab')">🎯 Phase Gates</button>
+            <button class="tab-btn" onclick="switchTab(event, 'catalystTab')">⚡ Catalyst Intelligence</button>
             <button class="tab-btn" onclick="switchTab(event, 'idleCashTab')">💰 Idle Cash Audit</button>
             <button class="tab-btn" onclick="switchTab(event, 'logsTab')">⚡ AI Execution Stream</button>
         </div>
@@ -376,7 +377,53 @@
             </table>
         </div>
 
-        <!-- Tab 7: Idle Cash Explainer -->
+        <!-- Tab 7: Catalyst Intelligence Dashboard -->
+        <div id="catalystTab" class="tab-content">
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Active Monitored Catalysts</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #38bdf8;" id="catActiveCount">--</div>
+                    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">Macro, Earnings, Policy, Leadership</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">High-Conviction Events (≥80)</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #34d399;" id="catHighConviction">--</div>
+                    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">Top-Tier Scoring Catalysts</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Proposed Catalyst Reserve</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #facc15;" id="catReservePool">7.5% (£3,712.50)</div>
+                    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">Research Track (Frozen in Live)</div>
+                </div>
+                <div class="card" style="padding: 14px;">
+                    <div style="font-size: 11px; color: #94a3b8;">Anti-Hype Safety Engine</div>
+                    <div style="font-size: 20px; font-weight: bold; color: #34d399;" id="catSafetyStatus">ACTIVE (ARMED)</div>
+                    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">Zero Execution on Social Posts</div>
+                </div>
+            </div>
+
+            <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 12px; color: #cbd5e1;">
+                <strong style="color: #38bdf8;">🛡️ Institutional Anti-Hype Protocol:</strong> Catalysts influence ranking and opportunity queues only. The engine is strictly prohibited from executing trades based on public figures or social media posts unless 100% of quantitative technical ($P > \text{SMA}_{20} > \text{SMA}_{50}$), volume ($\ge 1.5\times$), multi-agent quorum ($\ge 75\%$), and stop-loss risk controls are satisfied.
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Ticker / Sector</th>
+                        <th>Source & Category</th>
+                        <th>Catalyst Event Headline</th>
+                        <th>Score & Tier</th>
+                        <th>Alpha Action / Gate Outcome</th>
+                    </tr>
+                </thead>
+                <tbody id="catalystTable">
+                    <tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 25px;">Ingesting real-time catalyst stream...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Tab 8: Idle Cash Explainer -->
         <div id="idleCashTab" class="tab-content">
             <div style="margin-bottom: 15px; color: #94a3b8; font-size: 13px;">
                 Detailed mathematical accounting of why uninvested cash is held and the exact condition required to deploy it:
@@ -615,6 +662,36 @@
                         <tr><td>Rolling Profit Factor</td><td>≥ 1.15 Expansion Gate</td><td>${(d.current_profit_factor || 0).toFixed(2)} (Sample N=${d.current_trade_count})</td><td><span class="badge ${d.current_profit_factor >= 1.15 ? 'badge-green' : 'badge-yellow'}">${d.current_profit_factor >= 1.15 ? 'PASS' : 'NOT MET YET'}</span></td></tr>
                         <tr><td>Broker Synchronization</td><td>0 Failures (100%)</td><td>0 Discrepancies</td><td><span class="badge badge-green">PASS</span></td></tr>
                     `;
+                } catch(e) {}
+            } else if (activeTabName === 'catalystTab') {
+                try {
+                    const res = await fetch('/api/monitoring/catalysts');
+                    const d = await res.json();
+                    document.getElementById('catActiveCount').innerText = d.active_catalysts_count || 0;
+                    document.getElementById('catHighConviction').innerText = d.high_conviction_count || 0;
+                    if (d.catalyst_reserve_capital) {
+                        document.getElementById('catReservePool').innerText = `${d.catalyst_reserve_capital.proposed_pool_pct}% (£${(d.catalyst_reserve_capital.proposed_pool_gbp || 0).toFixed(2)})`;
+                    }
+                    
+                    const tbody = document.getElementById('catalystTable');
+                    const events = d.active_catalysts || [];
+                    if (events.length > 0) {
+                        tbody.innerHTML = events.map(ev => {
+                            const scoreClass = ev.catalyst_score >= 80 ? 'badge-green' : (ev.catalyst_score >= 65 ? 'badge-blue' : 'badge-yellow');
+                            return `
+                                <tr>
+                                    <td>${ev.timestamp}</td>
+                                    <td><strong style="color: #38bdf8;">${ev.ticker}</strong> <span style="color: #94a3b8; font-size: 11px;">(${ev.sector})</span></td>
+                                    <td><span style="color: #f3f4f6; font-weight: bold;">${ev.source}</span><br><span style="color: #64748b; font-size: 11px;">${ev.category}</span></td>
+                                    <td style="color: #cbd5e1;">${ev.headline}</td>
+                                    <td><span class="badge ${scoreClass}">${ev.catalyst_score.toFixed(1)}</span></td>
+                                    <td style="color: ${ev.deployment_flag ? '#34d399' : '#facc15'}; font-size: 12px; font-weight: 500;">${ev.outcome}</td>
+                                </tr>
+                            `;
+                        }).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 20px;">No catalyst events recorded yet.</td></tr>';
+                    }
                 } catch(e) {}
             }
         }
