@@ -1233,6 +1233,34 @@
                 } catch(e) {
                     document.getElementById('reportContainer').innerHTML = '<div style="color:var(--accent-red); padding:10px;">Failed to load daily executive report.</div>';
                 }
+            } else if (viewId === 'vPhase') {
+                try {
+                    const res = await fetch(API_BASE + '/api/governance/forward_validation');
+                    if (res.ok) {
+                        const phaseData = await res.json();
+                        const fwdEl = document.getElementById('fwdProgress');
+                        if (fwdEl && phaseData.phase_gate_1) {
+                            fwdEl.innerText = `${phaseData.phase_gate_1.trades_executed || 0}/30`;
+                        }
+                    }
+                } catch(e) {}
+            } else if (viewId === 'vRisk') {
+                try {
+                    const res = await fetch(API_BASE + '/api/integrity/broker_parity');
+                    if (res.ok) {
+                        const p = await res.json();
+                        const el = document.getElementById('vRiskContent');
+                        if (el) {
+                            const isOk = p.status === 'VERIFIED';
+                            el.innerHTML = `
+                                <div>• Broker Parity Status: <strong style="color: ${isOk ? 'var(--accent-green)' : 'var(--accent-red)'};">${p.status}</strong></div>
+                                <div>• Variance: <strong>£${p.variance.toFixed(2)}</strong></div>
+                                <div>• Broker NAV: <strong>£${p.broker_nav.toLocaleString('en-GB', {minimumFractionDigits: 2})}</strong></div>
+                                <div>• Last Synchronized: <strong>${p.last_broker_sync || 'Live'}</strong></div>
+                            `;
+                        }
+                    }
+                } catch(e) {}
             } else if (viewId === 'vAttr') {
                 try {
                     const res = await fetch(API_BASE + '/api/attribution/summary');
