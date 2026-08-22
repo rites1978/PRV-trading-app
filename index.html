@@ -1012,26 +1012,44 @@
             ? 'http://127.0.0.1:8000' 
             : '';
 
+        const fmtNum = (val, decimals = 2, fallback = '--') => {
+            if (val === null || val === undefined || isNaN(val)) return fallback;
+            return Number(val).toFixed(decimals);
+        };
+
         async function fetchPerformanceSummary() {
+            let res;
             try {
-                const res = await fetch(API_BASE + '/api/portfolio/performance_summary');
+                res = await fetch(API_BASE + '/api/portfolio/performance_summary');
                 if (!res.ok) throw new Error("API status " + res.status);
                 perfData = await res.json();
+            } catch(fetchErr) {
+                console.error("Fetch summary network/HTTP error:", fetchErr);
+                document.getElementById('heroNav').innerText = "Live broker data unavailable";
+                document.getElementById('cashValue').innerText = "--";
+                fetchBrokerParity();
+                return;
+            }
 
-                // Live Hydration of Primary Metrics (or -- if null)
+            // 1. Portfolio & Cash Section (Isolated)
+            try {
                 if (perfData.portfolio_value !== null && perfData.portfolio_value !== undefined) {
-                    document.getElementById('heroNav').innerText = '£' + perfData.portfolio_value.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    document.getElementById('heroNav').innerText = '£' + Number(perfData.portfolio_value).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 } else {
                     document.getElementById('heroNav').innerText = '--';
                 }
 
                 if (perfData.cash !== null && perfData.cash !== undefined) {
-                    document.getElementById('cashValue').innerText = '£' + perfData.cash.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    document.getElementById('cashValue').innerText = '£' + Number(perfData.cash).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 } else {
                     document.getElementById('cashValue').innerText = '--';
                 }
+            } catch(e) {
+                console.error("Error hydrating portfolio/cash section:", e);
+            }
 
-                // Update 2x2 Metric Cards
+            // 2. Metric Cards Section (Isolated)
+            try {
                 const fmtCard = (gbpId, pctId, obj) => {
                     const gEl = document.getElementById(gbpId);
                     const pEl = document.getElementById(pctId);
@@ -1041,7 +1059,7 @@
                         gEl.className = 'metric-card-val ' + (isPos ? 'pos' : 'neg');
                         pEl.className = 'metric-card-sub ' + (isPos ? 'pos' : 'neg');
                         gEl.innerText = `${sign}£${Math.abs(obj.gbp).toFixed(2)}`;
-                        pEl.innerText = `${sign}${obj.pct.toFixed(2)}%`;
+                        pEl.innerText = `${sign}${fmtNum(obj.pct, 2)}%`;
                     } else {
                         gEl.className = 'metric-card-val neutral';
                         pEl.className = 'metric-card-sub neutral';
@@ -1054,61 +1072,90 @@
                 fmtCard('cardWeeklyGbp', 'cardWeeklyPct', perfData.weekly_return);
                 fmtCard('cardMonthlyGbp', 'cardMonthlyPct', perfData.monthly_return);
                 fmtCard('cardTotalGbp', 'cardTotalPct', perfData.all_time_return);
+            } catch(e) {
+                console.error("Error hydrating metrics section:", e);
+            }
 
+            // 3. Chart & Hero Badge Section (Isolated)
+            try {
                 updateHeroBadge();
+            } catch(e) {
+                console.error("Error updating chart/hero badge:", e);
+            }
 
-                // Render Winners
+            // 4. Winners Section (Isolated & Defensive)
+            try {
                 const winList = document.getElementById('winnersList');
-                document.getElementById('winnersCount').innerText = (perfData.top_winners ? perfData.top_winners.length : 0) + ' Assets';
-                if (perfData.top_winners && perfData.top_winners.length > 0) {
-                    winList.innerHTML = perfData.top_winners.map(w => `
-                        <div class="asset-row">
-                            <div class="asset-main">
-                                <div class="asset-ticker">${w.ticker}</div>
-                                <div class="asset-meta">${w.quantity} shares • £${w.current_price.toFixed(2)}</div>
+                const winCount = perfData.top_winners ? perfData.top_winners.length : 0;
+                document.getElementById('winnersCount').innerText = winCount + ' Assets';
+                if (winCount > 0) {
+                    winList.innerHTML = perfData.top_winners.map(w => {
+                        const price = fmtNum(w.current_price, 2, '0.00');
+                        const val = fmtNum(w.current_value, 2, '0.00');
+                        const ret = fmtNum(w.return_pct, 2, '0.00');
+                        const pnl = fmtNum(w.unrealized_pnl, 2, '0.00');
+                        const isPos = (w.return_pct || 0) >= 0;
+                        const sign = isPos ? '+' : '';
+                        return `
+                            <div class="asset-row">
+                                <div class="asset-main">
+                                    <div class="asset-ticker">${w.ticker || '--'}</div>
+                                    <div class="asset-meta">${w.quantity || 0} shares • £${price}</div>
+                                </div>
+                                <div class="asset-right">
+                                    <div class="asset-val">£${val}</div>
+                                    <div class="asset-pill ${isPos ? 'pos' : 'neg'}">${sign}${ret}% (${sign}£${pnl})</div>
+                                </div>
                             </div>
-                            <div class="asset-right">
-                                <div class="asset-val">£${w.current_value.toFixed(2)}</div>
-                                <div class="asset-pill pos">+${w.return_pct.toFixed(2)}% (+£${w.unrealized_pnl.toFixed(2)})</div>
-                            </div>
-                        </div>
-                    `).join('');
+                        `;
+                    }).join('');
                 } else {
                     winList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">No active winners. Holding cash.</div>';
                 }
+            } catch(e) {
+                console.error("Error hydrating winners section:", e);
+                document.getElementById('winnersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Positions unavailable</div>';
+            }
 
-                // Render Losers
+            // 5. Losers Section (Isolated & Defensive)
+            try {
                 const loseList = document.getElementById('losersList');
-                document.getElementById('losersCount').innerText = (perfData.top_losers ? perfData.top_losers.length : 0) + ' Assets';
-                if (perfData.top_losers && perfData.top_losers.length > 0) {
-                    loseList.innerHTML = perfData.top_losers.map(l => `
-                        <div class="asset-row">
-                            <div class="asset-main">
-                                <div class="asset-ticker">${l.ticker}</div>
-                                <div class="asset-meta">${l.quantity} shares • £${l.current_price.toFixed(2)}</div>
+                const loseCount = perfData.top_losers ? perfData.top_losers.length : 0;
+                document.getElementById('losersCount').innerText = loseCount + ' Assets';
+                if (loseCount > 0) {
+                    loseList.innerHTML = perfData.top_losers.map(l => {
+                        const price = fmtNum(l.current_price, 2, '0.00');
+                        const val = fmtNum(l.current_value, 2, '0.00');
+                        const ret = fmtNum(l.return_pct, 2, '0.00');
+                        const pnl = fmtNum(l.unrealized_pnl, 2, '0.00');
+                        const isPos = (l.return_pct || 0) >= 0;
+                        const sign = isPos ? '+' : '';
+                        return `
+                            <div class="asset-row">
+                                <div class="asset-main">
+                                    <div class="asset-ticker">${l.ticker || '--'}</div>
+                                    <div class="asset-meta">${l.quantity || 0} shares • £${price}</div>
+                                </div>
+                                <div class="asset-right">
+                                    <div class="asset-val">£${val}</div>
+                                    <div class="asset-pill ${isPos ? 'pos' : 'neg'}">${ret}% (£${pnl})</div>
+                                </div>
                             </div>
-                            <div class="asset-right">
-                                <div class="asset-val">£${l.current_value.toFixed(2)}</div>
-                                <div class="asset-pill neg">${l.return_pct.toFixed(2)}% (£${l.unrealized_pnl.toFixed(2)})</div>
-                            </div>
-                        </div>
-                    `).join('');
+                        `;
+                    }).join('');
                 } else {
                     loseList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Zero losing positions.</div>';
                 }
-                // Check broker parity after hydration
+            } catch(e) {
+                console.error("Error hydrating losers section:", e);
+                document.getElementById('losersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Positions unavailable</div>';
+            }
+
+            // 6. Parity Verification (Isolated)
+            try {
                 fetchBrokerParity();
             } catch(e) {
-                console.error("Fetch summary error:", e);
-                document.getElementById('heroNav').innerText = "Live broker data unavailable";
-                document.getElementById('cashValue').innerText = "--";
-                document.getElementById('cardDailyGbp').innerText = "--";
-                document.getElementById('cardWeeklyGbp').innerText = "--";
-                document.getElementById('cardMonthlyGbp').innerText = "--";
-                document.getElementById('cardTotalGbp').innerText = "--";
-                document.getElementById('winnersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Live broker data unavailable</div>';
-                document.getElementById('losersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Live broker data unavailable</div>';
-                fetchBrokerParity();
+                console.error("Error triggering parity fetch:", e);
             }
         }
 
