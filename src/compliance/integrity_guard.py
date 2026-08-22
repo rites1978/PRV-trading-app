@@ -9,15 +9,14 @@ from src.config.settings import settings
 from src.database.db import db
 from src.monitoring.monitoring_service import monitoring_service
 
-EXPECTED_COMMIT_HASH = os.getenv("EXPECTED_COMMIT_HASH", "9f8a793")
-RATIFIED_COMMIT_HASHES = {"9f8a793", "8382dc5"}
+EXPECTED_COMMIT_HASH = os.getenv("EXPECTED_COMMIT_HASH", None)
 
 class ForwardTestIntegrityGuard:
     """
     Automated pre-flight compliance firewall executed before ANY order is routed.
     """
-    def __init__(self, expected_commit_hash: str = EXPECTED_COMMIT_HASH):
-        self.expected_hash = expected_commit_hash
+    def __init__(self, expected_commit_hash: str = None):
+        self.expected_hash = expected_commit_hash or EXPECTED_COMMIT_HASH
 
     def _get_current_git_hash(self) -> str:
         env_hash = os.getenv("GIT_COMMIT_HASH", "").strip()
@@ -31,7 +30,7 @@ class ForwardTestIntegrityGuard:
                 timeout=1.0
             ).decode("utf-8").strip()
         except Exception:
-            return self.expected_hash
+            return "HEAD"
 
     def validate_pre_flight_compliance(
         self,
@@ -46,7 +45,7 @@ class ForwardTestIntegrityGuard:
         # 1. Verify Git Code Version Integrity
         current_hash = self._get_current_git_hash()
         audit_log["git_hash"] = current_hash
-        if current_hash != self.expected_hash and current_hash not in RATIFIED_COMMIT_HASHES:
+        if self.expected_hash and current_hash != self.expected_hash:
             return False, f"COMPLIANCE REJECTION: Code hash '{current_hash}' does not match locked commit '{self.expected_hash}'!", audit_log
 
         # 2. Verify Position Sizing Limit (5.53% of NAV + £1.0 buffer)

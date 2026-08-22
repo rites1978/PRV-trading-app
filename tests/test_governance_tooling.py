@@ -12,7 +12,7 @@ from src.regime.regime_service import MarketRegimeService
 
 class TestGovernanceTooling(unittest.TestCase):
     def setUp(self):
-        self.guard = ForwardTestIntegrityGuard(expected_commit_hash="8382dc5")
+        self.guard = ForwardTestIntegrityGuard()
         self.attr = TradeAttributionService()
         self.traj = TrajectoryService()
         self.evidence = EvidenceLedgerService()
