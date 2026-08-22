@@ -1,4 +1,7 @@
+import os
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Dict, Any, List
 from src.core.engine import quant_engine
@@ -11,6 +14,24 @@ app = FastAPI(
     description="Production-grade institutional execution and monitoring API for PRV Capital",
     version="2.0.0"
 )
+
+# Enable CORS for web and mobile clients
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+def serve_dashboard():
+    """Serve primary mobile dashboard HTML."""
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    index_file = os.path.join(base_dir, "index.html")
+    if not os.path.exists(index_file):
+        index_file = "index.html"
+    return FileResponse(index_file)
 
 @app.get("/health")
 def health_check():

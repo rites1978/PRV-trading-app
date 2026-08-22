@@ -614,9 +614,13 @@
             loadAdminTabData(viewId);
         }
 
+        const API_BASE = (window.location.protocol === 'file:' || !window.location.host) 
+            ? 'http://127.0.0.1:8000' 
+            : '';
+
         async function fetchPerformanceSummary() {
             try {
-                const res = await fetch('/api/portfolio/performance_summary');
+                const res = await fetch(API_BASE + '/api/portfolio/performance_summary');
                 if (!res.ok) throw new Error("API status " + res.status);
                 perfData = await res.json();
 
@@ -698,7 +702,7 @@
         async function loadAdminTabData(viewId) {
             if (viewId === 'vAttr') {
                 try {
-                    const res = await fetch('/api/attribution/summary');
+                    const res = await fetch(API_BASE + '/api/attribution/summary');
                     const d = await res.json();
                     const tbody = document.getElementById('vAttrTable');
                     if (d.breakdown) {
@@ -714,7 +718,7 @@
                 } catch(e) {}
             } else if (viewId === 'vCool') {
                 try {
-                    const res = await fetch('/api/governance/cooldowns');
+                    const res = await fetch(API_BASE + '/api/governance/cooldowns');
                     const list = await res.json();
                     const tbody = document.getElementById('vCoolTable');
                     if (list.length > 0) {
@@ -725,7 +729,7 @@
                 } catch(e) {}
             } else if (viewId === 'vRegime') {
                 try {
-                    const res = await fetch('/api/regime/current');
+                    const res = await fetch(API_BASE + '/api/regime/current');
                     const r = await res.json();
                     document.getElementById('vRegimeContent').innerHTML = `
                         <div>• Classification: <strong style="color:var(--accent-green);">${r.regime_classification}</strong></div>
@@ -735,7 +739,7 @@
                 } catch(e) {}
             } else if (viewId === 'vEvidence') {
                 try {
-                    const res = await fetch('/api/governance/evidence');
+                    const res = await fetch(API_BASE + '/api/governance/evidence');
                     const claims = await res.json();
                     document.getElementById('vEvidenceTable').innerHTML = claims.map(c => `
                         <tr>
