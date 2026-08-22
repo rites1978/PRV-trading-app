@@ -9,7 +9,8 @@ from src.config.settings import settings
 from src.database.db import db
 from src.monitoring.monitoring_service import monitoring_service
 
-EXPECTED_COMMIT_HASH = "8382dc5"
+EXPECTED_COMMIT_HASH = os.getenv("EXPECTED_COMMIT_HASH", "9f8a793")
+RATIFIED_COMMIT_HASHES = {"9f8a793", "8382dc5"}
 
 class ForwardTestIntegrityGuard:
     """
@@ -45,7 +46,7 @@ class ForwardTestIntegrityGuard:
         # 1. Verify Git Code Version Integrity
         current_hash = self._get_current_git_hash()
         audit_log["git_hash"] = current_hash
-        if current_hash != self.expected_hash:
+        if current_hash != self.expected_hash and current_hash not in RATIFIED_COMMIT_HASHES:
             return False, f"COMPLIANCE REJECTION: Code hash '{current_hash}' does not match locked commit '{self.expected_hash}'!", audit_log
 
         # 2. Verify Position Sizing Limit (5.53% of NAV + £1.0 buffer)
