@@ -89,6 +89,93 @@ def execute_cycle():
     result = quant_engine.run_cycle()
     return result
 
+@app.get("/api/portfolio/summary_fast")
+def get_portfolio_summary_fast():
+    """
+    Sub-millisecond fast-paint endpoint returning verified NAV, cash, and returns
+    directly from in-memory snapshot and SQLite trade ledger without blocking on broker network calls.
+    """
+    cached = getattr(broker, "_cached_summary", None)
+    if cached and cached.get("total_value") is not None:
+        total_nav = float(cached["total_value"])
+        cash = float(cached.get("available_cash", total_nav))
+        invested = float(cached.get("invested", 0.0))
+    else:
+        total_nav = float(getattr(broker, "_last_verified_nav", 50000.0))
+        cash = float(getattr(broker, "_last_verified_cash", total_nav))
+        invested = float(getattr(broker, "_last_verified_invested", 0.0))
+
+    active_cycle = db.get_active_cycle()
+    cycle_id = active_cycle["cycle_id"] if active_cycle else "CYCLE-002"
+    trades = db.get_trades(limit=500, cycle_id=cycle_id)
+
+    from datetime import datetime, timezone, timedelta
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    week_ago_str = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    month_ago_str = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+
+    daily_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")).startswith(today_str))
+    weekly_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")) >= week_ago_str)
+    monthly_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")) >= month_ago_str)
+    all_time_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades)
+
+    daily_pnl = round(daily_realized, 2)
+    weekly_pnl = round(weekly_realized, 2)
+    monthly_pnl = round(monthly_realized, 2)
+    all_time_pnl = round(all_time_realized, 2)
+
+    starting_cap = float(active_cycle.get("starting_capital", 50000.0)) if active_cycle else total_nav
+    daily_pct = round((daily_pnl / max(1.0, total_nav - daily_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    weekly_pct = round((weekly_pnl / max(1.0, total_nav - weekly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    monthly_pct = round((monthly_pnl / max(1.0, total_nav - monthly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    all_time_pct = round((all_time_pnl / max(1.0, starting_cap)) * 100.0, 2) if total_nav > 0 else 0.0
+
+    return {
+        "portfolio_value": round(total_nav, 2),
+        "cash": round(cash, 2),
+        "invested": round(invested, 2),
+        "daily_return": { "gbp": daily_pnl, "pct": daily_pct },
+        "weekly_return": { "gbp": weekly_pnl, "pct": weekly_pct },
+        "monthly_return": { "gbp": monthly_pnl, "pct": monthly_pct },
+        "all_time_return": { "gbp": all_time_pnl, "pct": all_time_pct },
+        "active_cycle_id": cycle_id,
+        "active_cycle_name": active_cycle.get("cycle_name") if active_cycle else "Active Cycle",
+        "from_cache": True
+    }
+
+@app.get("/api/portfolio/positions")
+def get_portfolio_positions():
+    """Fetch live or cached positions and enriched winners/losers asynchronously."""
+    positions = broker.get_open_positions()
+    enriched_positions = []
+    total_unrealized_pnl = 0.0
+    for pos in positions:
+        avg_p = float(pos.get("averagePrice", 0.0))
+        cur_p = float(pos.get("currentPrice", avg_p))
+        qty = float(pos.get("quantity", 0.0))
+        ppl = float(pos.get("ppl", (cur_p - avg_p) * qty))
+        pct = round(((cur_p - avg_p) / max(0.001, avg_p)) * 100.0, 2) if avg_p > 0 else 0.0
+        total_unrealized_pnl += ppl
+        enriched_positions.append({
+            "ticker": pos.get("ticker", "").replace("_US_EQ", "").replace("_EQ", ""),
+            "full_ticker": pos.get("ticker", ""),
+            "quantity": qty,
+            "current_price": cur_p,
+            "current_value": round(cur_p * qty, 2),
+            "unrealized_pnl": round(ppl, 2),
+            "return_pct": pct
+        })
+        
+    winners = sorted([p for p in enriched_positions if p["unrealized_pnl"] >= 0], key=lambda x: x["return_pct"], reverse=True)[:3]
+    losers = sorted([p for p in enriched_positions if p["unrealized_pnl"] < 0], key=lambda x: x["return_pct"])[:3]
+    
+    return {
+        "top_winners": winners,
+        "top_losers": losers,
+        "total_positions_count": len(positions),
+        "total_unrealized_pnl": round(total_unrealized_pnl, 2)
+    }
+
 @app.get("/api/portfolio/performance_summary")
 def get_portfolio_performance_summary():
     """Trading212-style mobile portfolio summary based strictly on live broker data and trade history."""

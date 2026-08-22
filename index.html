@@ -1017,39 +1017,23 @@
             return Number(val).toFixed(decimals);
         };
 
-        async function fetchPerformanceSummary() {
-            let res;
+        // 🚀 Fast-Paint Instant Hydration (< 50ms)
+        async function fetchFastSummary() {
             try {
-                res = await fetch(API_BASE + '/api/portfolio/performance_summary');
-                if (!res.ok) throw new Error("API status " + res.status);
-                perfData = await res.json();
-            } catch(fetchErr) {
-                console.error("Fetch summary network/HTTP error:", fetchErr);
-                document.getElementById('heroNav').innerText = "Live broker data unavailable";
-                document.getElementById('cashValue').innerText = "--";
-                fetchBrokerParity();
-                return;
-            }
+                const res = await fetch(API_BASE + '/api/portfolio/summary_fast');
+                if (!res.ok) throw new Error("Fast API status " + res.status);
+                const fastData = await res.json();
+                perfData = { ...(perfData || {}), ...fastData };
 
-            // 1. Portfolio & Cash Section (Isolated)
-            try {
-                if (perfData.portfolio_value !== null && perfData.portfolio_value !== undefined) {
-                    document.getElementById('heroNav').innerText = '£' + Number(perfData.portfolio_value).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-                } else {
-                    document.getElementById('heroNav').innerText = '--';
+                // 1. Instant Portfolio & Cash Hydration
+                if (fastData.portfolio_value !== null && fastData.portfolio_value !== undefined) {
+                    document.getElementById('heroNav').innerText = '£' + Number(fastData.portfolio_value).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                }
+                if (fastData.cash !== null && fastData.cash !== undefined) {
+                    document.getElementById('cashValue').innerText = '£' + Number(fastData.cash).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 }
 
-                if (perfData.cash !== null && perfData.cash !== undefined) {
-                    document.getElementById('cashValue').innerText = '£' + Number(perfData.cash).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-                } else {
-                    document.getElementById('cashValue').innerText = '--';
-                }
-            } catch(e) {
-                console.error("Error hydrating portfolio/cash section:", e);
-            }
-
-            // 2. Metric Cards Section (Isolated)
-            try {
+                // 2. Instant Metric Cards Hydration
                 const fmtCard = (gbpId, pctId, obj) => {
                     const gEl = document.getElementById(gbpId);
                     const pEl = document.getElementById(pctId);
@@ -1060,36 +1044,35 @@
                         pEl.className = 'metric-card-sub ' + (isPos ? 'pos' : 'neg');
                         gEl.innerText = `${sign}£${Math.abs(obj.gbp).toFixed(2)}`;
                         pEl.innerText = `${sign}${fmtNum(obj.pct, 2)}%`;
-                    } else {
-                        gEl.className = 'metric-card-val neutral';
-                        pEl.className = 'metric-card-sub neutral';
-                        gEl.innerText = '--';
-                        pEl.innerText = '(--)';
                     }
                 };
 
-                fmtCard('cardDailyGbp', 'cardDailyPct', perfData.daily_return);
-                fmtCard('cardWeeklyGbp', 'cardWeeklyPct', perfData.weekly_return);
-                fmtCard('cardMonthlyGbp', 'cardMonthlyPct', perfData.monthly_return);
-                fmtCard('cardTotalGbp', 'cardTotalPct', perfData.all_time_return);
-            } catch(e) {
-                console.error("Error hydrating metrics section:", e);
-            }
+                fmtCard('cardDailyGbp', 'cardDailyPct', fastData.daily_return);
+                fmtCard('cardWeeklyGbp', 'cardWeeklyPct', fastData.weekly_return);
+                fmtCard('cardMonthlyGbp', 'cardMonthlyPct', fastData.monthly_return);
+                fmtCard('cardTotalGbp', 'cardTotalPct', fastData.all_time_return);
 
-            // 3. Chart & Hero Badge Section (Isolated)
-            try {
                 updateHeroBadge();
+                fetchBrokerParity();
             } catch(e) {
-                console.error("Error updating chart/hero badge:", e);
+                console.error("Fast summary error, falling back to full summary:", e);
+                fetchPerformanceSummary();
             }
+        }
 
-            // 4. Winners Section (Isolated & Defensive)
+        // 🔄 Background Positions & Enricher Loader
+        async function fetchPositionsBackground() {
             try {
+                const res = await fetch(API_BASE + '/api/portfolio/positions');
+                if (!res.ok) return;
+                const posData = await res.json();
+                
+                // Winners Section
                 const winList = document.getElementById('winnersList');
-                const winCount = perfData.top_winners ? perfData.top_winners.length : 0;
+                const winCount = posData.top_winners ? posData.top_winners.length : 0;
                 document.getElementById('winnersCount').innerText = winCount + ' Assets';
                 if (winCount > 0) {
-                    winList.innerHTML = perfData.top_winners.map(w => {
+                    winList.innerHTML = posData.top_winners.map(w => {
                         const price = fmtNum(w.current_price, 2, '0.00');
                         const val = fmtNum(w.current_value, 2, '0.00');
                         const ret = fmtNum(w.return_pct, 2, '0.00');
@@ -1112,18 +1095,13 @@
                 } else {
                     winList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">No active winners. Holding cash.</div>';
                 }
-            } catch(e) {
-                console.error("Error hydrating winners section:", e);
-                document.getElementById('winnersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Positions unavailable</div>';
-            }
 
-            // 5. Losers Section (Isolated & Defensive)
-            try {
+                // Losers Section
                 const loseList = document.getElementById('losersList');
-                const loseCount = perfData.top_losers ? perfData.top_losers.length : 0;
+                const loseCount = posData.top_losers ? posData.top_losers.length : 0;
                 document.getElementById('losersCount').innerText = loseCount + ' Assets';
                 if (loseCount > 0) {
-                    loseList.innerHTML = perfData.top_losers.map(l => {
+                    loseList.innerHTML = posData.top_losers.map(l => {
                         const price = fmtNum(l.current_price, 2, '0.00');
                         const val = fmtNum(l.current_value, 2, '0.00');
                         const ret = fmtNum(l.return_pct, 2, '0.00');
@@ -1147,16 +1125,13 @@
                     loseList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Zero losing positions.</div>';
                 }
             } catch(e) {
-                console.error("Error hydrating losers section:", e);
-                document.getElementById('losersList').innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Positions unavailable</div>';
+                console.error("Background positions load error:", e);
             }
+        }
 
-            // 6. Parity Verification (Isolated)
-            try {
-                fetchBrokerParity();
-            } catch(e) {
-                console.error("Error triggering parity fetch:", e);
-            }
+        async function fetchPerformanceSummary() {
+            await fetchFastSummary();
+            fetchPositionsBackground();
         }
 
         async function fetchBrokerParity() {
