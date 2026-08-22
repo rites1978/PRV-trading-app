@@ -8,11 +8,7 @@ echo "========================================================"
 # Run database migrations / table initialisation
 python -c "from src.database.db import db; print('✅ Database Initialized.')"
 
-# Launch supervisor if installed, or start services
-if command -v supervisord >/dev/null 2>&1; then
-    exec supervisord -c supervisord.conf
-else
-    # Fallback background execution
-    uvicorn src.api.routes:app --host 0.0.0.0 --port 8000 &
-    exec streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
-fi
+# Launch FastAPI directly on Render's dynamic $PORT (fallback to 8000)
+TARGET_PORT="${PORT:-8000}"
+echo "🌐 Binding FastAPI Gateway to 0.0.0.0:${TARGET_PORT}"
+exec uvicorn src.api.routes:app --host 0.0.0.0 --port "${TARGET_PORT}"

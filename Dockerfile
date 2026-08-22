@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=8501
+    PORT=8000
 
 WORKDIR /app
 
@@ -10,7 +10,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
-    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install
@@ -23,6 +22,6 @@ COPY . .
 # Grant execution permissions
 RUN chmod +x start.sh
 
-EXPOSE 8501 8000
+EXPOSE 8000
 
 CMD ["./start.sh"]
