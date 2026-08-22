@@ -461,7 +461,11 @@ class PRVQuantEngine:
                     if not last_open_state and is_open:
                         self.notifier.notify_market_open(active_universe_count=len(universe_manager.get_all()))
                     elif last_open_state and not is_open:
-                        self.notifier.notify_market_close(nav=capital_manager.starting_capital)
+                        try:
+                            from src.reporting.daily_executive_report import daily_report_service
+                            daily_report_service.dispatch_daily_report()
+                        except Exception as report_err:
+                            print(f"[Daily Report Dispatch Error] {report_err}")
                 last_open_state = is_open
 
                 if is_open:

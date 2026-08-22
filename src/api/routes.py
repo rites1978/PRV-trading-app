@@ -216,3 +216,22 @@ def get_trajectory_analytics():
 def get_evidence_claims():
     """Epistemic evidence registry claims."""
     return evidence_ledger.get_all_claims()
+
+# --- Daily Executive Report Endpoints ---
+from src.reporting.daily_executive_report import daily_report_service
+
+@app.get("/api/reports/daily")
+def get_daily_executive_report(date: Optional[str] = None):
+    """Generate or retrieve consolidated Daily Executive Report."""
+    return daily_report_service.generate_daily_report(report_date=date)
+
+@app.post("/api/reports/dispatch")
+def dispatch_daily_executive_report(date: Optional[str] = None):
+    """Manually or automatically dispatch Daily Executive Report to Telegram and Email."""
+    results = daily_report_service.dispatch_daily_report(report_date=date)
+    return {"status": "dispatched", "channels": results}
+
+@app.get("/api/reports/history")
+def get_daily_reports_history(limit: int = 30):
+    """Retrieve historical daily executive report records from SQLite."""
+    return db.get_daily_executive_reports_history(limit=limit)

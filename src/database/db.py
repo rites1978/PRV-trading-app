@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS catalyst_paper_trades (
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     ticker TEXT NOT NULL,
     sector TEXT,
+    catalyst_type TEXT NOT NULL,
     catalyst_score REAL NOT NULL,
     entry_price REAL NOT NULL,
     current_price REAL NOT NULL,
@@ -151,9 +152,22 @@ CREATE TABLE IF NOT EXISTS catalyst_paper_trades (
     benchmark_return_5d REAL,
     benchmark_return_10d REAL,
     benchmark_return_30d REAL,
-    alpha_vs_baseline REAL,
+    alpha_vs_baseline REAL DEFAULT 0.0,
     status TEXT DEFAULT 'ACTIVE'
 );
+
+CREATE TABLE IF NOT EXISTS daily_executive_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT UNIQUE,
+    report_json TEXT NOT NULL,
+    nav REAL NOT NULL,
+    daily_pnl REAL NOT NULL,
+    trades_opened_count INTEGER DEFAULT 0,
+    trades_closed_count INTEGER DEFAULT 0,
+    compliance_status TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_reports_date ON daily_executive_reports(report_date);
 
 CREATE TABLE IF NOT EXISTS symbol_cooldowns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -450,12 +464,51 @@ class Database:
             cur.execute("SELECT * FROM catalyst_paper_trades ORDER BY id DESC LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
 
-    def update_catalyst_paper_trade(self, paper_trade_id: str, updates: Dict[str, Any]):
+    def save_daily_executive_report(self, report_data: Dict[str, Any]) -> int:
         with self.get_connection() as conn:
             cur = conn.cursor()
-            set_clauses = [f"{k} = ?" for k in updates.keys()]
-            values = list(updates.values()) + [paper_trade_id]
-            cur.execute(f"UPDATE catalyst_paper_trades SET {', '.join(set_clauses)} WHERE paper_trade_id = ?", values)
+            report_date = report_data.get("report_date", datetime.utcnow().strftime("%Y-%m-%d"))
+            cur.execute("""
+                INSERT INTO daily_executive_reports (
+                    report_date, report_json, nav, daily_pnl, trades_opened_count, trades_closed_count, compliance_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(report_date) DO UPDATE SET
+                    report_json = excluded.report_json,
+                    nav = excluded.nav,
+                    daily_pnl = excluded.daily_pnl,
+                    trades_opened_count = excluded.trades_opened_count,
+                    trades_closed_count = excluded.trades_closed_count,
+                    compliance_status = excluded.compliance_status,
+                    created_at = CURRENT_TIMESTAMP
+            """, (
+                report_date,
+                json.dumps(report_data),
+                float(report_data.get("portfolio_summary", {}).get("nav", 49998.0)),
+                float(report_data.get("daily_pnl", {}).get("gbp", 0.0)),
+                int(len(report_data.get("trades_opened", []))),
+                int(len(report_data.get("trades_closed", []))),
+                str(report_data.get("compliance_events", {}).get("status", "PASS"))
+            ))
             conn.commit()
+            return cur.lastrowid
+
+    def get_latest_daily_executive_report(self, report_date: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            if report_date:
+                cur.execute("SELECT report_json FROM daily_executive_reports WHERE report_date = ? ORDER BY id DESC LIMIT 1", (report_date,))
+            else:
+                cur.execute("SELECT report_json FROM daily_executive_reports ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            if row and row["report_json"]:
+                return json.loads(row["report_json"])
+            return None
+
+    def get_daily_executive_reports_history(self, limit: int = 30) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, report_date, nav, daily_pnl, trades_opened_count, trades_closed_count, compliance_status, created_at FROM daily_executive_reports ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
 
 db = Database()
+

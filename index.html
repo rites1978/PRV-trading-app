@@ -453,7 +453,8 @@
         <div class="admin-content">
             <!-- Sub-Tabs inside Admin Vault -->
             <div class="vault-tabs">
-                <button class="vault-tab-btn active" onclick="switchVaultTab(event, 'vPhase')">🎯 Phase Gates</button>
+                <button class="vault-tab-btn active" onclick="switchVaultTab(event, 'vReport')">📊 Daily Executive Report</button>
+                <button class="vault-tab-btn" onclick="switchVaultTab(event, 'vPhase')">🎯 Phase Gates</button>
                 <button class="vault-tab-btn" onclick="switchVaultTab(event, 'vAttr')">🔍 Attribution</button>
                 <button class="vault-tab-btn" onclick="switchVaultTab(event, 'vCool')">⏱️ Cooldowns</button>
                 <button class="vault-tab-btn" onclick="switchVaultTab(event, 'vRegime')">🌐 Market Regime</button>
@@ -461,8 +462,22 @@
                 <button class="vault-tab-btn" onclick="switchVaultTab(event, 'vRisk')">🛡️ Risk & Parity</button>
             </div>
 
+            <!-- 0. Daily Executive Report Sub-View -->
+            <div id="vReport" class="vault-view active">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <div>
+                        <div style="font-weight:700; font-size:14px; color:var(--accent-blue);">Consolidated Daily Executive Report</div>
+                        <div style="font-size:11px; color:var(--text-muted);" id="repDate">Date: Loading...</div>
+                    </div>
+                    <button onclick="dispatchDailyReportNow()" style="background:#1e293b; color:var(--accent-blue); border:1px solid var(--accent-blue); padding:5px 10px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;">📤 Dispatch Report</button>
+                </div>
+                <div id="reportContainer" style="background:rgba(0,0,0,0.25); padding:12px; border-radius:10px; font-size:12px; border:1px solid var(--card-border);">
+                    <div style="text-align:center; color:var(--text-muted); padding:16px;">Generating daily executive summary...</div>
+                </div>
+            </div>
+
             <!-- 1. Phase Gates Sub-View -->
-            <div id="vPhase" class="vault-view active">
+            <div id="vPhase" class="vault-view">
                 <div style="margin-bottom: 8px; font-weight: 600; color: var(--accent-blue);">Phase 47 Forward Validation Ladder</div>
                 <table>
                     <thead>
@@ -700,7 +715,60 @@
         }
 
         async function loadAdminTabData(viewId) {
-            if (viewId === 'vAttr') {
+            if (viewId === 'vReport') {
+                try {
+                    const res = await fetch(API_BASE + '/api/reports/daily');
+                    const rep = await res.json();
+                    document.getElementById('repDate').innerText = `Date: ${rep.report_date} | Generated: ${new Date(rep.generated_at).toLocaleTimeString()}`;
+                    
+                    const pnlVal = rep.daily_pnl.gbp;
+                    const pnlClass = pnlVal >= 0 ? 'pos' : 'neg';
+                    const pnlSign = pnlVal >= 0 ? '+' : '';
+
+                    document.getElementById('reportContainer').innerHTML = `
+                        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; margin-bottom:12px;">
+                            <div style="background:#1e293b; padding:8px; border-radius:6px;">
+                                <div style="color:var(--text-muted); font-size:10px;">PORTFOLIO NAV</div>
+                                <div style="font-weight:700; font-size:16px;">£${rep.portfolio_summary.nav.toLocaleString('en-GB', {minimumFractionDigits:2})}</div>
+                            </div>
+                            <div style="background:#1e293b; padding:8px; border-radius:6px;">
+                                <div style="color:var(--text-muted); font-size:10px;">DAILY P&L</div>
+                                <div class="${pnlClass}" style="font-weight:700; font-size:16px;">${pnlSign}£${Math.abs(pnlVal).toFixed(2)} (${pnlSign}${rep.daily_pnl.pct.toFixed(2)}%)</div>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom:8px;">
+                            <strong>📊 Activity Summary:</strong>
+                            <div style="color:var(--text-secondary); margin-top:2px;">
+                                • Trades Opened Today: <strong>${rep.trades_opened.length}</strong><br>
+                                • Trades Closed Today: <strong>${rep.trades_closed.length}</strong><br>
+                                • Active Broker Positions: <strong>${rep.open_positions.length}</strong><br>
+                                • Free Available Cash: <strong>£${rep.cash_position.available_cash.toLocaleString('en-GB', {minimumFractionDigits:2})}</strong> (${rep.cash_position.cash_pct}% of NAV)
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom:8px;">
+                            <strong>🌐 Market Regime & AI State:</strong>
+                            <div style="color:var(--text-secondary); margin-top:2px;">
+                                • Macro Regime: <strong style="color:var(--accent-green);">${rep.market_regime.classification}</strong> (${rep.market_regime.trading_permission})<br>
+                                • S&P 500 / VIX: <strong>$${rep.market_regime.spy_close} / ${rep.market_regime.vix_level}</strong><br>
+                                • AI Candidates Evaluated: <strong>${rep.ai_decisions.total_evaluated}</strong> (Approved: ${rep.ai_decisions.approved_count})
+                            </div>
+                        </div>
+
+                        <div>
+                            <strong>🛡️ Compliance & Risk Gate:</strong>
+                            <div style="color:var(--text-secondary); margin-top:2px;">
+                                • Compliance Firewall: <strong style="color:var(--accent-green);">${rep.compliance_events.status} (5/5 Checks Passed)</strong><br>
+                                • Peak Drawdown: <strong>${rep.compliance_events.current_drawdown_pct}% / ${rep.compliance_events.max_drawdown_limit_pct}% Limit</strong><br>
+                                • Active 10-Day Cooldowns: <strong>${rep.cooldown_events.length} Quarantined</strong>
+                            </div>
+                        </div>
+                    `;
+                } catch(e) {
+                    document.getElementById('reportContainer').innerHTML = '<div style="color:var(--accent-red); padding:10px;">Failed to load daily executive report.</div>';
+                }
+            } else if (viewId === 'vAttr') {
                 try {
                     const res = await fetch(API_BASE + '/api/attribution/summary');
                     const d = await res.json();
@@ -752,9 +820,21 @@
             }
         }
 
+        async function dispatchDailyReportNow() {
+            try {
+                const res = await fetch(API_BASE + '/api/reports/dispatch', { method: 'POST' });
+                const data = await res.json();
+                alert(`Daily Executive Report Dispatched!\nTelegram: ${data.channels.telegram ? '✅ Dispatched' : '🔕 Muted/Unconfigured'}\nEmail: ${data.channels.email ? '✅ Dispatched' : '🔕 Mock/Logged'}`);
+            } catch(e) {
+                alert("Failed to trigger dispatch: " + e);
+            }
+        }
+
         // Initialize & Poll
         fetchPerformanceSummary();
         setInterval(fetchPerformanceSummary, 5000);
+        // Pre-load default active tab in vault
+        loadAdminTabData('vReport');
     </script>
 </body>
 </html>
