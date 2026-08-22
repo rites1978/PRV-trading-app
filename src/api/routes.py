@@ -83,29 +83,39 @@ def execute_cycle():
 
 @app.get("/api/portfolio/performance_summary")
 def get_portfolio_performance_summary():
-    """Trading212-style mobile portfolio summary with 1D, 1W, 1M, ALL returns and Top Winners/Losers."""
+    """Trading212-style mobile portfolio summary based strictly on live broker data and trade history."""
     account = broker.get_account_summary()
-    total_nav = float(account.get("total_value", 4736.33))
-    cash = float(account.get("available_cash", 4736.33))
+    if not account.get("success") or "total_value" not in account:
+        return {
+            "portfolio_value": None,
+            "cash": None,
+            "invested": None,
+            "daily_return": None,
+            "weekly_return": None,
+            "monthly_return": None,
+            "all_time_return": None,
+            "top_winners": [],
+            "top_losers": [],
+            "total_positions_count": 0
+        }
+
+    total_nav = float(account["total_value"])
+    cash = float(account["available_cash"])
     invested = float(account.get("invested", 0.0))
     
     positions = broker.get_open_positions()
     trades = db.get_trades(limit=500)
     
-    # Calculate historical PnL
-    total_realized_pnl = sum(float(t.get("realized_pnl", 0.0)) for t in trades)
-    starting_capital = 5000.0
-    all_time_pnl = round(total_realized_pnl, 2)
-    all_time_pct = round((all_time_pnl / starting_capital) * 100.0, 2)
-    
-    # Calculate Winners and Losers from open positions
+    # Calculate Winners and Losers from live open positions
     enriched_positions = []
+    total_unrealized_pnl = 0.0
     for pos in positions:
-        avg_p = float(pos.get("averagePrice", 1.0))
+        avg_p = float(pos.get("averagePrice", 0.0))
         cur_p = float(pos.get("currentPrice", avg_p))
         qty = float(pos.get("quantity", 0.0))
         ppl = float(pos.get("ppl", (cur_p - avg_p) * qty))
-        pct = round(((cur_p - avg_p) / max(0.001, avg_p)) * 100.0, 2)
+        pct = round(((cur_p - avg_p) / max(0.001, avg_p)) * 100.0, 2) if avg_p > 0 else 0.0
+        total_unrealized_pnl += ppl
         enriched_positions.append({
             "ticker": pos.get("ticker", "").replace("_US_EQ", "").replace("_EQ", ""),
             "full_ticker": pos.get("ticker", ""),
@@ -119,26 +129,42 @@ def get_portfolio_performance_summary():
     winners = sorted([p for p in enriched_positions if p["unrealized_pnl"] >= 0], key=lambda x: x["return_pct"], reverse=True)[:3]
     losers = sorted([p for p in enriched_positions if p["unrealized_pnl"] < 0], key=lambda x: x["return_pct"])[:3]
     
-    # Timeframe Return Calculations
-    daily_pnl = round(sum(p["unrealized_pnl"] for p in enriched_positions) * 0.15 + (all_time_pnl * 0.05), 2)
-    weekly_pnl = round(all_time_pnl * 0.35 + 35.10, 2)
-    monthly_pnl = round(all_time_pnl * 0.85, 2)
-    
+    # Real Timeframe Return Calculations from Realized Trades + Open Unrealized P&L
+    from datetime import datetime, timezone, timedelta
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    week_ago_str = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    month_ago_str = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+
+    daily_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")).startswith(today_str))
+    weekly_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")) >= week_ago_str)
+    monthly_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")) >= month_ago_str)
+    all_time_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades)
+
+    daily_pnl = round(daily_realized + total_unrealized_pnl, 2)
+    weekly_pnl = round(weekly_realized + total_unrealized_pnl, 2)
+    monthly_pnl = round(monthly_realized + total_unrealized_pnl, 2)
+    all_time_pnl = round(all_time_realized + total_unrealized_pnl, 2)
+
+    daily_pct = round((daily_pnl / max(1.0, total_nav - daily_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    weekly_pct = round((weekly_pnl / max(1.0, total_nav - weekly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    monthly_pct = round((monthly_pnl / max(1.0, total_nav - monthly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    all_time_pct = round((all_time_pnl / max(1.0, total_nav - all_time_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+
     return {
         "portfolio_value": round(total_nav, 2),
         "cash": round(cash, 2),
         "invested": round(invested, 2),
         "daily_return": {
             "gbp": daily_pnl,
-            "pct": round((daily_pnl / max(1.0, total_nav)) * 100.0, 2)
+            "pct": daily_pct
         },
         "weekly_return": {
             "gbp": weekly_pnl,
-            "pct": round((weekly_pnl / max(1.0, total_nav)) * 100.0, 2)
+            "pct": weekly_pct
         },
         "monthly_return": {
             "gbp": monthly_pnl,
-            "pct": round((monthly_pnl / max(1.0, total_nav)) * 100.0, 2)
+            "pct": monthly_pct
         },
         "all_time_return": {
             "gbp": all_time_pnl,
@@ -170,12 +196,14 @@ def get_forward_validation_kpis():
 @app.get("/api/governance/compliance_status")
 def get_compliance_status():
     """Automated pre-flight compliance integrity check."""
+    acc = broker.get_account_summary()
+    live_nav = float(acc.get("total_value", settings.STARTING_CAPITAL)) if acc.get("success") else settings.STARTING_CAPITAL
     ok, msg, audit = integrity_guard.validate_pre_flight_compliance(
         symbol="SPY",
         t212_ticker="SPY_US_EQ",
         order_cost_gbp=276.59,
-        current_nav_gbp=5000.00,
-        current_drawdown_pct=1.64
+        current_nav_gbp=live_nav,
+        current_drawdown_pct=0.0
     )
     return {"compliance_passed": ok, "message": msg, "audit_telemetry": audit}
 

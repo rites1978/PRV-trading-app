@@ -591,33 +591,43 @@
                 retObj = perfData.daily_return;
                 lbl = "Today";
                 chart.data.labels = ['09:30', '11:00', '13:00', '15:00', '16:30'];
-                chart.data.datasets[0].data = [nav - 12, nav - 8, nav - 4, nav - 1, nav];
             } else if (currentTf === '1W') {
                 retObj = perfData.weekly_return;
                 lbl = "This Week";
                 chart.data.labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-                chart.data.datasets[0].data = [nav - 35, nav - 20, nav - 45, nav - 10, nav];
             } else if (currentTf === '1M') {
                 retObj = perfData.monthly_return;
                 lbl = "This Month";
                 chart.data.labels = ['W1', 'W2', 'W3', 'W4'];
-                chart.data.datasets[0].data = [nav + 200, nav + 100, nav + 50, nav];
             } else if (currentTf === 'ALL') {
                 retObj = perfData.all_time_return;
                 lbl = "All Time";
-                chart.data.labels = ['Aug 1', 'Aug 8', 'Aug 15', 'Aug 22'];
-                chart.data.datasets[0].data = [50000, 49900, 49950, nav];
+                chart.data.labels = ['Baseline', 'Current'];
             }
 
-            const isPos = retObj.gbp >= 0;
-            const sign = isPos ? '+' : '';
-            badge.className = 'return-badge-hero ' + (isPos ? 'pos' : 'neg');
-            gbpElem.innerText = `${sign}£${Math.abs(retObj.gbp).toFixed(2)}`;
-            pctElem.innerText = `(${sign}${retObj.pct.toFixed(2)}%)`;
-            lblElem.innerText = lbl;
+            if (nav !== null && nav !== undefined && retObj) {
+                const baseline = nav - (retObj.gbp || 0.0);
+                chart.data.datasets[0].data = chart.data.labels.map((_, idx, arr) => idx === 0 ? baseline : (idx === arr.length - 1 ? nav : baseline + (nav - baseline) * (idx / (arr.length - 1))));
+            } else {
+                chart.data.datasets[0].data = [];
+            }
 
-            chart.data.datasets[0].borderColor = isPos ? '#10b981' : '#f43f5e';
-            chart.data.datasets[0].backgroundColor = isPos ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)';
+            if (retObj && retObj.gbp !== null && retObj.gbp !== undefined) {
+                const isPos = retObj.gbp >= 0;
+                const sign = isPos ? '+' : '';
+                badge.className = 'return-badge-hero ' + (isPos ? 'pos' : 'neg');
+                gbpElem.innerText = `${sign}£${Math.abs(retObj.gbp).toFixed(2)}`;
+                pctElem.innerText = `(${sign}${retObj.pct.toFixed(2)}%)`;
+                chart.data.datasets[0].borderColor = isPos ? '#10b981' : '#f43f5e';
+                chart.data.datasets[0].backgroundColor = isPos ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)';
+            } else {
+                badge.className = 'return-badge-hero neutral';
+                gbpElem.innerText = '--';
+                pctElem.innerText = '(--)';
+                chart.data.datasets[0].borderColor = '#86868b';
+                chart.data.datasets[0].backgroundColor = 'rgba(134, 134, 139, 0.08)';
+            }
+            lblElem.innerText = lbl;
             chart.update();
         }
 
@@ -639,20 +649,36 @@
                 if (!res.ok) throw new Error("API status " + res.status);
                 perfData = await res.json();
 
-                // Live Hydration of Primary Metrics
-                document.getElementById('heroNav').innerText = '£' + perfData.portfolio_value.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-                document.getElementById('cashValue').innerText = '£' + perfData.cash.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                // Live Hydration of Primary Metrics (or -- if null)
+                if (perfData.portfolio_value !== null && perfData.portfolio_value !== undefined) {
+                    document.getElementById('heroNav').innerText = '£' + perfData.portfolio_value.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                } else {
+                    document.getElementById('heroNav').innerText = '--';
+                }
+
+                if (perfData.cash !== null && perfData.cash !== undefined) {
+                    document.getElementById('cashValue').innerText = '£' + perfData.cash.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                } else {
+                    document.getElementById('cashValue').innerText = '--';
+                }
 
                 // Update 2x2 Metric Cards
                 const fmtCard = (gbpId, pctId, obj) => {
-                    const isPos = obj.gbp >= 0;
-                    const sign = isPos ? '+' : '';
                     const gEl = document.getElementById(gbpId);
                     const pEl = document.getElementById(pctId);
-                    gEl.className = 'metric-card-val ' + (isPos ? 'pos' : 'neg');
-                    pEl.className = 'metric-card-sub ' + (isPos ? 'pos' : 'neg');
-                    gEl.innerText = `${sign}£${Math.abs(obj.gbp).toFixed(2)}`;
-                    pEl.innerText = `${sign}${obj.pct.toFixed(2)}%`;
+                    if (obj && obj.gbp !== null && obj.gbp !== undefined) {
+                        const isPos = obj.gbp >= 0;
+                        const sign = isPos ? '+' : '';
+                        gEl.className = 'metric-card-val ' + (isPos ? 'pos' : 'neg');
+                        pEl.className = 'metric-card-sub ' + (isPos ? 'pos' : 'neg');
+                        gEl.innerText = `${sign}£${Math.abs(obj.gbp).toFixed(2)}`;
+                        pEl.innerText = `${sign}${obj.pct.toFixed(2)}%`;
+                    } else {
+                        gEl.className = 'metric-card-val neutral';
+                        pEl.className = 'metric-card-sub neutral';
+                        gEl.innerText = '--';
+                        pEl.innerText = '(--)';
+                    }
                 };
 
                 fmtCard('cardDailyGbp', 'cardDailyPct', perfData.daily_return);

@@ -6,6 +6,7 @@ Saves to SQLite audit history and dispatches via Telegram & Email.
 """
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
+from src.config.settings import settings
 from src.database.db import db
 from src.brokers.trading212 import broker
 from src.portfolio.capital_manager import capital_manager
@@ -25,25 +26,27 @@ class DailyExecutiveReportService:
         
         # 1. Portfolio & Cash Summary from Broker
         acc = broker.get_account_summary()
-        total_nav = float(acc.get("total_value", 49998.0))
-        available_cash = float(acc.get("available_cash", 44678.46))
-        invested_cap = float(acc.get("invested", 5319.54))
+        total_nav = float(acc.get("total_value", 0.0)) if acc.get("success") else 0.0
+        available_cash = float(acc.get("available_cash", 0.0)) if acc.get("success") else 0.0
+        invested_cap = float(acc.get("invested", 0.0)) if acc.get("success") else 0.0
         
         all_trades = db.get_trades(limit=500)
         total_realized_pnl = sum(float(t.get("realized_pnl", 0.0)) for t in all_trades)
-        starting_capital = 50000.0
+        starting_capital = settings.STARTING_CAPITAL
         all_time_pnl = round(total_realized_pnl, 2)
-        all_time_pct = round((all_time_pnl / starting_capital) * 100.0, 2)
+        all_time_pct = round((all_time_pnl / max(1.0, total_nav - all_time_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
 
         # 2. Open Positions
         positions = broker.get_open_positions()
         enriched_positions = []
+        total_unrealized_pnl = 0.0
         for pos in positions:
-            avg_p = float(pos.get("averagePrice", 1.0))
+            avg_p = float(pos.get("averagePrice", 0.0))
             cur_p = float(pos.get("currentPrice", avg_p))
             qty = float(pos.get("quantity", 0.0))
             ppl = float(pos.get("ppl", (cur_p - avg_p) * qty))
-            pct = round(((cur_p - avg_p) / max(0.001, avg_p)) * 100.0, 2)
+            pct = round(((cur_p - avg_p) / max(0.001, avg_p)) * 100.0, 2) if avg_p > 0 else 0.0
+            total_unrealized_pnl += ppl
             enriched_positions.append({
                 "symbol": pos.get("ticker", "").replace("_US_EQ", "").replace("_EQ", ""),
                 "ticker": pos.get("ticker", ""),
@@ -55,9 +58,10 @@ class DailyExecutiveReportService:
                 "unrealized_return_pct": pct
             })
 
-        # 3. Daily P&L Calculation
-        daily_pnl_gbp = round(sum(p["unrealized_pnl_gbp"] for p in enriched_positions) * 0.15 + (all_time_pnl * 0.05), 2)
-        daily_pnl_pct = round((daily_pnl_gbp / max(1.0, total_nav)) * 100.0, 2)
+        # 3. Real Daily P&L Calculation (Realized Today + Open Unrealized PnL)
+        daily_realized_today = sum(float(t.get("realized_pnl", 0.0)) for t in all_trades if str(t.get("timestamp", "")).startswith(today_str))
+        daily_pnl_gbp = round(daily_realized_today + total_unrealized_pnl, 2)
+        daily_pnl_pct = round((daily_pnl_gbp / max(1.0, total_nav - daily_pnl_gbp)) * 100.0, 2) if total_nav > 0 else 0.0
 
         # 4. Trades Opened & Closed Today
         trades_opened: List[Dict[str, Any]] = []

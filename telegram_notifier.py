@@ -52,13 +52,14 @@ class TelegramNotifier:
         )
         return self._dispatch(msg)
 
-    def notify_market_close(self, session_name: str = "US/UK Equities", nav: float = 4736.33, daily_pnl: float = 0.0):
+    def notify_market_close(self, session_name: str = "US/UK Equities", nav: Optional[float] = None, daily_pnl: float = 0.0):
         """Dispatched on market session close."""
         pnl_sign = "+" if daily_pnl >= 0 else ""
+        nav_str = f"£{nav:,.2f}" if nav is not None else "--"
         msg = (
             f"🌙 *MARKET CLOSE: {session_name.upper()}*\n\n"
             f"• *Session State:* CLOSED\n"
-            f"• *Current NAV:* £{nav:,.2f}\n"
+            f"• *Current NAV:* {nav_str}\n"
             f"• *Daily Est Return:* {pnl_sign}£{daily_pnl:,.2f}\n"
             f"• *Strategy Mode:* Capital Preserved in Cash"
         )
@@ -143,15 +144,23 @@ class TelegramNotifier:
         pnl_pct = pnl.get("pct", 0.0)
         pnl_emoji = "🟢" if pnl_val >= 0 else "🔴"
 
+        nav_val = summary.get('nav')
+        nav_str = f"£{nav_val:,.2f}" if nav_val is not None else "--"
+        cash_val = cash.get('available_cash')
+        cash_str = f"£{cash_val:,.2f}" if cash_val is not None else "--"
+        inv_val = summary.get('invested', 0.0)
+        all_time_pnl = summary.get('all_time_pnl', 0.0)
+        all_time_pct = summary.get('all_time_pct', 0.0)
+
         msg = (
             f"🏛️ *PRV CAPITAL | DAILY EXECUTIVE REPORT*\n"
             f"📅 *Date:* `{report_date}` | *Compliance:* `{compliance} ✅`\n\n"
             f"💼 *PORTFOLIO SUMMARY*\n"
-            f"• *Total NAV:* `£{summary.get('nav', 49998.0):,.2f}`\n"
-            f"• *Available Cash:* `£{cash.get('available_cash', 44678.46):,.2f}`\n"
-            f"• *Invested Capital:* `£{summary.get('invested', 5319.54):,.2f}`\n"
+            f"• *Total NAV:* `{nav_str}`\n"
+            f"• *Available Cash:* `{cash_str}`\n"
+            f"• *Invested Capital:* `£{inv_val:,.2f}`\n"
             f"• *Daily P&L:* {pnl_emoji} `£{pnl_val:+.2f} ({pnl_pct:+.2f}%)`\n"
-            f"• *All-Time Return:* `£{summary.get('all_time_pnl', -199.47):+.2f} ({summary.get('all_time_pct', -3.99):+.2f}%)`\n\n"
+            f"• *All-Time Return:* `£{all_time_pnl:+.2f} ({all_time_pct:+.2f}%)`\n\n"
             f"📊 *ACTIVITY & EXECUTION*\n"
             f"• *Trades Opened:* `{len(opened)}`\n"
             f"• *Trades Closed:* `{len(closed)}`\n"
@@ -159,7 +168,7 @@ class TelegramNotifier:
             f"• *Active Cooldowns:* `{len(cooldowns)} Quarantined`\n\n"
             f"🌐 *MARKET REGIME*\n"
             f"• *State:* `{regime.get('classification', 'STRONG_BULL')}` (`{regime.get('trading_permission', 'FULL_TRADING')}`)\n"
-            f"• *S&P 500 / VIX:* `${regime.get('spy_close', 558.0)} / {regime.get('vix_level', 16.0)}`\n\n"
+            f"• *S&P 500 / VIX:* `${regime.get('spy_close', 0.0)} / {regime.get('vix_level', 0.0)}`\n\n"
             f"🛡️ *RISK & PARITY*\n"
             f"• *Peak Drawdown:* `2.18% / 5.00% Limit (PASS)`\n"
             f"• *Broker Parity:* `0.000% Desync (PERFECT)`"
