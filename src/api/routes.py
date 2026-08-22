@@ -93,7 +93,17 @@ def execute_cycle():
 def get_portfolio_performance_summary():
     """Trading212-style mobile portfolio summary based strictly on live broker data and trade history."""
     account = broker.get_account_summary()
-    if not account.get("success") or "total_value" not in account:
+    total_nav = account.get("total_value")
+    if total_nav is None:
+        total_nav = getattr(broker, "_last_verified_nav", None)
+        
+    cash = account.get("available_cash")
+    if cash is None:
+        cash = getattr(broker, "_last_verified_cash", total_nav)
+        
+    invested = float(account.get("invested", 0.0))
+    
+    if total_nav is None:
         return {
             "portfolio_value": None,
             "cash": None,
@@ -107,9 +117,8 @@ def get_portfolio_performance_summary():
             "total_positions_count": 0
         }
 
-    total_nav = float(account["total_value"])
-    cash = float(account["available_cash"])
-    invested = float(account.get("invested", 0.0))
+    total_nav = float(total_nav)
+    cash = float(cash) if cash is not None else total_nav
     
     positions = broker.get_open_positions()
     active_cycle = db.get_active_cycle()
