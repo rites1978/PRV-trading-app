@@ -272,6 +272,7 @@ CREATE TABLE IF NOT EXISTS ai_performance_cycles (
     ai_version TEXT,
     feature_set TEXT,
     notes TEXT,
+    data_source_type TEXT NOT NULL DEFAULT 'LIVE',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -322,7 +323,15 @@ class Database:
                 if tcols and "cycle_id" not in tcols:
                     cur.execute(f"ALTER TABLE {tbl} ADD COLUMN cycle_id TEXT NOT NULL DEFAULT 'CYCLE-001'")
 
-            # 3. Seed initial cycles if ai_performance_cycles is empty
+            # 3. Automatic migration for data_source_type in ai_performance_cycles
+            cur.execute("PRAGMA table_info(ai_performance_cycles)")
+            ccols = [r["name"] for r in cur.fetchall()]
+            if ccols and "data_source_type" not in ccols:
+                cur.execute("ALTER TABLE ai_performance_cycles ADD COLUMN data_source_type TEXT NOT NULL DEFAULT 'LIVE'")
+                cur.execute("UPDATE ai_performance_cycles SET data_source_type = 'SIMULATED_TEST' WHERE cycle_id = 'CYCLE-001'")
+                cur.execute("UPDATE ai_performance_cycles SET data_source_type = 'LIVE' WHERE cycle_id != 'CYCLE-001'")
+
+            # 4. Seed initial cycles if ai_performance_cycles is empty
             cur.execute("SELECT COUNT(*) as cnt FROM ai_performance_cycles")
             cnt = cur.fetchone()["cnt"]
             if cnt == 0:
@@ -332,12 +341,12 @@ class Database:
                         cycle_id, cycle_name, start_date, end_date, status,
                         starting_capital, ending_capital, realised_pnl, unrealised_pnl,
                         total_return, total_return_pct, trade_count, win_count, loss_count,
-                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes
+                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes, data_source_type
                     ) VALUES (
                         'CYCLE-001', 'Phase 47 Forward-Test Baseline', '2026-07-07 15:30:00', '2026-08-22 16:00:00', 'ARCHIVED',
                         50000.0, 49800.53, -199.47, 0.0, -199.47, -0.40, 38, 4, 34,
                         10.5, 2.18, 0.11, '07179c6', 'v1.0-forward-test',
-                        'Phase 47 ATR Stop & Breakeven Rules', 'Archived legacy forward-testing baseline'
+                        'Phase 47 ATR Stop & Breakeven Rules', 'Archived legacy forward-testing baseline', 'SIMULATED_TEST'
                     )
                 """)
                 # Active Clean Evaluation Cycle (Cycle 2 - Reset Account £50,000 baseline)
@@ -346,12 +355,12 @@ class Database:
                         cycle_id, cycle_name, start_date, end_date, status,
                         starting_capital, ending_capital, realised_pnl, unrealised_pnl,
                         total_return, total_return_pct, trade_count, win_count, loss_count,
-                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes
+                        win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes, data_source_type
                     ) VALUES (
                         'CYCLE-002', 'Cycle 2: Autonomous Production Engine v2.0', CURRENT_TIMESTAMP, NULL, 'ACTIVE',
                         50000.0, 50000.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0,
                         0.0, 0.0, 0.0, '07179c6', 'v2.0-lean-fastapi',
-                        'Unified Ingress, Single-Daily Executive Report, Strict Broker Parity', 'Clean evaluation cycle initialized after broker reset to £50,000.00'
+                        'Unified Ingress, Single-Daily Executive Report, Strict Broker Parity', 'Clean evaluation cycle initialized after broker reset to £50,000.00', 'LIVE'
                     )
                 """)
             conn.commit()
@@ -451,8 +460,8 @@ class Database:
                     cycle_id, cycle_name, start_date, end_date, status,
                     starting_capital, ending_capital, realised_pnl, unrealised_pnl,
                     total_return, total_return_pct, trade_count, win_count, loss_count,
-                    win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    win_rate, max_drawdown, profit_factor, git_commit, ai_version, feature_set, notes, data_source_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 cycle_data["cycle_id"],
                 cycle_data["cycle_name"],
@@ -474,7 +483,8 @@ class Database:
                 cycle_data.get("git_commit", "HEAD"),
                 cycle_data.get("ai_version", "v2.0"),
                 cycle_data.get("feature_set", ""),
-                cycle_data.get("notes", "")
+                cycle_data.get("notes", ""),
+                cycle_data.get("data_source_type", "LIVE")
             ))
             conn.commit()
             return cycle_data["cycle_id"]

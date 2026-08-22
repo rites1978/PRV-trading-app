@@ -548,7 +548,10 @@
                 <!-- Current Active Cycle Card -->
                 <div style="background:rgba(0,0,0,0.25); padding:12px; border-radius:10px; border:1px solid var(--card-border); margin-bottom:14px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <span id="activeCycleBadge" class="status-badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; font-weight:700;">ACTIVE CYCLE</span>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span id="activeCycleBadge" class="status-badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; font-weight:700;">ACTIVE CYCLE</span>
+                            <span id="activeDataSourceBadge" class="status-badge" style="background:rgba(16,185,129,0.2); color:#10b981; font-weight:700;">🟢 LIVE DATA</span>
+                        </div>
                         <span id="activeCycleVer" style="font-size:11px; color:var(--text-muted);">--</span>
                     </div>
                     <div id="activeCycleName" style="font-size:15px; font-weight:700; margin-bottom:4px;">Loading Cycle...</div>
@@ -692,11 +695,12 @@
                             <th>Trades</th>
                             <th>Return</th>
                             <th>Win Rate</th>
+                            <th>Data Origin</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody id="vCycleHistoryTable">
-                        <tr><td colspan="7" style="text-align:center;">Loading cycle archive...</td></tr>
+                        <tr><td colspan="8" style="text-align:center;">Loading cycle archive...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1026,6 +1030,14 @@
                     const sDateStr = (cur.start_date || '').split('T')[0].split(' ')[0];
                     document.getElementById('activeCycleMeta').innerText = `Started: ${sDateStr} | Running: ${cur.days_running} days | Git: ${cur.git_commit}`;
                     
+                    const curIsLive = cur.data_source_type === 'LIVE';
+                    const actBadge = document.getElementById('activeDataSourceBadge');
+                    if (actBadge) {
+                        actBadge.innerText = curIsLive ? '🟢 LIVE DATA' : '🧪 SIMULATED TEST DATA';
+                        actBadge.style.background = curIsLive ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)';
+                        actBadge.style.color = curIsLive ? '#10b981' : '#f59e0b';
+                    }
+
                     const pnlSign = cur.total_return >= 0 ? '+' : '';
                     const pnlClass = cur.total_return >= 0 ? 'pos' : 'neg';
                     document.getElementById('labCycleReturn').className = pnlClass;
@@ -1040,6 +1052,10 @@
                     tbody.innerHTML = hist.map(c => {
                         const isAct = c.status === 'ACTIVE';
                         const badgeStyle = isAct ? 'background:rgba(56,189,248,0.2); color:#38bdf8;' : 'background:rgba(100,116,139,0.2); color:#94a3b8;';
+                        const isLive = c.data_source_type === 'LIVE';
+                        const originBadge = isLive 
+                            ? '<span class="status-badge" style="background:rgba(16,185,129,0.2); color:#10b981;">🟢 LIVE</span>' 
+                            : '<span class="status-badge" style="background:rgba(245,158,11,0.2); color:#f59e0b;">🧪 SIMULATED</span>';
                         const sSign = (c.total_return || 0) >= 0 ? '+' : '';
                         const sClass = (c.total_return || 0) >= 0 ? 'pos' : 'neg';
                         const sDate = (c.start_date || '').split(' ')[0].split('T')[0];
@@ -1052,6 +1068,7 @@
                                 <td>${c.trade_count || 0}</td>
                                 <td class="${sClass}">${sSign}£${Math.abs(c.total_return || 0).toFixed(2)} (${sSign}${(c.total_return_pct || 0).toFixed(2)}%)</td>
                                 <td>${(c.win_rate || 0).toFixed(1)}%</td>
+                                <td>${originBadge}</td>
                                 <td><span class="status-badge" style="${badgeStyle}">${c.status}</span></td>
                             </tr>
                         `;
@@ -1061,7 +1078,7 @@
                     const selA = document.getElementById('selCycleA');
                     const selB = document.getElementById('selCycleB');
                     if (selA && selB) {
-                        const opts = hist.map(c => `<option value="${c.cycle_id}">${c.cycle_id} (${c.ai_version || 'v2.0'}) - ${c.cycle_name}</option>`).join('');
+                        const opts = hist.map(c => `<option value="${c.cycle_id}">${c.cycle_id} [${c.data_source_type === 'LIVE' ? 'LIVE' : 'SIM'}] (${c.ai_version || 'v2.0'}) - ${c.cycle_name}</option>`).join('');
                         selA.innerHTML = opts;
                         selB.innerHTML = opts;
                         if (hist.length > 1) {
@@ -1110,7 +1127,9 @@
                 const cB = data.previous_cycle;
                 const imp = data.improvement;
 
-                document.getElementById('scorecardCycleTitle').innerText = `${cA.cycle_id} (${cA.ai_version}) vs ${cB.cycle_id} (${cB.ai_version})`;
+                const cABadge = cA.data_source_type === 'LIVE' ? '🟢 LIVE' : '🧪 SIMULATED';
+                const cBBadge = cB.data_source_type === 'LIVE' ? '🟢 LIVE' : '🧪 SIMULATED';
+                document.getElementById('scorecardCycleTitle').innerHTML = `${cA.cycle_id} (${cA.ai_version}) [${cABadge}] vs ${cB.cycle_id} (${cB.ai_version}) [${cBBadge}]`;
                 document.getElementById('scoreVal').innerText = data.ai_effectiveness_score.toFixed(1);
                 
                 const classBadge = document.getElementById('scoreClassification');
@@ -1140,9 +1159,9 @@
                 fmtDelta('deltaWin', imp.win_rate_delta, true);
                 fmtDelta('deltaDd', imp.drawdown_delta, true);
 
-                // Table
-                document.getElementById('thCycleA').innerText = `${cA.cycle_id} (${cA.ai_version})`;
-                document.getElementById('thCycleB').innerText = `${cB.cycle_id} (${cB.ai_version})`;
+                // Table Header with Badges
+                document.getElementById('thCycleA').innerHTML = `${cA.cycle_id} (${cA.ai_version})<br><span style="font-size:9px; font-weight:700; color:${cA.data_source_type === 'LIVE' ? '#10b981' : '#f59e0b'}">${cA.data_source_type === 'LIVE' ? '🟢 LIVE DATA' : '🧪 SIMULATED DATA'}</span>`;
+                document.getElementById('thCycleB').innerHTML = `${cB.cycle_id} (${cB.ai_version})<br><span style="font-size:9px; font-weight:700; color:${cB.data_source_type === 'LIVE' ? '#10b981' : '#f59e0b'}">${cB.data_source_type === 'LIVE' ? '🟢 LIVE DATA' : '🧪 SIMULATED DATA'}</span>`;
 
                 const retSignA = cA.return_pct >= 0 ? '+' : '';
                 const retSignB = cB.return_pct >= 0 ? '+' : '';
