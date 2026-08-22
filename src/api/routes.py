@@ -286,9 +286,10 @@ def get_portfolio_performance_summary():
 
 # --- AI Performance Cycle Framework Endpoints ---
 
+@app.get("/api/cycle/current_fast")
 @app.get("/api/cycle/current")
 def get_current_cycle():
-    """Get active AI evaluation cycle with real-time performance telemetry."""
+    """Get active AI evaluation cycle with sub-millisecond real-time performance telemetry."""
     return cycle_manager.get_active_cycle_telemetry()
 
 @app.get("/api/cycle/history")

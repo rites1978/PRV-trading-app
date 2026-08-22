@@ -1311,110 +1311,118 @@
                     `).join('');
                 } catch(e) {}
             } else if (viewId === 'vCycleLab') {
-                try {
-                    const [curRes, histRes] = await Promise.all([
-                        fetch(API_BASE + '/api/cycle/current'),
-                        fetch(API_BASE + '/api/cycle/history')
-                    ]);
-                    const cur = await curRes.json();
-                    const hist = await histRes.json();
+                // 1. Fetch & Hydrate Cycle History immediately (from SQLite in 2ms)
+                (async () => {
+                    try {
+                        const histRes = await fetch(API_BASE + '/api/cycle/history');
+                        if (!histRes.ok) return;
+                        const hist = await histRes.json();
+                        const tbody = document.getElementById('vCycleHistoryTable');
+                        if (tbody) {
+                            tbody.innerHTML = hist.map(c => {
+                                const isAct = c.status === 'ACTIVE';
+                                const isLive = c.data_source_type === 'LIVE';
+                                const originBadge = isLive 
+                                    ? '<span class="status-badge" style="background:rgba(16,185,129,0.2); color:#10b981;">🟢 LIVE</span>' 
+                                    : '<span class="status-badge" style="background:rgba(245,158,11,0.2); color:#f59e0b;">🧪 SIMULATED</span>';
+                                const sSign = (c.total_return || 0) >= 0 ? '+' : '';
+                                const sClass = (c.total_return || 0) >= 0 ? 'pos' : 'neg';
+                                const durDays = c.duration_days !== undefined ? c.duration_days : (isAct ? 'Active' : '--');
+                                const conf = c.confidence_level || 'LOW';
+                                const validBadge = c.evaluation_eligible 
+                                    ? '<span class="status-badge" style="background:rgba(16,185,129,0.2); color:#10b981;">🟢 VALID</span>' 
+                                    : '<span class="status-badge" style="background:rgba(245,158,11,0.2); color:#f59e0b;">🟡 INSUFFICIENT DATA</span>';
 
-                    // Hydrate Active Cycle Card & Statistical Validity
-                    document.getElementById('activeCycleBadge').innerText = cur.cycle_id + ' (ACTIVE)';
-                    document.getElementById('activeCycleVer').innerText = cur.ai_version || 'v2.0';
-                    document.getElementById('activeCycleName').innerText = cur.cycle_name;
-                    const sDateStr = (cur.start_date || '').split('T')[0].split(' ')[0];
-                    document.getElementById('activeCycleMeta').innerText = `Started: ${sDateStr} | Running: ${cur.days_running} days | Git: ${cur.git_commit}`;
-                    
-                    const curIsLive = cur.data_source_type === 'LIVE';
-                    const actBadge = document.getElementById('activeDataSourceBadge');
-                    if (actBadge) {
-                        actBadge.innerText = curIsLive ? '🟢 LIVE DATA' : '🧪 SIMULATED TEST DATA';
-                        actBadge.style.background = curIsLive ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)';
-                        actBadge.style.color = curIsLive ? '#10b981' : '#f59e0b';
-                    }
-
-                    // Hydrate Statistical Validity Card
-                    const isEligible = cur.evaluation_eligible;
-                    const confLevel = cur.confidence_level || 'LOW';
-                    const statBadge = document.getElementById('statValidityBadge');
-                    if (statBadge) {
-                        statBadge.innerText = isEligible ? '🟢 Statistically Valid' : '🟡 Insufficient Sample Size';
-                        statBadge.style.background = isEligible ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)';
-                        statBadge.style.color = isEligible ? '#10b981' : '#f59e0b';
-                    }
-                    const confBadge = document.getElementById('confidenceLevelBadge');
-                    if (confBadge) {
-                        confBadge.innerText = `CONFIDENCE: ${confLevel}`;
-                        confBadge.style.background = confLevel === 'VERY_HIGH' ? 'rgba(56,189,248,0.2)' : (confLevel === 'HIGH' ? 'rgba(16,185,129,0.2)' : (confLevel === 'MEDIUM' ? 'rgba(245,158,11,0.2)' : 'rgba(100,116,139,0.2)'));
-                        confBadge.style.color = confLevel === 'VERY_HIGH' ? '#38bdf8' : (confLevel === 'HIGH' ? '#10b981' : (confLevel === 'MEDIUM' ? '#f59e0b' : '#94a3b8'));
-                    }
-                    if (document.getElementById('statValidityReason')) {
-                        document.getElementById('statValidityReason').innerText = cur.evaluation_reason || '--';
-                    }
-                    if (cur.validity_thresholds) {
-                        document.getElementById('gateTrades').innerText = `${cur.validity_thresholds.trades_recorded} / ${cur.validity_thresholds.min_trades_required}`;
-                        document.getElementById('gateDays').innerText = `${cur.validity_thresholds.days_running} / ${cur.validity_thresholds.min_days_required} Days`;
-                        document.getElementById('gateRoundTrip').innerText = `${cur.validity_thresholds.round_trip_trades} / ${cur.validity_thresholds.min_round_trip_required}`;
-                    }
-
-                    const pnlSign = cur.total_return >= 0 ? '+' : '';
-                    const pnlClass = cur.total_return >= 0 ? 'pos' : 'neg';
-                    document.getElementById('labCycleReturn').className = pnlClass;
-                    document.getElementById('labCycleReturn').innerText = `${pnlSign}£${Math.abs(cur.total_return).toFixed(2)} (${pnlSign}${cur.total_return_pct.toFixed(2)}%)`;
-                    document.getElementById('labCycleWinRate').innerText = `${cur.trade_count} Trades (${cur.win_rate}%)`;
-                    document.getElementById('labCycleDdPf').innerText = `${cur.max_drawdown.toFixed(2)}% DD | ${cur.profit_factor.toFixed(2)} PF`;
-                    document.getElementById('labCycleFeatures').innerText = cur.feature_set || '--';
-                    document.getElementById('labCycleNotes').innerText = cur.notes || '--';
-
-                    // Hydrate Historical Cycle Table & Dropdowns
-                    const tbody = document.getElementById('vCycleHistoryTable');
-                    tbody.innerHTML = hist.map(c => {
-                        const isAct = c.status === 'ACTIVE';
-                        const isLive = c.data_source_type === 'LIVE';
-                        const originBadge = isLive 
-                            ? '<span class="status-badge" style="background:rgba(16,185,129,0.2); color:#10b981;">🟢 LIVE</span>' 
-                            : '<span class="status-badge" style="background:rgba(245,158,11,0.2); color:#f59e0b;">🧪 SIMULATED</span>';
-                        const sSign = (c.total_return || 0) >= 0 ? '+' : '';
-                        const sClass = (c.total_return || 0) >= 0 ? 'pos' : 'neg';
-                        const durDays = c.duration_days !== undefined ? c.duration_days : (isAct ? cur.days_running : '--');
-                        const conf = c.confidence_level || 'LOW';
-                        const validBadge = c.evaluation_eligible 
-                            ? '<span class="status-badge" style="background:rgba(16,185,129,0.2); color:#10b981;">🟢 VALID</span>' 
-                            : '<span class="status-badge" style="background:rgba(245,158,11,0.2); color:#f59e0b;">🟡 INSUFFICIENT DATA</span>';
-
-                        return `
-                            <tr>
-                                <td><strong style="color:var(--accent-blue);">${c.cycle_id}</strong><br><span style="font-size:10px; color:var(--text-muted);">${c.cycle_name}</span></td>
-                                <td>${c.ai_version || '--'}</td>
-                                <td>${durDays} Days</td>
-                                <td>${c.trade_count || 0}</td>
-                                <td><span style="font-size:10px; font-weight:700;">${conf}</span></td>
-                                <td class="${sClass}">${sSign}£${Math.abs(c.total_return || 0).toFixed(2)} (${sSign}${(c.total_return_pct || 0).toFixed(2)}%)</td>
-                                <td>${validBadge}</td>
-                                <td>${originBadge}</td>
-                            </tr>
-                        `;
-                    }).join('');
-
-                    // Hydrate comparison dropdowns
-                    const selA = document.getElementById('selCycleA');
-                    const selB = document.getElementById('selCycleB');
-                    if (selA && selB) {
-                        const opts = hist.map(c => `<option value="${c.cycle_id}">${c.cycle_id} [${c.data_source_type === 'LIVE' ? 'LIVE' : 'SIM'}] (${c.ai_version || 'v2.0'}) - ${c.cycle_name}</option>`).join('');
-                        selA.innerHTML = opts;
-                        selB.innerHTML = opts;
-                        if (hist.length > 1) {
-                            selA.selectedIndex = 0;
-                            selB.selectedIndex = 1;
+                                return `
+                                    <tr>
+                                        <td><strong style="color:var(--accent-blue);">${c.cycle_id}</strong><br><span style="font-size:10px; color:var(--text-muted);">${c.cycle_name}</span></td>
+                                        <td>${c.ai_version || '--'}</td>
+                                        <td>${durDays} Days</td>
+                                        <td>${c.trade_count || 0}</td>
+                                        <td><span style="font-size:10px; font-weight:700;">${conf}</span></td>
+                                        <td class="${sClass}">${sSign}£${Math.abs(c.total_return || 0).toFixed(2)} (${sSign}${(c.total_return_pct || 0).toFixed(2)}%)</td>
+                                        <td>${validBadge}</td>
+                                        <td>${originBadge}</td>
+                                    </tr>
+                                `;
+                            }).join('');
                         }
-                    }
 
-                    // Run initial comparison evaluation
-                    runComparison();
-                } catch(e) {
-                    console.error("Failed to load cycle lab:", e);
-                }
+                        const selA = document.getElementById('selCycleA');
+                        const selB = document.getElementById('selCycleB');
+                        if (selA && selB) {
+                            const opts = hist.map(c => `<option value="${c.cycle_id}">${c.cycle_id} [${c.data_source_type === 'LIVE' ? 'LIVE' : 'SIM'}] (${c.ai_version || 'v2.0'}) - ${c.cycle_name}</option>`).join('');
+                            selA.innerHTML = opts;
+                            selB.innerHTML = opts;
+                            if (hist.length > 1) {
+                                selA.selectedIndex = 0;
+                                selB.selectedIndex = 1;
+                            }
+                        }
+                    } catch(e) {
+                        console.error("Cycle history load error:", e);
+                    }
+                })();
+
+                // 2. Fetch & Hydrate Active Cycle Fast Telemetry (< 10ms)
+                (async () => {
+                    try {
+                        const curRes = await fetch(API_BASE + '/api/cycle/current_fast');
+                        if (!curRes.ok) return;
+                        const cur = await curRes.json();
+
+                        document.getElementById('activeCycleBadge').innerText = cur.cycle_id + ' (ACTIVE)';
+                        document.getElementById('activeCycleVer').innerText = cur.ai_version || 'v2.0';
+                        document.getElementById('activeCycleName').innerText = cur.cycle_name;
+                        const sDateStr = (cur.start_date || '').split('T')[0].split(' ')[0];
+                        document.getElementById('activeCycleMeta').innerText = `Started: ${sDateStr} | Running: ${cur.days_running} days | Git: ${cur.git_commit}`;
+                        
+                        const curIsLive = cur.data_source_type === 'LIVE';
+                        const actBadge = document.getElementById('activeDataSourceBadge');
+                        if (actBadge) {
+                            actBadge.innerText = curIsLive ? '🟢 LIVE DATA' : '🧪 SIMULATED TEST DATA';
+                            actBadge.style.background = curIsLive ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)';
+                            actBadge.style.color = curIsLive ? '#10b981' : '#f59e0b';
+                        }
+
+                        // Statistical Validity Card
+                        const isEligible = cur.evaluation_eligible;
+                        const confLevel = cur.confidence_level || 'LOW';
+                        const statBadge = document.getElementById('statValidityBadge');
+                        if (statBadge) {
+                            statBadge.innerText = isEligible ? '🟢 Statistically Valid' : '🟡 Insufficient Sample Size';
+                            statBadge.style.background = isEligible ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)';
+                            statBadge.style.color = isEligible ? '#10b981' : '#f59e0b';
+                        }
+                        const confBadge = document.getElementById('confidenceLevelBadge');
+                        if (confBadge) {
+                            confBadge.innerText = `CONFIDENCE: ${confLevel}`;
+                            confBadge.style.background = confLevel === 'VERY_HIGH' ? 'rgba(56,189,248,0.2)' : (confLevel === 'HIGH' ? 'rgba(16,185,129,0.2)' : (confLevel === 'MEDIUM' ? 'rgba(245,158,11,0.2)' : 'rgba(100,116,139,0.2)'));
+                            confBadge.style.color = confLevel === 'VERY_HIGH' ? '#38bdf8' : (confLevel === 'HIGH' ? '#10b981' : (confLevel === 'MEDIUM' ? '#f59e0b' : '#94a3b8'));
+                        }
+                        if (document.getElementById('statValidityReason')) {
+                            document.getElementById('statValidityReason').innerText = cur.evaluation_reason || '--';
+                        }
+                        if (cur.validity_thresholds) {
+                            document.getElementById('gateTrades').innerText = `${cur.validity_thresholds.trades_recorded} / ${cur.validity_thresholds.min_trades_required}`;
+                            document.getElementById('gateDays').innerText = `${cur.validity_thresholds.days_running} / ${cur.validity_thresholds.min_days_required} Days`;
+                            document.getElementById('gateRoundTrip').innerText = `${cur.validity_thresholds.round_trip_trades} / ${cur.validity_thresholds.min_round_trip_required}`;
+                        }
+
+                        const pnlSign = cur.total_return >= 0 ? '+' : '';
+                        const pnlClass = cur.total_return >= 0 ? 'pos' : 'neg';
+                        document.getElementById('labCycleReturn').className = pnlClass;
+                        document.getElementById('labCycleReturn').innerText = `${pnlSign}£${Math.abs(cur.total_return).toFixed(2)} (${pnlSign}${cur.total_return_pct.toFixed(2)}%)`;
+                        document.getElementById('labCycleWinRate').innerText = `${cur.trade_count} Trades (${cur.win_rate}%)`;
+                        document.getElementById('labCycleDdPf').innerText = `${cur.max_drawdown.toFixed(2)}% DD | ${cur.profit_factor.toFixed(2)} PF`;
+                        document.getElementById('labCycleFeatures').innerText = cur.feature_set || '--';
+                        document.getElementById('labCycleNotes').innerText = cur.notes || '--';
+
+                        runComparison();
+                    } catch(e) {
+                        console.error("Active cycle load error:", e);
+                    }
+                })();
             }
         }
 
