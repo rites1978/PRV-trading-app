@@ -9,6 +9,7 @@ from src.database.db import db
 from src.brokers.trading212 import broker
 from src.portfolio.capital_manager import capital_manager
 from src.cycles.cycle_manager import cycle_manager
+from src.cycles.comparison_engine import comparison_engine
 
 class CycleResetRequest(BaseModel):
     cycle_name: Optional[str] = None
@@ -198,6 +199,22 @@ def get_current_cycle():
 def get_cycle_history():
     """Get historical and active AI performance cycles for comparative analysis."""
     return cycle_manager.get_cycle_history()
+
+@app.get("/api/cycle/comparison")
+def get_cycle_comparison(
+    cycle_a: Optional[str] = None,
+    cycle_b: Optional[str] = None,
+    mode: str = "previous"
+):
+    """
+    Side-by-side performance scorecard and AI Effectiveness scoring
+    comparing two AI versions or evaluation cycles.
+    """
+    return comparison_engine.compare_cycles(
+        cycle_a_id=cycle_a,
+        cycle_b_id=cycle_b,
+        mode=mode
+    )
 
 @app.get("/api/cycle/{cycle_id}")
 def get_cycle_detail(cycle_id: str):

@@ -275,6 +275,21 @@ CREATE TABLE IF NOT EXISTS ai_performance_cycles (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS ai_cycle_comparisons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    comparison_id TEXT UNIQUE,
+    cycle_a TEXT NOT NULL,
+    cycle_b TEXT NOT NULL,
+    return_delta REAL NOT NULL,
+    win_rate_delta REAL NOT NULL,
+    profit_factor_delta REAL NOT NULL,
+    drawdown_delta REAL NOT NULL,
+    ai_effectiveness_score REAL NOT NULL,
+    classification TEXT NOT NULL,
+    comparison_json TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 class Database:
@@ -477,6 +492,36 @@ class Database:
             sql = f"UPDATE ai_performance_cycles SET {', '.join(set_clauses)} WHERE cycle_id = ?"
             cur.execute(sql, tuple(values))
             conn.commit()
+
+    def record_cycle_comparison(self, comp_data: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO ai_cycle_comparisons (
+                    comparison_id, cycle_a, cycle_b, return_delta, win_rate_delta,
+                    profit_factor_delta, drawdown_delta, ai_effectiveness_score,
+                    classification, comparison_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                comp_data.get("comparison_id", f"CMP_{int(datetime.now().timestamp())}"),
+                comp_data["cycle_a"],
+                comp_data["cycle_b"],
+                float(comp_data.get("return_delta", 0.0)),
+                float(comp_data.get("win_rate_delta", 0.0)),
+                float(comp_data.get("profit_factor_delta", 0.0)),
+                float(comp_data.get("drawdown_delta", 0.0)),
+                float(comp_data.get("ai_effectiveness_score", 0.0)),
+                comp_data.get("classification", "NEUTRAL"),
+                json.dumps(comp_data.get("comparison_json", {}))
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_recent_comparisons(self, limit: int = 20) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM ai_cycle_comparisons ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
 
     # --- Audit Logs ---
     def record_audit(self, audit: Dict[str, Any]):

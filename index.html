@@ -604,6 +604,83 @@
                     </div>
                 </div>
 
+                <!-- 📈 AI Version Scorecard Section -->
+                <div style="background:rgba(0,0,0,0.25); padding:14px; border-radius:10px; border:1px solid var(--accent-blue); margin-bottom:14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <div>
+                            <div style="font-weight:700; font-size:14px; color:#38bdf8;">📈 AI Version Scorecard</div>
+                            <div style="font-size:11px; color:var(--text-muted);" id="scorecardCycleTitle">Comparing Cycle vs Baseline</div>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button class="mode-btn active" id="btnModePrev" onclick="setComparisonMode('previous')" style="padding:4px 8px; font-size:10px; font-weight:600; border-radius:4px; border:1px solid var(--card-border); background:#1e293b; color:#fff; cursor:pointer;">Previous</button>
+                            <button class="mode-btn" id="btnModeBest" onclick="setComparisonMode('best')" style="padding:4px 8px; font-size:10px; font-weight:600; border-radius:4px; border:1px solid var(--card-border); background:#0f172a; color:var(--text-muted); cursor:pointer;">Best Hist</button>
+                            <button class="mode-btn" id="btnModeCustom" onclick="setComparisonMode('custom')" style="padding:4px 8px; font-size:10px; font-weight:600; border-radius:4px; border:1px solid var(--card-border); background:#0f172a; color:var(--text-muted); cursor:pointer;">Custom</button>
+                        </div>
+                    </div>
+
+                    <!-- Custom Dropdown Selector Row (shown only in custom mode) -->
+                    <div id="customCycleSelectRow" style="display:none; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:10px;">
+                        <div>
+                            <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">TARGET (CYCLE A)</label>
+                            <select id="selCycleA" onchange="runComparison()" style="width:100%; padding:5px; background:#0f172a; border:1px solid var(--card-border); color:#fff; border-radius:6px; font-size:11px;"></select>
+                        </div>
+                        <div>
+                            <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">BASELINE (CYCLE B)</label>
+                            <select id="selCycleB" onchange="runComparison()" style="width:100%; padding:5px; background:#0f172a; border:1px solid var(--card-border); color:#fff; border-radius:6px; font-size:11px;"></select>
+                        </div>
+                    </div>
+
+                    <!-- Hero AI Effectiveness Banner -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#1e293b; padding:10px 12px; border-radius:8px; margin-bottom:10px;">
+                        <div>
+                            <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">AI Effectiveness Score</div>
+                            <div style="display:flex; align-items:baseline; gap:6px;">
+                                <span id="scoreVal" style="font-size:22px; font-weight:800; color:#38bdf8;">--</span>
+                                <span style="font-size:10px; color:var(--text-muted);">/ 100</span>
+                            </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:10px; color:var(--text-muted); margin-bottom:2px;">CLASSIFICATION</div>
+                            <span id="scoreClassification" class="status-badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; font-size:11px; font-weight:700;">NEUTRAL</span>
+                        </div>
+                    </div>
+
+                    <!-- 4x Improvement Cards -->
+                    <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; margin-bottom:10px;">
+                        <div style="background:#1e293b; padding:8px; border-radius:6px;">
+                            <div style="color:var(--text-muted); font-size:10px;">RETURN DELTA (40%)</div>
+                            <div id="deltaReturn" style="font-weight:700; font-size:13px;">--</div>
+                        </div>
+                        <div style="background:#1e293b; padding:8px; border-radius:6px;">
+                            <div style="color:var(--text-muted); font-size:10px;">PROFIT FACTOR DELTA (25%)</div>
+                            <div id="deltaPf" style="font-weight:700; font-size:13px;">--</div>
+                        </div>
+                        <div style="background:#1e293b; padding:8px; border-radius:6px;">
+                            <div style="color:var(--text-muted); font-size:10px;">WIN RATE DELTA (20%)</div>
+                            <div id="deltaWin" style="font-weight:700; font-size:13px;">--</div>
+                        </div>
+                        <div style="background:#1e293b; padding:8px; border-radius:6px;">
+                            <div style="color:var(--text-muted); font-size:10px;">DRAWDOWN IMPROVEMENT (15%)</div>
+                            <div id="deltaDd" style="font-weight:700; font-size:13px;">--</div>
+                        </div>
+                    </div>
+
+                    <!-- Side-by-Side Visual Comparison Table -->
+                    <table style="width:100%; font-size:11px; margin-top:6px;">
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th id="thCycleA">Cycle A</th>
+                                <th id="thCycleB">Cycle B</th>
+                                <th>Improvement</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tblComparisonBody">
+                            <tr><td colspan="4" style="text-align:center;">Evaluating AI version metrics...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
                 <!-- Historical Cycle Archive Table -->
                 <div style="margin-bottom: 8px; font-weight: 600; color: var(--accent-blue);">Historical Cycle Archive & Comparison</div>
                 <table>
@@ -958,7 +1035,7 @@
                     document.getElementById('labCycleFeatures').innerText = cur.feature_set || '--';
                     document.getElementById('labCycleNotes').innerText = cur.notes || '--';
 
-                    // Hydrate Historical Cycle Table
+                    // Hydrate Historical Cycle Table & Dropdowns
                     const tbody = document.getElementById('vCycleHistoryTable');
                     tbody.innerHTML = hist.map(c => {
                         const isAct = c.status === 'ACTIVE';
@@ -979,9 +1056,136 @@
                             </tr>
                         `;
                     }).join('');
+
+                    // Hydrate comparison dropdowns
+                    const selA = document.getElementById('selCycleA');
+                    const selB = document.getElementById('selCycleB');
+                    if (selA && selB) {
+                        const opts = hist.map(c => `<option value="${c.cycle_id}">${c.cycle_id} (${c.ai_version || 'v2.0'}) - ${c.cycle_name}</option>`).join('');
+                        selA.innerHTML = opts;
+                        selB.innerHTML = opts;
+                        if (hist.length > 1) {
+                            selA.selectedIndex = 0;
+                            selB.selectedIndex = 1;
+                        }
+                    }
+
+                    // Run initial comparison evaluation
+                    runComparison();
                 } catch(e) {
                     console.error("Failed to load cycle lab:", e);
                 }
+            }
+        }
+
+        let currentComparisonMode = 'previous';
+
+        function setComparisonMode(mode) {
+            currentComparisonMode = mode;
+            document.getElementById('btnModePrev').style.background = mode === 'previous' ? '#1e293b' : '#0f172a';
+            document.getElementById('btnModePrev').style.color = mode === 'previous' ? '#fff' : 'var(--text-muted)';
+            document.getElementById('btnModeBest').style.background = mode === 'best' ? '#1e293b' : '#0f172a';
+            document.getElementById('btnModeBest').style.color = mode === 'best' ? '#fff' : 'var(--text-muted)';
+            document.getElementById('btnModeCustom').style.background = mode === 'custom' ? '#1e293b' : '#0f172a';
+            document.getElementById('btnModeCustom').style.color = mode === 'custom' ? '#fff' : 'var(--text-muted)';
+
+            document.getElementById('customCycleSelectRow').style.display = (mode === 'custom') ? 'grid' : 'none';
+            runComparison();
+        }
+
+        async function runComparison() {
+            try {
+                let url = `${API_BASE}/api/cycle/comparison?mode=${currentComparisonMode}`;
+                if (currentComparisonMode === 'custom') {
+                    const a = document.getElementById('selCycleA').value;
+                    const b = document.getElementById('selCycleB').value;
+                    if (a) url += `&cycle_a=${a}`;
+                    if (b) url += `&cycle_b=${b}`;
+                }
+                const res = await fetch(url);
+                if (!res.ok) return;
+                const data = await res.json();
+
+                const cA = data.current_cycle;
+                const cB = data.previous_cycle;
+                const imp = data.improvement;
+
+                document.getElementById('scorecardCycleTitle').innerText = `${cA.cycle_id} (${cA.ai_version}) vs ${cB.cycle_id} (${cB.ai_version})`;
+                document.getElementById('scoreVal').innerText = data.ai_effectiveness_score.toFixed(1);
+                
+                const classBadge = document.getElementById('scoreClassification');
+                classBadge.innerText = data.classification;
+                if (data.classification === 'EXCEPTIONAL' || data.classification === 'IMPROVED') {
+                    classBadge.style.background = 'rgba(16,185,129,0.2)';
+                    classBadge.style.color = '#10b981';
+                } else if (data.classification === 'NEUTRAL') {
+                    classBadge.style.background = 'rgba(56,189,248,0.2)';
+                    classBadge.style.color = '#38bdf8';
+                } else {
+                    classBadge.style.background = 'rgba(244,63,94,0.2)';
+                    classBadge.style.color = '#f43f5e';
+                }
+
+                // 4x deltas
+                const fmtDelta = (elemId, deltaVal, isPct=true, reverse=false) => {
+                    const isPos = reverse ? deltaVal <= 0 : deltaVal >= 0;
+                    const sign = deltaVal > 0 ? '+' : '';
+                    const el = document.getElementById(elemId);
+                    el.className = isPos ? 'pos' : 'neg';
+                    el.innerText = `${sign}${deltaVal.toFixed(2)}${isPct ? '%' : ''}`;
+                };
+
+                fmtDelta('deltaReturn', imp.return_pct_delta, true);
+                fmtDelta('deltaPf', imp.profit_factor_delta, false);
+                fmtDelta('deltaWin', imp.win_rate_delta, true);
+                fmtDelta('deltaDd', imp.drawdown_delta, true);
+
+                // Table
+                document.getElementById('thCycleA').innerText = `${cA.cycle_id} (${cA.ai_version})`;
+                document.getElementById('thCycleB').innerText = `${cB.cycle_id} (${cB.ai_version})`;
+
+                const retSignA = cA.return_pct >= 0 ? '+' : '';
+                const retSignB = cB.return_pct >= 0 ? '+' : '';
+                const retDeltaSign = imp.return_pct_delta >= 0 ? '+' : '';
+                const winDeltaSign = imp.win_rate_delta >= 0 ? '+' : '';
+                const pfDeltaSign = imp.profit_factor_delta >= 0 ? '+' : '';
+                const ddDeltaSign = imp.drawdown_delta >= 0 ? '+' : '';
+
+                document.getElementById('tblComparisonBody').innerHTML = `
+                    <tr>
+                        <td><strong>Return %</strong></td>
+                        <td class="${cA.return_pct >= 0 ? 'pos' : 'neg'}">${retSignA}${cA.return_pct.toFixed(2)}%</td>
+                        <td class="${cB.return_pct >= 0 ? 'pos' : 'neg'}">${retSignB}${cB.return_pct.toFixed(2)}%</td>
+                        <td class="${imp.return_pct_delta >= 0 ? 'pos' : 'neg'}"><strong>${retDeltaSign}${imp.return_pct_delta.toFixed(2)}%</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Win Rate</strong></td>
+                        <td>${cA.win_rate.toFixed(1)}%</td>
+                        <td>${cB.win_rate.toFixed(1)}%</td>
+                        <td class="${imp.win_rate_delta >= 0 ? 'pos' : 'neg'}"><strong>${winDeltaSign}${imp.win_rate_delta.toFixed(1)}%</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Profit Factor</strong></td>
+                        <td>${cA.profit_factor.toFixed(2)}</td>
+                        <td>${cB.profit_factor.toFixed(2)}</td>
+                        <td class="${imp.profit_factor_delta >= 0 ? 'pos' : 'neg'}"><strong>${pfDeltaSign}${imp.profit_factor_delta.toFixed(2)}</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Max Drawdown</strong></td>
+                        <td>${cA.max_drawdown.toFixed(2)}%</td>
+                        <td>${cB.max_drawdown.toFixed(2)}%</td>
+                        <td class="${imp.drawdown_delta >= 0 ? 'pos' : 'neg'}"><strong>${ddDeltaSign}${imp.drawdown_delta.toFixed(2)}%</strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Trade Count</strong></td>
+                        <td>${cA.trade_count}</td>
+                        <td>${cB.trade_count}</td>
+                        <td>${imp.trade_count_delta >= 0 ? '+' : ''}${imp.trade_count_delta}</td>
+                    </tr>
+                `;
+            } catch(e) {
+                console.error("Comparison error:", e);
+            }
             }
         }
 
