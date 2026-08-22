@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS catalyst_paper_trades (
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     ticker TEXT NOT NULL,
     sector TEXT,
-    catalyst_type TEXT NOT NULL,
+    catalyst_type TEXT NOT NULL DEFAULT 'MACRO_POLICY',
     catalyst_score REAL NOT NULL,
     entry_price REAL NOT NULL,
     current_price REAL NOT NULL,
@@ -266,6 +266,12 @@ class Database:
     def _init_db(self):
         with self.get_connection() as conn:
             conn.executescript(CREATE_TABLES_SQL)
+            # Automatic schema migration for existing SQLite databases
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(catalyst_paper_trades)")
+            cols = [r["name"] for r in cur.fetchall()]
+            if cols and "catalyst_type" not in cols:
+                cur.execute("ALTER TABLE catalyst_paper_trades ADD COLUMN catalyst_type TEXT NOT NULL DEFAULT 'MACRO_POLICY'")
             conn.commit()
 
     # --- Profit Vault ---
@@ -429,18 +435,19 @@ class Database:
             cur = conn.cursor()
             cur.execute("""
                 INSERT OR REPLACE INTO catalyst_paper_trades (
-                    paper_trade_id, event_id, timestamp, ticker, sector,
+                    paper_trade_id, event_id, timestamp, ticker, sector, catalyst_type,
                     catalyst_score, entry_price, current_price,
                     return_1d, return_5d, return_10d, return_30d,
                     benchmark_return_1d, benchmark_return_5d, benchmark_return_10d, benchmark_return_30d,
                     alpha_vs_baseline, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trade.get("paper_trade_id", f"ptrade_{int(datetime.now().timestamp())}"),
                 trade.get("event_id", ""),
                 trade.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
                 trade.get("ticker", "SPY"),
                 trade.get("sector", "General"),
+                trade.get("catalyst_type", "MACRO_POLICY"),
                 float(trade.get("catalyst_score", 0.0)),
                 float(trade.get("entry_price", 100.0)),
                 float(trade.get("current_price", 100.0)),
