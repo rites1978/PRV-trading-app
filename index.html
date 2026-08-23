@@ -463,6 +463,9 @@
         <div class="header">
             <div class="header-title">
                 <span>🏛️ PRV CAPITAL</span>
+                <span style="font-size: 11px; font-weight: 500; color: var(--text-muted); margin-left: 8px;">
+                    Last Broker Sync: <strong id="topBrokerSyncTime" style="color: var(--text-secondary);">--</strong>
+                </span>
             </div>
             <div id="marketBadge" class="market-badge closed">
                 <span class="dot"></span>
@@ -1073,6 +1076,14 @@
                 fmtCard('cardMonthlyGbp', 'cardMonthlyPct', fastData.monthly_return);
                 fmtCard('cardTotalGbp', 'cardTotalPct', fastData.all_time_return);
 
+                // 3. Telemetry: Last Broker Sync
+                if (fastData.last_broker_sync) {
+                    const topSync = document.getElementById('topBrokerSyncTime');
+                    if (topSync) topSync.innerText = fastData.last_broker_sync;
+                    const parSync = document.getElementById('parityLastSync');
+                    if (parSync) parSync.innerText = fastData.last_broker_sync;
+                }
+
                 updateHeroBadge();
             } catch(e) {
                 console.warn("Fast summary poll skipped/error:", e);
@@ -1159,7 +1170,10 @@
             isParityInFlight = true;
             try {
                 let navParam = '';
-                if (perfData && perfData.portfolio_value !== null && perfData.portfolio_value !== undefined) {
+                const heroText = document.getElementById('heroNav')?.innerText?.replace(/[^0-9.]/g, '');
+                if (heroText && !isNaN(heroText)) {
+                    navParam = `?dashboard_nav=${heroText}`;
+                } else if (perfData && perfData.portfolio_value !== null && perfData.portfolio_value !== undefined) {
                     navParam = `?dashboard_nav=${perfData.portfolio_value}`;
                 }
                 const res = await safeFetch(API_BASE + '/api/integrity/broker_parity' + navParam, {}, 4000);
@@ -1633,6 +1647,38 @@
 
         // ⏱️ Lightweight periodic poll (Summary Only, Single In-Flight Lock)
         setInterval(fetchFastSummary, 5000);
+
+        // 🔄 Lifecycle Refresh Handlers (window focus, visibilitychange, pageshow)
+        let isLifecycleSyncInFlight = false;
+        async function handleAppResume() {
+            if (isLifecycleSyncInFlight) return;
+            isLifecycleSyncInFlight = true;
+            try {
+                // 1. Immediately paint latest cached snapshot (< 10ms)
+                await fetchFastSummary();
+                await fetchBrokerParity();
+                // 2. Trigger non-blocking broker sync on server in background
+                safeFetch(API_BASE + '/api/portfolio/sync', { method: 'POST' }, 3000).catch(() => {});
+            } catch(e) {
+                console.warn("Lifecycle sync error:", e);
+            } finally {
+                isLifecycleSyncInFlight = false;
+            }
+        }
+
+        window.addEventListener('focus', () => {
+            handleAppResume();
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                handleAppResume();
+            }
+        });
+
+        window.addEventListener('pageshow', () => {
+            handleAppResume();
+        });
     </script>
 </body>
 </html>

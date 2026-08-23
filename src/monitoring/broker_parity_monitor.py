@@ -38,7 +38,7 @@ class BrokerParityMonitor:
             self.record_ui_hydration(dashboard_nav)
 
         # 1. Broker NAV (Trading212 direct summary)
-        acc = broker.get_account_summary()
+        acc = broker.get_account_summary(force_refresh=False)
         broker_nav = round(float(acc.get("total_value", 50000.0)), 2)
         last_sync = acc.get("sync_timestamp", now_str)
 
@@ -46,7 +46,7 @@ class BrokerParityMonitor:
         active_cycle = db.get_active_cycle()
         cycle_id = active_cycle["cycle_id"] if active_cycle else "CYCLE-002"
         trades = db.get_trades(limit=500, cycle_id=cycle_id)
-        open_pos = broker.get_open_positions()
+        open_pos = broker.get_open_positions(force_refresh=False)
         unrealized = sum(float(p.get("ppl", 0.0)) for p in open_pos)
         realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades)
         
@@ -57,8 +57,8 @@ class BrokerParityMonitor:
         if force_discrepancy_for_test is not None:
             api_nav = round(broker_nav + force_discrepancy_for_test, 2)
 
-        # 3. Dashboard NAV
-        effective_dashboard_nav = self._last_ui_nav if self._last_ui_nav is not None else api_nav
+        # 3. Dashboard NAV (Current active UI state)
+        effective_dashboard_nav = float(dashboard_nav) if dashboard_nav is not None else (self._last_ui_nav if self._last_ui_nav is not None else api_nav)
 
         # 4. Variance calculation
         variance = round(abs(broker_nav - effective_dashboard_nav), 2)

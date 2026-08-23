@@ -37,6 +37,8 @@ class Trading212Broker:
         self._last_verified_nav: float = 50000.0
         self._last_verified_cash: float = 50000.0
         self._last_sync_timestamp: str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        self._is_syncing: bool = False
+        self._sync_thread_running: bool = False
 
     @property
     def auth(self):
@@ -195,15 +197,49 @@ class Trading212Broker:
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
-    def get_instruments(self) -> List[Dict[str, Any]]:
-        """Download complete instrument metadata."""
+    def refresh_broker_snapshot(self, force: bool = True) -> Dict[str, Any]:
+        """
+        Refresh Trading212 account summary and open positions asynchronously.
+        Updates _cached_summary, _last_verified_nav, _last_verified_cash, and _last_sync_timestamp.
+        Thread-safe with in-flight lock to guarantee zero overlapping sync calls.
+        """
+        if self._is_syncing:
+            return dict(self._cached_summary or {
+                "success": True,
+                "total_value": self._last_verified_nav,
+                "available_cash": self._last_verified_cash,
+                "from_cache": True
+            })
+
         with self._lock:
+            self._is_syncing = True
             try:
-                res = self._request_with_retry("GET", "equity/metadata/instruments")
-                if res.status_code == 200:
-                    return res.json()
-                return []
+                summary = self.get_account_summary(force_refresh=force)
+                self.get_open_positions(force_refresh=force)
+                return summary
+            finally:
+                self._is_syncing = False
+
+    def start_background_sync(self, interval_seconds: int = 60):
+        """Start daemon thread that updates the broker snapshot every 60s without blocking requests."""
+        if self._sync_thread_running:
+            return
+
+        self._sync_thread_running = True
+        def _worker():
+            # Initial snapshot sync on start
+            try:
+                self.refresh_broker_snapshot(force=True)
             except Exception:
-                return []
+                pass
+            while True:
+                time.sleep(interval_seconds)
+                try:
+                    self.refresh_broker_snapshot(force=True)
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=_worker, daemon=True, name="t212-snapshot-sync")
+        thread.start()
 
 broker = Trading212Broker()

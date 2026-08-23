@@ -1,5 +1,6 @@
 import os
-from fastapi import FastAPI, HTTPException
+import time
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -22,6 +23,11 @@ app = FastAPI(
     description="Production-grade institutional execution and monitoring API for PRV Capital",
     version="2.0.0"
 )
+
+@app.on_event("startup")
+def on_startup():
+    """Start background 60s broker snapshot refresh worker on API boot."""
+    broker.start_background_sync(interval_seconds=60)
 
 # Enable CORS for web and mobile clients
 app.add_middleware(
@@ -140,8 +146,43 @@ def get_portfolio_summary_fast():
         "all_time_return": { "gbp": all_time_pnl, "pct": all_time_pct },
         "active_cycle_id": cycle_id,
         "active_cycle_name": active_cycle.get("cycle_name") if active_cycle else "Active Cycle",
+        "last_broker_sync": getattr(broker, "_last_sync_timestamp", ""),
         "from_cache": True
     }
+
+@app.post("/api/portfolio/sync")
+@app.get("/api/portfolio/sync")
+def trigger_broker_sync(background_tasks: BackgroundTasks):
+    """Trigger non-blocking broker snapshot refresh on app lifecycle events (focus, visibilitychange, pageshow)."""
+    def _sync():
+        broker.refresh_broker_snapshot(force=True)
+    background_tasks.add_task(_sync)
+    return {
+        "status": "SYNC_TRIGGERED",
+        "last_broker_sync": getattr(broker, "_last_sync_timestamp", ""),
+        "nav": getattr(broker, "_last_verified_nav", 50000.0)
+    }
+
+@app.post("/api/portfolio/test_set_nav")
+def test_set_nav(nav: float):
+    """Test-only simulation endpoint to update broker live state."""
+    from datetime import datetime, timezone
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    broker._last_verified_nav = nav
+    broker._last_verified_cash = nav
+    broker._last_sync_timestamp = now_str
+    broker._cached_summary = {
+        "success": True,
+        "available_cash": nav,
+        "total_value": nav,
+        "free_cash": nav,
+        "invested": 0.0,
+        "currency": "GBP",
+        "sync_timestamp": now_str,
+        "from_cache": False
+    }
+    broker._cached_summary_time = time.time()
+    return {"status": "UPDATED", "nav": nav, "sync_timestamp": now_str}
 
 @app.get("/api/portfolio/positions")
 def get_portfolio_positions():
