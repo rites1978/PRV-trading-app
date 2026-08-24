@@ -547,9 +547,26 @@ class Database:
             return rows
 
     def get_nav_baseline(self, period: str = "1D", current_nav: float = 50000.0, cycle_id: Optional[str] = None) -> float:
-        """Fetch true starting NAV for the given period (1D = start of today, 1W = start of week, 1M = start of month, ALL = cycle start)."""
+        """
+        Fetch true starting NAV for the given period:
+        - 1D: Close of previous trading day (snapshot <= today 00:00:00). If none (Day 1), starting capital.
+        - 1W: Close of previous week (snapshot <= 7 days ago). If none (Week 1), starting capital.
+        - 1M: Close of previous month (snapshot <= 30 days ago). If none (Month 1), starting capital.
+        - ALL: Cycle starting capital.
+        """
         with self.get_connection() as conn:
             cur = conn.cursor()
+            active = self.get_active_cycle()
+            starting_cap = float(active.get("starting_capital", current_nav)) if active else current_nav
+            
+            if period == "ALL":
+                if cycle_id:
+                    cur.execute("SELECT starting_capital FROM ai_performance_cycles WHERE cycle_id = ?", (cycle_id,))
+                    row = cur.fetchone()
+                    if row and row["starting_capital"]:
+                        return float(row["starting_capital"])
+                return starting_cap
+
             now = datetime.now(timezone.utc)
             if period == "1D":
                 since = now.strftime("%Y-%m-%d 00:00:00")
@@ -558,33 +575,20 @@ class Database:
             elif period == "1M":
                 since = (now - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00")
             else:
-                if cycle_id:
-                    cur.execute("SELECT starting_capital FROM ai_performance_cycles WHERE cycle_id = ?", (cycle_id,))
-                    row = cur.fetchone()
-                    if row and row["starting_capital"]:
-                        return float(row["starting_capital"])
-                return current_nav
+                since = now.strftime("%Y-%m-%d 00:00:00")
 
+            # Look for the last verified snapshot strictly on or before 'since'
             cur.execute("""
                 SELECT nav FROM portfolio_snapshots 
                 WHERE timestamp <= ? 
                 ORDER BY timestamp DESC LIMIT 1
             """, (since,))
             row = cur.fetchone()
-            if row and row["nav"]:
+            if row and row["nav"] and float(row["nav"]) > 0:
                 return float(row["nav"])
 
-            # Fallback to earliest snapshot today or active cycle starting capital
-            cur.execute("""
-                SELECT nav FROM portfolio_snapshots 
-                ORDER BY timestamp ASC LIMIT 1
-            """)
-            first_row = cur.fetchone()
-            if first_row and first_row["nav"]:
-                return float(first_row["nav"])
-                
-            active = self.get_active_cycle()
-            return float(active.get("starting_capital", current_nav)) if active else current_nav
+            # If no snapshot exists prior to 'since' (Day 1 of trading or new cycle), baseline is Starting Capital
+            return starting_cap
 
     # --- AI Performance Cycles ---
     def get_active_cycle(self) -> Optional[Dict[str, Any]]:

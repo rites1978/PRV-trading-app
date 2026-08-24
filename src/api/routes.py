@@ -131,36 +131,20 @@ def get_portfolio_summary_fast():
     monthly_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")) >= month_ago_str)
     all_time_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades)
 
-    # Real-Time Return Calculations (Accounting for both open positions & realized PnL)
+    # Real-Time Return Calculations strictly using true period baselines
     daily_base = db.get_nav_baseline(period="1D", current_nav=total_nav, cycle_id=cycle_id)
     weekly_base = db.get_nav_baseline(period="1W", current_nav=total_nav, cycle_id=cycle_id)
     monthly_base = db.get_nav_baseline(period="1M", current_nav=total_nav, cycle_id=cycle_id)
 
-    # Daily Return
-    if abs(total_nav - daily_base) > 0.01:
-        daily_pnl = round(total_nav - daily_base, 2)
-        daily_pct = round((daily_pnl / max(1.0, daily_base)) * 100.0, 2)
-    else:
-        daily_pnl = round(daily_realized + total_unrealized, 2)
-        daily_pct = round((daily_pnl / max(1.0, total_nav - daily_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    daily_pnl = round(total_nav - daily_base, 2)
+    daily_pct = round((daily_pnl / max(1.0, daily_base)) * 100.0, 2)
 
-    # Weekly Return
-    if abs(total_nav - weekly_base) > 0.01:
-        weekly_pnl = round(total_nav - weekly_base, 2)
-        weekly_pct = round((weekly_pnl / max(1.0, weekly_base)) * 100.0, 2)
-    else:
-        weekly_pnl = round(weekly_realized + total_unrealized, 2)
-        weekly_pct = round((weekly_pnl / max(1.0, total_nav - weekly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    weekly_pnl = round(total_nav - weekly_base, 2)
+    weekly_pct = round((weekly_pnl / max(1.0, weekly_base)) * 100.0, 2)
 
-    # Monthly Return
-    if abs(total_nav - monthly_base) > 0.01:
-        monthly_pnl = round(total_nav - monthly_base, 2)
-        monthly_pct = round((monthly_pnl / max(1.0, monthly_base)) * 100.0, 2)
-    else:
-        monthly_pnl = round(monthly_realized + total_unrealized, 2)
-        monthly_pct = round((monthly_pnl / max(1.0, total_nav - monthly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+    monthly_pnl = round(total_nav - monthly_base, 2)
+    monthly_pct = round((monthly_pnl / max(1.0, monthly_base)) * 100.0, 2)
 
-    # All-Time Return
     all_time_pnl = round(total_nav - starting_cap, 2)
     all_time_pct = round((all_time_pnl / max(1.0, starting_cap)) * 100.0, 2) if starting_cap > 0 else 0.0
 
@@ -428,27 +412,23 @@ def get_portfolio_performance_summary():
     winners = sorted([p for p in enriched_positions if p["unrealized_pnl"] >= 0], key=lambda x: x["return_pct"], reverse=True)[:3]
     losers = sorted([p for p in enriched_positions if p["unrealized_pnl"] < 0], key=lambda x: x["return_pct"])[:3]
     
-    # Real Timeframe Return Calculations from Realized Trades + Open Unrealized P&L
-    from datetime import datetime, timezone, timedelta
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    week_ago_str = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
-    month_ago_str = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+    # Real Timeframe Return Calculations strictly using true period baselines
+    daily_base = db.get_nav_baseline(period="1D", current_nav=total_nav, cycle_id=cycle_id)
+    weekly_base = db.get_nav_baseline(period="1W", current_nav=total_nav, cycle_id=cycle_id)
+    monthly_base = db.get_nav_baseline(period="1M", current_nav=total_nav, cycle_id=cycle_id)
+    starting_cap = float(active_cycle.get("starting_capital", 50000.0)) if active_cycle else 50000.0
 
-    daily_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")).startswith(today_str))
-    weekly_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")) >= week_ago_str)
-    monthly_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")) >= month_ago_str)
-    all_time_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades)
+    daily_pnl = round(total_nav - daily_base, 2)
+    daily_pct = round((daily_pnl / max(1.0, daily_base)) * 100.0, 2)
 
-    daily_pnl = round(daily_realized + total_unrealized_pnl, 2)
-    weekly_pnl = round(weekly_realized + total_unrealized_pnl, 2)
-    monthly_pnl = round(monthly_realized + total_unrealized_pnl, 2)
-    all_time_pnl = round(all_time_realized + total_unrealized_pnl, 2)
+    weekly_pnl = round(total_nav - weekly_base, 2)
+    weekly_pct = round((weekly_pnl / max(1.0, weekly_base)) * 100.0, 2)
 
-    starting_cap = float(active_cycle.get("starting_capital", 50000.0)) if active_cycle else total_nav
-    daily_pct = round((daily_pnl / max(1.0, total_nav - daily_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
-    weekly_pct = round((weekly_pnl / max(1.0, total_nav - weekly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
-    monthly_pct = round((monthly_pnl / max(1.0, total_nav - monthly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
-    all_time_pct = round((all_time_pnl / max(1.0, starting_cap)) * 100.0, 2) if total_nav > 0 else 0.0
+    monthly_pnl = round(total_nav - monthly_base, 2)
+    monthly_pct = round((monthly_pnl / max(1.0, monthly_base)) * 100.0, 2)
+
+    all_time_pnl = round(total_nav - starting_cap, 2)
+    all_time_pct = round((all_time_pnl / max(1.0, starting_cap)) * 100.0, 2) if starting_cap > 0 else 0.0
 
     return {
         "portfolio_value": round(total_nav, 2),

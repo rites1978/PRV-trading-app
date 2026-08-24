@@ -36,9 +36,24 @@ class Trading212Broker:
         # Last verified live state
         self._last_verified_nav: float = 50000.0
         self._last_verified_cash: float = 50000.0
+        self._last_verified_invested: float = 0.0
         self._last_sync_timestamp: str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         self._is_syncing: bool = False
         self._sync_thread_running: bool = False
+
+        # Hydrate last verified state from persistent SQLite snapshot ledger
+        try:
+            with db.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1")
+                last_snap = cur.fetchone()
+                if last_snap:
+                    self._last_verified_nav = float(last_snap["nav"])
+                    self._last_verified_cash = float(last_snap["cash"])
+                    self._last_verified_invested = float(last_snap["invested"])
+                    self._last_sync_timestamp = str(last_snap["timestamp"])
+        except Exception:
+            pass
 
     @property
     def auth(self):
