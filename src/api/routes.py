@@ -583,6 +583,40 @@ def get_evidence_classification_dashboard():
     """Complete platform-wide 4-tier Evidence Classification Dashboard."""
     return evidence_classifier.get_platform_evidence_dashboard()
 
+# --- Phase 3 Production Evidence Platform Endpoints ---
+from src.analytics.phase3_evidence_platform import (
+    live_evidence_scorer,
+    trade_postmortems,
+    regime_learning,
+    thesis_db,
+    evolution_dashboard
+)
+
+@app.get("/api/evidence/live_score")
+def get_live_evidence_score():
+    """Module 1: 0-100 Live Evidence Score."""
+    return live_evidence_scorer.calculate_live_evidence_score()
+
+@app.get("/api/postmortem/trades")
+def get_postmortem_trades():
+    """Module 2: Trade Post-Mortem Ledger."""
+    return {"postmortems": trade_postmortems.get_postmortems()}
+
+@app.get("/api/learning/regimes")
+def get_learning_regimes():
+    """Module 3: Regime-Aware Learning Matrix."""
+    return regime_learning.get_regime_learning_matrix()
+
+@app.get("/api/learning/thesis")
+def get_learning_thesis():
+    """Module 4: Thesis Success Database & Rankings."""
+    return thesis_db.get_thesis_rankings()
+
+@app.get("/api/evolution/dashboard")
+def get_portfolio_evolution_dashboard():
+    """Module 5: Portfolio Evolution Multi-Horizon Trends."""
+    return evolution_dashboard.get_evolution_dashboard()
+
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard
 from src.governance.evidence_ledger import evidence_ledger

@@ -414,6 +414,53 @@ CREATE TABLE IF NOT EXISTS learning_engine_lessons (
     empirical_evidence TEXT NOT NULL,
     actionable_insight TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS trade_postmortems (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    entry_timestamp DATETIME NOT NULL,
+    exit_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    prediction_summary TEXT NOT NULL,
+    actual_outcome TEXT NOT NULL,
+    actual_return_pct REAL NOT NULL,
+    forecast_error_pct REAL NOT NULL,
+    thesis_accuracy_score REAL NOT NULL,
+    catalyst_accuracy_score REAL NOT NULL,
+    alpha_generated_pct REAL NOT NULL,
+    lessons_learned TEXT NOT NULL,
+    regime TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_postmortem_sym ON trade_postmortems(symbol);
+
+CREATE TABLE IF NOT EXISTS thesis_success_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thesis_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    thesis_type TEXT NOT NULL,
+    original_thesis TEXT NOT NULL,
+    catalyst TEXT NOT NULL,
+    entry_rank INTEGER NOT NULL,
+    entry_ev REAL NOT NULL,
+    entry_probability REAL NOT NULL,
+    exit_outcome TEXT NOT NULL,
+    alpha_generated_pct REAL NOT NULL,
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_thesis_type ON thesis_success_records(thesis_type);
+
+CREATE TABLE IF NOT EXISTS portfolio_evolution_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    portfolio_health REAL NOT NULL,
+    live_evidence_score REAL NOT NULL,
+    cumulative_alpha_sp500 REAL NOT NULL,
+    capital_efficiency_score REAL NOT NULL,
+    research_accuracy_pct REAL NOT NULL,
+    nav REAL NOT NULL,
+    completed_trades_count INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evolution_time ON portfolio_evolution_snapshots(timestamp);
 """
 
 class Database:
@@ -1094,6 +1141,99 @@ class Database:
             row = cur.fetchone()
             return dict(row) if row else None
 
+    # --- Phase 3 Production Platform Methods ---
+    def record_trade_postmortem(self, pm: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO trade_postmortems (
+                    trade_id, symbol, entry_timestamp, exit_timestamp,
+                    prediction_summary, actual_outcome, actual_return_pct,
+                    forecast_error_pct, thesis_accuracy_score, catalyst_accuracy_score,
+                    alpha_generated_pct, lessons_learned, regime
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                pm.get("trade_id", f"TR-{uuid.uuid4().hex[:6]}"),
+                pm.get("symbol"),
+                pm.get("entry_timestamp", datetime.now(timezone.utc).isoformat()),
+                pm.get("exit_timestamp", datetime.now(timezone.utc).isoformat()),
+                pm.get("prediction_summary", ""),
+                pm.get("actual_outcome", "WIN"),
+                float(pm.get("actual_return_pct", 0.0)),
+                float(pm.get("forecast_error_pct", 0.0)),
+                float(pm.get("thesis_accuracy_score", 10.0)),
+                float(pm.get("catalyst_accuracy_score", 10.0)),
+                float(pm.get("alpha_generated_pct", 0.0)),
+                pm.get("lessons_learned", ""),
+                pm.get("regime", "MILD_BULL")
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_trade_postmortems(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM trade_postmortems ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def record_thesis_success(self, ts: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO thesis_success_records (
+                    thesis_id, symbol, thesis_type, original_thesis, catalyst,
+                    entry_rank, entry_ev, entry_probability, exit_outcome,
+                    alpha_generated_pct
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                ts.get("thesis_id", f"TH-{uuid.uuid4().hex[:6]}"),
+                ts.get("symbol"),
+                ts.get("thesis_type", "BIOPHARMACEUTICAL_INNOVATION"),
+                ts.get("original_thesis", ""),
+                ts.get("catalyst", ""),
+                int(ts.get("entry_rank", 1)),
+                float(ts.get("entry_ev", 5.0)),
+                float(ts.get("entry_probability", 75.0)),
+                ts.get("exit_outcome", "WIN"),
+                float(ts.get("alpha_generated_pct", 0.0))
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_thesis_success_records(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM thesis_success_records ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def record_portfolio_evolution_snapshot(self, snap: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO portfolio_evolution_snapshots (
+                    portfolio_health, live_evidence_score, cumulative_alpha_sp500,
+                    capital_efficiency_score, research_accuracy_pct, nav,
+                    completed_trades_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                float(snap.get("portfolio_health", 74.3)),
+                float(snap.get("live_evidence_score", 12.5)),
+                float(snap.get("cumulative_alpha_sp500", -3.80)),
+                float(snap.get("capital_efficiency_score", 62.5)),
+                float(snap.get("research_accuracy_pct", 74.0)),
+                float(snap.get("nav", 49821.67)),
+                int(snap.get("completed_trades_count", 0))
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_portfolio_evolution_history(self, limit: int = 365) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM portfolio_evolution_snapshots ORDER BY timestamp ASC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
 db = Database()
+
 
 
