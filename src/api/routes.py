@@ -149,6 +149,11 @@ def get_portfolio_summary_fast():
         "active_cycle_name": active_cycle.get("cycle_name") if active_cycle else "Active Cycle",
         "last_broker_sync": getattr(broker, "_last_sync_timestamp", ""),
         "market_status": market_hours.get_market_status(),
+        "calibration_config": {
+            "min_confidence_threshold": settings.MIN_CONFIDENCE_THRESHOLD,
+            "min_net_reward_risk_ratio": settings.MIN_NET_REWARD_RISK_RATIO,
+            "max_position_size_cap_pct": settings.MAX_POSITION_SIZE_CAP_PCT
+        },
         "from_cache": True
     }
 

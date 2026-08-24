@@ -45,8 +45,9 @@ class OrderRouter:
             self._log_audit("HOLD_CASH", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "VETO_RISK")
             return False, reason, {}
 
-        if reward_risk_ratio < settings.MIN_REWARD_RISK_RATIO:
-            reason = f"HOLD CASH: Net Reward/Risk ratio {reward_risk_ratio:.2f} < {settings.MIN_REWARD_RISK_RATIO}."
+        min_net_rr = getattr(settings, "MIN_NET_REWARD_RISK_RATIO", 2.50)
+        if reward_risk_ratio < min_net_rr:
+            reason = f"HOLD CASH: Net Reward/Risk ratio {reward_risk_ratio:.2f} < {min_net_rr:.2f}."
             self._log_audit("HOLD_CASH", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "REJECTED_RR")
             return False, reason, {}
 

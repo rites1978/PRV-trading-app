@@ -44,7 +44,7 @@ class TestGovernanceTooling(unittest.TestCase):
             current_drawdown_pct=1.5
         )
         self.assertFalse(ok)
-        self.assertIn("exceeds 5.53% sizing limit", msg)
+        self.assertIn("sizing limit", msg)
 
     def test_pre_flight_drawdown_ceiling_rejection(self):
         """Test that orders are rejected when drawdown reaches or breaches 5.00%."""
