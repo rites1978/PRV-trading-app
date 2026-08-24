@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -704,6 +705,43 @@ def generate_end_of_day_master_pdf():
     """Generate the unified 20-section End-of-Day Master PDF."""
     path = master_pdf_generator.generate_daily_master_pdf()
     return {"status": "SUCCESS", "report_path": path, "filename": os.path.basename(path)}
+
+@app.get("/api/reports/master_reports")
+def list_master_pdf_reports():
+    """List all available 20-section Master PDF reports in retention storage."""
+    reports_dir = "reports"
+    os.makedirs(reports_dir, exist_ok=True)
+    pdf_files = []
+    for f in sorted(os.listdir(reports_dir), reverse=True):
+        if f.endswith(".pdf"):
+            full_path = os.path.join(reports_dir, f)
+            stat = os.stat(full_path)
+            pdf_files.append({
+                "filename": f,
+                "file_path": full_path,
+                "file_size_kb": round(stat.st_size / 1024, 1),
+                "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                "download_url": f"/api/reports/download/{f}"
+            })
+    return {"reports": pdf_files, "total_count": len(pdf_files)}
+
+@app.get("/api/reports/download/{filename}")
+def download_master_pdf_report(filename: str):
+    """Direct one-click download for Master PDF reports."""
+    clean_filename = os.path.basename(filename)
+    filepath = os.path.join("reports", clean_filename)
+    if not os.path.exists(filepath):
+        if clean_filename.startswith("PRV_DAILY_MASTER_REPORT_"):
+            filepath = master_pdf_generator.generate_daily_master_pdf()
+        else:
+            raise HTTPException(status_code=404, detail="Report PDF not found")
+            
+    return FileResponse(
+        filepath,
+        media_type="application/pdf",
+        filename=clean_filename,
+        headers={"Content-Disposition": f'attachment; filename="{clean_filename}"'}
+    )
 
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard

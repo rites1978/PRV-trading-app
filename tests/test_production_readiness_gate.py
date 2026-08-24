@@ -57,5 +57,27 @@ class TestProductionReadinessGate(unittest.TestCase):
         self.assertIn("readiness_history", data)
         self.assertGreaterEqual(len(data["readiness_history"]), 1)
 
+    def test_04_master_reports_list_and_download_endpoints(self):
+        """Verify GET /api/reports/master_reports and GET /api/reports/download/{filename}."""
+        # First ensure a master PDF is generated
+        gen_res = self.client.post("/api/reports/generate_master_pdf")
+        self.assertEqual(gen_res.status_code, 200)
+        filename = gen_res.json()["filename"]
+
+        # Test listing
+        list_res = self.client.get("/api/reports/master_reports")
+        self.assertEqual(list_res.status_code, 200)
+        list_data = list_res.json()
+        self.assertIn("reports", list_data)
+        self.assertGreaterEqual(list_data["total_count"], 1)
+
+        # Test direct download
+        dl_res = self.client.get(f"/api/reports/download/{filename}")
+        self.assertEqual(dl_res.status_code, 200)
+        self.assertEqual(dl_res.headers.get("content-type"), "application/pdf")
+        self.assertIn("attachment", dl_res.headers.get("content-disposition", ""))
+        self.assertGreater(len(dl_res.content), 1000)
+
 if __name__ == "__main__":
     unittest.main()
+

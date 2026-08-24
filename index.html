@@ -631,15 +631,32 @@
 
             <!-- 0. Daily Executive Report Sub-View -->
             <div id="vReport" class="vault-view active">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
                     <div>
-                        <div style="font-weight:700; font-size:14px; color:var(--accent-blue);">Consolidated Daily Executive Report</div>
+                        <div style="font-weight:700; font-size:14px; color:var(--accent-blue);">Consolidated Daily Executive & Master PDF Reports</div>
                         <div style="font-size:11px; color:var(--text-muted);" id="repDate">Date: Loading...</div>
                     </div>
-                    <button onclick="dispatchDailyReportNow()" style="background:#1e293b; color:var(--accent-blue); border:1px solid var(--accent-blue); padding:5px 10px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;">📤 Dispatch Report</button>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button onclick="downloadLatestMasterPDF()" style="background:#1e3a8a; color:#ffffff; border:1px solid #3b82f6; padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">📥 Download Master PDF</button>
+                        <button onclick="generateFreshMasterPDF()" style="background:#1e293b; color:var(--accent-blue); border:1px solid var(--accent-blue); padding:6px 10px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;">⚡ Generate PDF</button>
+                        <button onclick="dispatchDailyReportNow()" style="background:#1e293b; color:var(--accent-green); border:1px solid var(--accent-green); padding:6px 10px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;">📤 Email Dispatch</button>
+                    </div>
                 </div>
-                <div id="reportContainer" style="background:rgba(0,0,0,0.25); padding:12px; border-radius:10px; font-size:12px; border:1px solid var(--card-border);">
+                <div id="reportContainer" style="background:rgba(0,0,0,0.25); padding:12px; border-radius:10px; font-size:12px; border:1px solid var(--card-border); margin-bottom:12px;">
                     <div style="text-align:center; color:var(--text-muted); padding:16px;">Generating daily executive summary...</div>
+                </div>
+
+                <!-- Master Reports Retention Archives -->
+                <div style="background:rgba(0,0,0,0.20); padding:10px 12px; border-radius:8px; border:1px solid var(--card-border);">
+                    <div style="font-weight:600; font-size:12px; color:var(--accent-blue); margin-bottom:6px;">📁 End-of-Day Master PDF Retention Archives (20-Section)</div>
+                    <table>
+                        <thead>
+                            <tr><th>Report Name</th><th>Created</th><th>Size</th><th>Action</th></tr>
+                        </thead>
+                        <tbody id="masterPdfTableBody">
+                            <tr><td colspan="4" style="text-align:center; color:var(--text-muted);">Loading report archive...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -1302,6 +1319,7 @@
                             </div>
                         </div>
                     `;
+                    loadMasterPDFReportsList();
                 } catch(e) {
                     document.getElementById('reportContainer').innerHTML = '<div style="color:var(--accent-red); padding:10px;">Failed to load daily executive report.</div>';
                 }
@@ -1658,6 +1676,47 @@
                 loadAdminTabData('vCycleLab');
             } catch(e) {
                 alert("Error resetting cycle: " + e);
+            }
+        }
+
+        async function downloadLatestMasterPDF() {
+            const today = new Date().toISOString().slice(0,10).replace(/-/g, "");
+            window.open(API_BASE + `/api/reports/download/PRV_DAILY_MASTER_REPORT_${today}.pdf`, '_blank');
+        }
+
+        async function generateFreshMasterPDF() {
+            try {
+                const res = await fetch(API_BASE + '/api/reports/generate_master_pdf', { method: 'POST' });
+                const data = await res.json();
+                alert(`✅ Master PDF Generated: ${data.filename}`);
+                loadMasterPDFReportsList();
+            } catch(e) {
+                alert("Failed to generate master PDF: " + e);
+            }
+        }
+
+        async function loadMasterPDFReportsList() {
+            try {
+                const res = await fetch(API_BASE + '/api/reports/master_reports');
+                const data = await res.json();
+                const tbody = document.getElementById('masterPdfTableBody');
+                if (!tbody) return;
+                if (!data.reports || data.reports.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:10px;">No archived PDFs yet. Click Generate PDF above.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = data.reports.map(r => `
+                    <tr>
+                        <td style="font-weight:600; color:var(--accent-blue);">${r.filename}</td>
+                        <td style="color:var(--text-secondary);">${new Date(r.created_at).toLocaleString()}</td>
+                        <td style="color:var(--text-muted);">${r.file_size_kb} KB</td>
+                        <td>
+                            <a href="${API_BASE}${r.download_url}" target="_blank" style="background:#1e3a8a; color:#ffffff; padding:4px 8px; border-radius:4px; font-size:10px; font-weight:700; text-decoration:none;">📥 Download</a>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch(e) {
+                console.error("Failed to load master PDF reports:", e);
             }
         }
 
