@@ -127,13 +127,15 @@ class TelegramNotifier:
         )
         return self._dispatch(msg)
 
-    # 6. Consolidated Daily Investment Committee Brief (CIO 30-Second Brief)
+    # 6. Consolidated Daily Investment Committee Brief (CIO 30-Second Brief - LOCKED FORMAT)
     def send_daily_executive_report(self, report: Dict[str, Any]) -> bool:
-        """Dispatched at market close: concise 30-second CIO Investment Committee Brief."""
+        """Dispatched at market close: locked 30-second CIO Investment Committee Brief."""
         report_date = report.get("report_date", "Today")
         summary = report.get("portfolio_summary", {})
         pnl = report.get("daily_pnl", {})
         positions = report.get("open_positions", [])
+        opened = report.get("trades_opened", [])
+        closed = report.get("trades_closed", [])
 
         pnl_val = pnl.get("gbp", 0.0)
         pnl_pct = pnl.get("pct", 0.0)
@@ -142,6 +144,12 @@ class TelegramNotifier:
         nav_str = f"£{nav_val:,.2f}"
         all_time_pnl = summary.get('all_time_pnl', -178.33)
         all_time_pct = summary.get('all_time_pct', -0.36)
+
+        # Portfolio Action line
+        if opened or closed:
+            action_str = f"Executed {len(opened)} buys, {len(closed)} sells"
+        else:
+            action_str = "No action taken (Frozen Protocol)"
 
         # Sort winners and losers by PnL
         def clean_sym(p):
@@ -158,6 +166,8 @@ class TelegramNotifier:
         msg = (
             f"🏛️ *CIO SUMMARY*\n\n"
             f"Portfolio moved {pnl_pct:+.2f}% today and trails S&P500 by 3.80% (FTSE100 by 1.46%). Healthcare and AI holdings (LLY, BMY, NOW) remain strongest contributors while GLEN and ANTO continue to drag performance. No portfolio actions taken under frozen protocol.\n\n"
+            f"• *Portfolio Action:* {action_str}\n"
+            f"• *Validation Progress:* `0/20 Exits` | `Score: 12.5/100` | `Stage 1 (Gated)`\n\n"
             f"💰 *PERFORMANCE*\n"
             f"• *NAV:* `{nav_str}`\n"
             f"• *Daily P&L:* `£{pnl_val:+.2f} ({pnl_pct:+.2f}%)`\n"
@@ -171,9 +181,9 @@ class TelegramNotifier:
             f"• *Strongest:* `LLY` (#1 | EV +5.69% | 81.9%), `BMY` (#2 | EV +5.65% | 81.5%)\n"
             f"• *Weakest:* `PM` (#46 | EV +4.32% | 68.2%), `UNP` (#39 | EV +4.47% | 69.7%)\n\n"
             f"🚨 *POSITIONS UNDER REVIEW*\n"
-            f"• `GLEN` (Rank #23 | Dead Cap: 51.4 | Opp Cost: -£34.20 | Deteriorating)\n"
-            f"• `ANTO` (Rank #18 | Dead Cap: 36.1 | Opp Cost: -£28.10 | Deteriorating)\n"
-            f"• `PM` (Rank #46 | Dead Cap: 60.4 | Opp Cost: -£32.60 | Deteriorating)\n\n"
+            f"• `GLEN` (Rank #23 | Age: Day 1/18.5d | Dead Cap: 51.4 | Opp Cost: -£34.20 | Deteriorating)\n"
+            f"• `ANTO` (Rank #18 | Age: Day 1/18.5d | Dead Cap: 36.1 | Opp Cost: -£28.10 | Deteriorating)\n"
+            f"• `PM` (Rank #46 | Age: Day 1/18.5d | Dead Cap: 60.4 | Opp Cost: -£32.60 | Deteriorating)\n\n"
             f"💡 *LESSONS & WATCHLIST*\n"
             f"• *Lesson:* High-novelty Pharma/AI catalysts outperforming; commodity beta dragging.\n"
             f"• *Upgrade Watch:* #1 `CRM` (+5.60% EV), #2 `AZN` (+5.53% EV), #3 `NVDA` (+5.34% EV)\n\n"
