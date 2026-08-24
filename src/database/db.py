@@ -581,6 +581,22 @@ CREATE TABLE IF NOT EXISTS institutional_scorecards (
     institutional_readiness_score REAL NOT NULL,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS premarket_readiness_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    overall_status TEXT NOT NULL CHECK (overall_status IN ('READY FOR TRADING', 'NOT READY FOR TRADING')),
+    infrastructure_status TEXT NOT NULL,
+    broker_status TEXT NOT NULL,
+    data_status TEXT NOT NULL,
+    research_status TEXT NOT NULL,
+    phase2_status TEXT NOT NULL,
+    phase4_status TEXT NOT NULL,
+    phase5_status TEXT NOT NULL,
+    reporting_status TEXT NOT NULL,
+    details_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_readiness_time ON premarket_readiness_checks(timestamp);
 """
 
 class Database:
@@ -1353,7 +1369,47 @@ class Database:
             cur.execute("SELECT * FROM portfolio_evolution_snapshots ORDER BY timestamp ASC LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
 
+    # --- Pre-Market Production Readiness Gate Methods ---
+    def record_readiness_check(self, check: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO premarket_readiness_checks (
+                    overall_status, infrastructure_status, broker_status,
+                    data_status, research_status, phase2_status,
+                    phase4_status, phase5_status, reporting_status,
+                    details_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                check.get("overall_status", "READY FOR TRADING"),
+                check.get("infrastructure_status", "PASS"),
+                check.get("broker_status", "PASS"),
+                check.get("data_status", "PASS"),
+                check.get("research_status", "PASS"),
+                check.get("phase2_status", "PASS"),
+                check.get("phase4_status", "PASS"),
+                check.get("phase5_status", "PASS"),
+                check.get("reporting_status", "PASS"),
+                json.dumps(check.get("details", {}))
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_latest_readiness_check(self) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM premarket_readiness_checks ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_readiness_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM premarket_readiness_checks ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
 db = Database()
+
 
 
 

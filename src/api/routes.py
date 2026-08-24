@@ -685,6 +685,26 @@ def get_institutional_scorecard():
     """Phase 5 Engine 5: Institutional Readiness Scorecard."""
     return institutional_scorecard_engine.get_institutional_scorecard()
 
+# --- Pre-Market Production Readiness Gate & Master PDF Endpoints ---
+from src.monitoring.production_readiness_gate import readiness_gate
+from src.reporting.master_pdf_generator import master_pdf_generator
+
+@app.get("/api/readiness/gate")
+def get_production_readiness_gate():
+    """Pre-Market 8-Stage Health Check and Readiness Gate."""
+    return readiness_gate.evaluate_readiness_gate()
+
+@app.get("/api/readiness/history")
+def get_production_readiness_history():
+    """Historical Pre-Market Readiness Logs."""
+    return {"readiness_history": db.get_readiness_history(limit=50)}
+
+@app.post("/api/reports/generate_master_pdf")
+def generate_end_of_day_master_pdf():
+    """Generate the unified 20-section End-of-Day Master PDF."""
+    path = master_pdf_generator.generate_daily_master_pdf()
+    return {"status": "SUCCESS", "report_path": path, "filename": os.path.basename(path)}
+
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard
 from src.governance.evidence_ledger import evidence_ledger
