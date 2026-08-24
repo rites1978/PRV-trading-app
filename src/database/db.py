@@ -461,6 +461,62 @@ CREATE TABLE IF NOT EXISTS portfolio_evolution_snapshots (
     completed_trades_count INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_evolution_time ON portfolio_evolution_snapshots(timestamp);
+
+CREATE TABLE IF NOT EXISTS exit_quality_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    exit_type TEXT NOT NULL,
+    realized_pnl REAL NOT NULL,
+    mfe_pct REAL NOT NULL,
+    mae_pct REAL NOT NULL,
+    exit_efficiency_pct REAL NOT NULL,
+    slippage_bps REAL NOT NULL,
+    evaluated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS position_upgrade_opportunities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    current_symbol TEXT NOT NULL,
+    current_rank INTEGER NOT NULL,
+    current_ev REAL NOT NULL,
+    upgrade_candidate_symbol TEXT NOT NULL,
+    candidate_rank INTEGER NOT NULL,
+    candidate_ev REAL NOT NULL,
+    ev_differential_pct REAL NOT NULL,
+    detected_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS capital_recycling_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_symbol TEXT NOT NULL,
+    capital_freed_gbp REAL NOT NULL,
+    reinvested_symbol TEXT NOT NULL,
+    reinvested_amount_gbp REAL NOT NULL,
+    recycling_reason TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS alpha_contribution_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    weight_pct REAL NOT NULL,
+    realized_alpha_bps REAL NOT NULL,
+    contribution_category TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_concentration_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    max_single_stock_pct REAL NOT NULL,
+    max_sector_name TEXT NOT NULL,
+    max_sector_pct REAL NOT NULL,
+    currency_usd_pct REAL NOT NULL,
+    currency_gbp_pct REAL NOT NULL,
+    hhi_index REAL NOT NULL,
+    risk_status TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 class Database:

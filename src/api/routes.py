@@ -617,6 +617,40 @@ def get_portfolio_evolution_dashboard():
     """Module 5: Portfolio Evolution Multi-Horizon Trends."""
     return evolution_dashboard.get_evolution_dashboard()
 
+# --- Phase 4 Execution Intelligence Endpoints ---
+from src.analytics.phase4_execution_intelligence import (
+    exit_quality_engine,
+    position_upgrade_engine,
+    capital_recycling_engine,
+    alpha_contribution_engine,
+    concentration_risk_engine
+)
+
+@app.get("/api/execution/exit_quality")
+def get_execution_exit_quality():
+    """Phase 4 Engine 1: Exit Quality Analytics."""
+    return exit_quality_engine.get_exit_quality_metrics()
+
+@app.get("/api/execution/position_upgrades")
+def get_execution_position_upgrades():
+    """Phase 4 Engine 2: Position Upgrade Matrix."""
+    return position_upgrade_engine.get_position_upgrades()
+
+@app.get("/api/execution/capital_recycling")
+def get_execution_capital_recycling():
+    """Phase 4 Engine 3: Capital Recycling Velocity."""
+    return capital_recycling_engine.get_capital_recycling_metrics()
+
+@app.get("/api/execution/alpha_contributions")
+def get_execution_alpha_contributions():
+    """Phase 4 Engine 4: Alpha Contribution per Holding."""
+    return alpha_contribution_engine.get_alpha_contributions()
+
+@app.get("/api/execution/concentration_risk")
+def get_execution_concentration_risk():
+    """Phase 4 Engine 5: Portfolio Concentration Risk Audit."""
+    return concentration_risk_engine.get_concentration_risk_audit()
+
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard
 from src.governance.evidence_ledger import evidence_ledger
