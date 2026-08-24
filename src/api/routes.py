@@ -823,9 +823,15 @@ def get_daily_executive_report(date: Optional[str] = None):
 
 @app.post("/api/reports/dispatch")
 def dispatch_daily_executive_report(date: Optional[str] = None):
-    """Manually or automatically dispatch Daily Executive Report to Telegram and Email."""
+    """Manually or automatically dispatch End-of-Day CIO Brief to Telegram and Email."""
     results = daily_report_service.dispatch_daily_report(report_date=date)
     return {"status": "dispatched", "channels": results}
+
+@app.post("/api/telegram/premarket_brief")
+def dispatch_premarket_cio_brief():
+    """Dispatch Pre-Market CIO Brief at 08:20 UK Time."""
+    res = daily_report_service.dispatch_premarket_brief()
+    return {"status": "dispatched", "telegram_sent": res}
 
 @app.get("/api/reports/history")
 def get_daily_reports_history(limit: int = 30):

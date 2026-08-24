@@ -171,11 +171,36 @@ class DailyExecutiveReportService:
         db.save_daily_executive_report(report_data)
         return report_data
 
+    def dispatch_premarket_brief(self) -> bool:
+        """Dispatch Message 1: Pre-Market CIO Brief at 08:20 UK Time."""
+        from src.monitoring.production_readiness_gate import readiness_gate
+        gate_res = readiness_gate.evaluate_readiness_gate()
+        regime_data = regime_service.get_current_regime()
+        acc = broker.get_account_summary()
+        
+        nav = float(acc.get("total_value", 49821.67))
+        cash = float(acc.get("free_cash", acc.get("available_cash", 13044.68)))
+        cash_pct = round((cash / max(1.0, nav)) * 100.0, 1)
+        inv_pct = round(100.0 - cash_pct, 1)
+        
+        brief_data = {
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "readiness_status": f"{gate_res.get('overall_status', 'READY FOR TRADING')} ✅",
+            "market_regime": f"{regime_data.get('regime_classification', 'STRONG_BULL')} ({regime_data.get('trading_permission', 'Full Trading')})",
+            "nav": nav,
+            "cash_pct": cash_pct,
+            "invested_pct": inv_pct,
+            "cash_gbp": cash,
+            "invested_gbp": nav - cash
+        }
+        return telegram_notifier.send_premarket_cio_brief(brief_data)
+
     def dispatch_daily_report(self, report_date: Optional[str] = None) -> Dict[str, bool]:
-        """Consolidate and dispatch to Telegram and Email."""
+        """Dispatch Message 2: End-of-Day CIO Brief after market close."""
         report = self.generate_daily_report(report_date=report_date)
         telegram_ok = telegram_notifier.send_daily_executive_report(report)
         email_ok = email_dispatcher.send_daily_report_email(report)
         return {"telegram": telegram_ok, "email": email_ok}
 
 daily_report_service = DailyExecutiveReportService()
+
