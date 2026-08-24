@@ -105,11 +105,15 @@ class ExposureBasedRiskEngine:
         return True, f"Drawdown nominal ({drawdown * 100:+.2f}%).", []
 
     def calculate_portfolio_capital_at_risk(self, current_positions: List[Dict[str, Any]]) -> float:
-        """Calculate total capital at risk if all open positions hit their stop-losses."""
+        """Calculate total capital at risk if all open positions hit their stop-losses in GBP."""
         total_risk = 0.0
         for pos in current_positions:
             qty = float(pos.get("quantity", 0))
             avg_p = float(pos.get("averagePrice", 0))
+            ticker = str(pos.get("ticker", ""))
+            # Trading212 UK tickers (e.g. ANTOl_EQ) quote in pence (GBX)
+            if ticker.endswith("l_EQ") or ticker.endswith(".L"):
+                avg_p /= 100.0
             stop_p = avg_p * (1.0 - settings.DEFAULT_STOP_LOSS_PCT)
             pos_risk = qty * (avg_p - stop_p)
             total_risk += max(0.0, pos_risk)
@@ -160,16 +164,25 @@ class ExposureBasedRiskEngine:
         existing_pos = next((p for p in current_positions if p.get("symbol") == symbol or p.get("ticker") == t212_ticker), None)
         current_holding_val = 0.0
         if existing_pos:
-            current_holding_val = float(existing_pos.get("quantity", 0)) * float(existing_pos.get("currentPrice", 0))
+            p_price = float(existing_pos.get("currentPrice", 0))
+            if str(existing_pos.get("ticker", "")).endswith("l_EQ"):
+                p_price /= 100.0
+            current_holding_val = float(existing_pos.get("quantity", 0)) * p_price
 
         max_pos_cap = core_capital * self.max_position_cap_pct
         if (current_holding_val + order_cost) > (max_pos_cap + 1.0):
             return False, f"VETO: Total position value (£{current_holding_val + order_cost:.2f}) exceeds maximum position cap of £{max_pos_cap:.2f} (8% of Core Capital)."
 
-        current_sector_exposure = sum(
-            float(p.get("currentPrice", 0)) * float(p.get("quantity", 0))
-            for p in current_positions if p.get("sector") == sector or p.get("ticker") == t212_ticker
-        )
+        current_sector_exposure = 0.0
+        for p in current_positions:
+            p_tick = str(p.get("ticker", ""))
+            p_sec = p.get("sector")
+            if p_sec == sector or p_tick == t212_ticker:
+                p_price = float(p.get("currentPrice", 0))
+                if p_tick.endswith("l_EQ"):
+                    p_price /= 100.0
+                current_sector_exposure += float(p.get("quantity", 0)) * p_price
+
         max_sector_cap = core_capital * self.max_sector_pct
         if (current_sector_exposure + order_cost) > (max_sector_cap + 1.0):
             return False, f"VETO: Sector exposure for '{sector}' (£{current_sector_exposure + order_cost:.2f}) exceeds limit of £{max_sector_cap:.2f} (30%)."

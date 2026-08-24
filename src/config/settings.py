@@ -28,7 +28,7 @@ class TradingSettings(BaseModel):
     DEFAULT_STOP_LOSS_PCT: float = 0.025    # 2.5% stop loss
     DEFAULT_TAKE_PROFIT_PCT: float = 0.075  # 7.5% take profit (3:1 Gross R:R target)
     MIN_REWARD_RISK_RATIO: float = 3.0      # 3:1 Gross Reward to Risk
-    MIN_NET_REWARD_RISK_RATIO: float = 2.50 # 2.50:1 Net Reward to Risk after friction
+    MIN_NET_REWARD_RISK_RATIO: float = 2.20 # 2.20:1 Net Reward to Risk after friction
     
     # Execution Filters & Friction Model
     MIN_CONFIDENCE_THRESHOLD: float = 75.0  # Technical entry threshold (calibrated for alpha purity)

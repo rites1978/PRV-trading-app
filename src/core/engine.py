@@ -1,5 +1,6 @@
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import pandas as pd
@@ -241,9 +242,8 @@ class PRVQuantEngine:
 
         # 6. Quantitative Universe Scanning & Dynamic Sizing (3% - 8%)
         universe = universe_manager.get_all()
-        candidates = []
 
-        for item in universe:
+        def _evaluate_single_candidate(item):
             symbol = item["symbol"]
             yf_ticker = item["yf_ticker"]
             t212_ticker = item["t212_ticker"]
@@ -254,12 +254,12 @@ class PRVQuantEngine:
 
             # Market Hours Gate: Only scan assets when their domestic exchange is active
             if not market_hours.is_asset_market_open(item.get("country", "US")):
-                continue
+                return None
 
             # Event Risk Blackout Gate
             event_safe, event_reason, event_meta = event_risk_engine.evaluate_event_blackout(symbol, yf_ticker)
             if not event_safe:
-                continue
+                return None
 
             existing_pos = holding_map.get(t212_ticker)
             current_holding_val = 0.0
@@ -268,7 +268,7 @@ class PRVQuantEngine:
 
             snapshot = market_data.get_market_snapshot(yf_ticker, is_uk_pence=is_uk_pence)
             if not snapshot.get("success"):
-                continue
+                return None
 
             price = snapshot["current_price"]
             atr = snapshot["indicators"]["atr"]
@@ -299,7 +299,7 @@ class PRVQuantEngine:
             )
 
             if units <= 0 or nominal_cost < 50.0:
-                continue
+                return None
 
             stop_loss_price = price * (1.0 - settings.DEFAULT_STOP_LOSS_PCT)
             target_price = price * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT)
@@ -373,7 +373,7 @@ class PRVQuantEngine:
                 "boardroom_votes": decision_data
             })
 
-            candidates.append({
+            return {
                 "symbol": symbol,
                 "t212_ticker": t212_ticker,
                 "sector": sector,
@@ -389,7 +389,12 @@ class PRVQuantEngine:
                 "risk_approved": risk_approved,
                 "sizing_meta": sizing_meta,
                 "alpha_breakdown": alpha_breakdown
-            })
+            }
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            scanned_results = list(executor.map(_evaluate_single_candidate, universe))
+
+        candidates = [c for c in scanned_results if c is not None]
 
         # 7. Sort by highest confidence and deploy capital
         candidates.sort(key=lambda x: x["confidence"], reverse=True)
