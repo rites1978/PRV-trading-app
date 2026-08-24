@@ -575,6 +575,14 @@ def get_phase2_lessons():
     """Module 10: Learning Engine Top Lessons."""
     return phase2_intelligence.get_learning_engine_lessons()
 
+# --- Evidence Classification Engine Endpoints ---
+from src.analytics.evidence_classification_engine import evidence_classifier
+
+@app.get("/api/evidence/classification_dashboard")
+def get_evidence_classification_dashboard():
+    """Complete platform-wide 4-tier Evidence Classification Dashboard."""
+    return evidence_classifier.get_platform_evidence_dashboard()
+
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard
 from src.governance.evidence_ledger import evidence_ledger
