@@ -1,5 +1,6 @@
 from typing import Dict, Any, Tuple
 from datetime import datetime
+import time
 from src.config.settings import settings
 from src.brokers.trading212 import broker
 from src.database.db import db
@@ -62,7 +63,7 @@ class OrderRouter:
             return False, reason, {}
 
         # 2. Execution Routing
-        trade_id = f"PRV_{int(datetime.now().timestamp())}_{symbol}"
+        trade_id = f"PRV_{int(time.time() * 1000)}_{symbol}"
         trade_reason = f"Confidence: {confidence_score}% | R:R: {reward_risk_ratio:.2f} | Regime: {market_regime}"
         
         friction = cost_evaluation.get("friction_breakdown", {})

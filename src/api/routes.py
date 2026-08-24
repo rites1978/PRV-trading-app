@@ -11,6 +11,7 @@ from src.brokers.trading212 import broker
 from src.portfolio.capital_manager import capital_manager
 from src.cycles.cycle_manager import cycle_manager
 from src.cycles.comparison_engine import comparison_engine
+from src.config.settings import settings
 
 class CycleResetRequest(BaseModel):
     cycle_name: Optional[str] = None
