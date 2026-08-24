@@ -651,6 +651,40 @@ def get_execution_concentration_risk():
     """Phase 4 Engine 5: Portfolio Concentration Risk Audit."""
     return concentration_risk_engine.get_concentration_risk_audit()
 
+# --- Phase 5 Portfolio Operating System Endpoints ---
+from src.analytics.phase5_portfolio_operating_system import (
+    trade_journey_engine,
+    decision_quality_engine,
+    edge_decay_engine,
+    benchmark_dominance_engine,
+    institutional_scorecard_engine
+)
+
+@app.get("/api/trade/journeys")
+def get_trade_journeys():
+    """Phase 5 Engine 1: Trade Lifecycle Journeys."""
+    return {"trade_journeys": trade_journey_engine.get_trade_journeys()}
+
+@app.get("/api/decisions/quality")
+def get_decisions_quality():
+    """Phase 5 Engine 2: Decision Quality Records."""
+    return decision_quality_engine.get_decision_quality()
+
+@app.get("/api/edge/decay")
+def get_edge_decay():
+    """Phase 5 Engine 3: Edge Decay Analytics."""
+    return edge_decay_engine.get_edge_decay()
+
+@app.get("/api/alpha/dominance")
+def get_alpha_dominance():
+    """Phase 5 Engine 4: Benchmark Dominance."""
+    return benchmark_dominance_engine.get_benchmark_dominance()
+
+@app.get("/api/institutional/scorecard")
+def get_institutional_scorecard():
+    """Phase 5 Engine 5: Institutional Readiness Scorecard."""
+    return institutional_scorecard_engine.get_institutional_scorecard()
+
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard
 from src.governance.evidence_ledger import evidence_ledger

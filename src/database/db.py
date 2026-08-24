@@ -517,6 +517,70 @@ CREATE TABLE IF NOT EXISTS portfolio_concentration_audits (
     risk_status TEXT NOT NULL,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS trade_journeys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    entry_timestamp DATETIME NOT NULL,
+    peak_gain_pct REAL NOT NULL,
+    peak_loss_pct REAL NOT NULL,
+    exit_price REAL,
+    exit_timestamp DATETIME,
+    mfe_pct REAL NOT NULL,
+    mae_pct REAL NOT NULL,
+    time_to_peak_hours REAL NOT NULL,
+    time_to_exit_hours REAL,
+    profit_capture_pct REAL,
+    status TEXT NOT NULL DEFAULT 'OPEN'
+);
+CREATE INDEX IF NOT EXISTS idx_journey_sym ON trade_journeys(symbol);
+
+CREATE TABLE IF NOT EXISTS decision_quality_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_id TEXT NOT NULL,
+    decision_type TEXT NOT NULL CHECK (decision_type IN ('BUY', 'HOLD', 'SELL', 'REDUCE', 'INCREASE')),
+    symbol TEXT NOT NULL,
+    decision_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    evaluated_outcome TEXT NOT NULL CHECK (evaluated_outcome IN ('CORRECT', 'NEUTRAL', 'INCORRECT', 'PENDING')),
+    decision_quality_score REAL NOT NULL,
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS edge_decay_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    day_horizon INTEGER NOT NULL,
+    alpha_decay_pct REAL NOT NULL,
+    probability_decay_pct REAL NOT NULL,
+    catalyst_decay_status TEXT NOT NULL,
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS benchmark_dominance_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    winning_days_pct REAL NOT NULL,
+    winning_weeks_pct REAL NOT NULL,
+    winning_months_pct REAL NOT NULL,
+    rolling_alpha_sp500 REAL NOT NULL,
+    rolling_alpha_ftse100 REAL NOT NULL,
+    cash_outperformance_pct REAL NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS institutional_scorecards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_health REAL NOT NULL,
+    live_evidence_score REAL NOT NULL,
+    alpha_score REAL NOT NULL,
+    research_quality REAL NOT NULL,
+    capital_efficiency REAL NOT NULL,
+    risk_quality REAL NOT NULL,
+    execution_quality REAL NOT NULL,
+    institutional_readiness_score REAL NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 class Database:
