@@ -358,8 +358,62 @@ CREATE TABLE IF NOT EXISTS research_predictions (
     thesis_correct INTEGER DEFAULT NULL,
     notes TEXT DEFAULT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_pred_symbol ON research_predictions(symbol);
-CREATE INDEX IF NOT EXISTS idx_pred_status ON research_predictions(status);
+CREATE TABLE IF NOT EXISTS thesis_drift_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    date TEXT NOT NULL,
+    original_thesis TEXT NOT NULL,
+    original_catalyst TEXT NOT NULL,
+    original_ev REAL NOT NULL,
+    original_probability REAL NOT NULL,
+    thesis_strength REAL NOT NULL,
+    catalyst_status TEXT NOT NULL,
+    thesis_integrity TEXT NOT NULL CHECK (thesis_integrity IN ('STRENGTHENING', 'UNCHANGED', 'DETERIORATING')),
+    drift_reason TEXT NOT NULL,
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_drift_sym_date ON thesis_drift_records(symbol, date);
+
+CREATE TABLE IF NOT EXISTS regime_performance_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    regime TEXT NOT NULL UNIQUE,
+    win_rate REAL NOT NULL,
+    profit_factor REAL NOT NULL,
+    alpha_vs_sp500 REAL NOT NULL,
+    alpha_vs_ftse100 REAL NOT NULL,
+    average_trade_return REAL NOT NULL,
+    average_holding_period_days REAL NOT NULL,
+    sample_trades_count INTEGER NOT NULL,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_health_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    health_score REAL NOT NULL,
+    trend TEXT NOT NULL CHECK (trend IN ('IMPROVING', 'STABLE', 'DETERIORATING')),
+    research_accuracy_subscore REAL NOT NULL,
+    capital_efficiency_subscore REAL NOT NULL,
+    ranking_quality_subscore REAL NOT NULL,
+    probability_calibration_subscore REAL NOT NULL,
+    benchmark_alpha_subscore REAL NOT NULL,
+    regime_performance_subscore REAL NOT NULL,
+    risk_control_subscore REAL NOT NULL,
+    summary_notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS learning_engine_lessons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    lesson_category TEXT NOT NULL,
+    best_alpha_source TEXT NOT NULL,
+    worst_alpha_source TEXT NOT NULL,
+    optimal_holding_period_days REAL NOT NULL,
+    best_regime TEXT NOT NULL,
+    worst_regime TEXT NOT NULL,
+    empirical_evidence TEXT NOT NULL,
+    actionable_insight TEXT NOT NULL
+);
 """
 
 class Database:

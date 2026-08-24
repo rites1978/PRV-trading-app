@@ -547,6 +547,34 @@ def get_research_capital_efficiency():
     sb = research_scoreboard.get_full_scoreboard()
     return {"capital_efficiency_dashboard": sb["capital_efficiency_dashboard"]}
 
+# --- Phase 2 Intelligence Layer Endpoints ---
+from src.analytics.phase2_intelligence_layer import phase2_intelligence
+
+@app.get("/api/intelligence/phase2_dashboard")
+def get_phase2_intelligence_dashboard():
+    """Complete Phase 2 Intelligence & Learning Layer payload."""
+    return phase2_intelligence.get_phase2_full_intelligence_dashboard()
+
+@app.get("/api/intelligence/regimes")
+def get_phase2_regimes():
+    """Module 1: Market Regime Intelligence."""
+    return phase2_intelligence.get_market_regime_intelligence()
+
+@app.get("/api/intelligence/thesis_drift")
+def get_phase2_thesis_drift():
+    """Module 2: Thesis Drift Monitor."""
+    return {"thesis_drift": phase2_intelligence.get_thesis_drift_monitor()}
+
+@app.get("/api/intelligence/portfolio_health")
+def get_phase2_portfolio_health():
+    """Module 9: Portfolio Health Score."""
+    return phase2_intelligence.get_portfolio_health_score()
+
+@app.get("/api/intelligence/lessons")
+def get_phase2_lessons():
+    """Module 10: Learning Engine Top Lessons."""
+    return phase2_intelligence.get_learning_engine_lessons()
+
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard
 from src.governance.evidence_ledger import evidence_ledger
