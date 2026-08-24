@@ -145,6 +145,7 @@ class PRVQuantEngine:
             # Fetch ATR for Trailing Stop
             yf_ticker = t212_ticker.replace("_US_EQ", "").replace("_EQ", "").replace("l", ".L")
             snap = market_data.get_market_snapshot(yf_ticker)
+            atr = snap["indicators"]["atr"] if (snap.get("success") and "atr" in snap.get("indicators", {})) else (avg_price * 0.02)
             # Phase 38 Protocol: Fixed -2.5% for Trades 1-50; Dynamic 2.5x ATR for Trades 51+
             total_historical_trades = len(db.get_trades(limit=500))
             if total_historical_trades < 50:
