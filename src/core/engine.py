@@ -42,7 +42,7 @@ class PRVQuantEngine:
             return
         
         self.is_running: bool = False
-        self.paper_mode: bool = (settings.TRADING_ENV == "demo")
+        self.paper_mode: bool = getattr(settings, "DRY_RUN_PAPER_ONLY", False)
         self.scan_interval: int = settings.SCAN_INTERVAL_SECONDS
         self.notifier = TelegramNotifier()
         

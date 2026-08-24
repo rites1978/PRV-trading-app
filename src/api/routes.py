@@ -199,24 +199,38 @@ def get_portfolio_positions():
     enriched_positions = []
     total_unrealized_pnl = 0.0
     for pos in positions:
+        full_ticker = pos.get("ticker", "")
         avg_p = float(pos.get("averagePrice", 0.0))
         cur_p = float(pos.get("currentPrice", avg_p))
         qty = float(pos.get("quantity", 0.0))
-        ppl = float(pos.get("ppl", (cur_p - avg_p) * qty))
+        ppl = float(pos.get("ppl", 0.0))
+        
+        # Trading212 reports UK stock prices in pence (GBX)
+        is_uk = full_ticker.endswith("l_EQ") or full_ticker.endswith("_UK_EQ")
+        if is_uk and avg_p > 100:
+            avg_p_gbp = avg_p / 100.0
+            cur_p_gbp = cur_p / 100.0
+        else:
+            avg_p_gbp = avg_p
+            cur_p_gbp = cur_p
+
+        cur_val = round(cur_p_gbp * qty, 2)
         pct = round(((cur_p - avg_p) / max(0.001, avg_p)) * 100.0, 2) if avg_p > 0 else 0.0
         total_unrealized_pnl += ppl
+
+        display_ticker = full_ticker.replace("l_EQ", "").replace("_US_EQ", "").replace("_EQ", "").replace("_UK_EQ", "")
         enriched_positions.append({
-            "ticker": pos.get("ticker", "").replace("_US_EQ", "").replace("_EQ", ""),
-            "full_ticker": pos.get("ticker", ""),
+            "ticker": display_ticker,
+            "full_ticker": full_ticker,
             "quantity": qty,
-            "current_price": cur_p,
-            "current_value": round(cur_p * qty, 2),
+            "current_price": round(cur_p_gbp, 2),
+            "current_value": cur_val,
             "unrealized_pnl": round(ppl, 2),
             "return_pct": pct
         })
         
-    winners = sorted([p for p in enriched_positions if p["unrealized_pnl"] >= 0], key=lambda x: x["return_pct"], reverse=True)[:3]
-    losers = sorted([p for p in enriched_positions if p["unrealized_pnl"] < 0], key=lambda x: x["return_pct"])[:3]
+    winners = sorted([p for p in enriched_positions if p["unrealized_pnl"] >= 0], key=lambda x: x["return_pct"], reverse=True)[:5]
+    losers = sorted([p for p in enriched_positions if p["unrealized_pnl"] < 0], key=lambda x: x["return_pct"])[:5]
     
     return {
         "top_winners": winners,

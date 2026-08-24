@@ -95,7 +95,7 @@ class Trading212Broker:
                     tot_val = float(data.get("totalValue", 0.0))
                     avail_cash = float(data.get("cash", {}).get("availableToTrade", 0.0))
                     free_cash = float(data.get("cash", {}).get("free", 0.0))
-                    invested = tot_val - avail_cash
+                    invested = float(data.get("investments", {}).get("currentValue", 0.0))
                     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
                     summary = {
@@ -115,6 +115,7 @@ class Trading212Broker:
                     self._cached_summary_time = now
                     self._last_verified_nav = tot_val
                     self._last_verified_cash = avail_cash
+                    self._last_verified_invested = invested
                     self._last_sync_timestamp = now_str
 
                     # Record to persistent SQLite audit ledger
