@@ -525,6 +525,14 @@ def get_integrity_alerts(limit: int = 50):
     """Retrieve recent data integrity alerts."""
     return parity_monitor.get_integrity_alerts(limit=limit)
 
+# --- Live Alpha Validation Protocol Endpoints ---
+from src.monitoring.live_alpha_validator import live_alpha_validator
+
+@app.get("/api/validation/live_scorecards")
+def get_live_validation_scorecards():
+    """Live multi-horizon scorecard for rolling 20, rolling 50, and benchmark validation."""
+    return live_alpha_validator.get_live_validation_scorecard()
+
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard
 from src.governance.evidence_ledger import evidence_ledger
