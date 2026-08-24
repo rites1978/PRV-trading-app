@@ -26,8 +26,9 @@ app = FastAPI(
 
 @app.on_event("startup")
 def on_startup():
-    """Start background 60s broker snapshot refresh worker on API boot."""
+    """Start background 60s broker snapshot refresh worker & autonomous quant engine on API boot."""
     broker.start_background_sync(interval_seconds=60)
+    quant_engine.start()
 
 # Enable CORS for web and mobile clients
 app.add_middleware(
@@ -147,6 +148,7 @@ def get_portfolio_summary_fast():
         "active_cycle_id": cycle_id,
         "active_cycle_name": active_cycle.get("cycle_name") if active_cycle else "Active Cycle",
         "last_broker_sync": getattr(broker, "_last_sync_timestamp", ""),
+        "market_status": market_hours.get_market_status(),
         "from_cache": True
     }
 

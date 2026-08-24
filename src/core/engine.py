@@ -96,6 +96,7 @@ class PRVQuantEngine:
             open_positions=open_positions,
             is_paper=self.paper_mode
         )
+        daily_drawdown = max(0.0, (risk_engine.day_start_nav - total_nav) / max(1.0, risk_engine.day_start_nav)) if risk_engine.day_start_nav > 0 else 0.0
         if not safe:
             self.notifier.notify_alert("CRITICAL CIRCUIT BREAKER TRIPPED", f"{circuit_msg} | Derisked: {derisked}")
             return {"success": False, "circuit_breaker": True, "message": circuit_msg, "derisked": derisked}

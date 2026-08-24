@@ -1084,6 +1084,29 @@
                     if (parSync) parSync.innerText = fastData.last_broker_sync;
                 }
 
+                // 4. Dynamic Market Hours & Session State
+                if (fastData.market_status) {
+                    const mBadge = document.getElementById('marketBadge');
+                    const mText = document.getElementById('marketText');
+                    if (mBadge && mText) {
+                        const ukOpen = fastData.market_status.uk_market_open;
+                        const usOpen = fastData.market_status.us_market_open;
+                        if (ukOpen && usOpen) {
+                            mBadge.className = 'market-badge';
+                            mText.innerText = 'UK & US MARKETS OPEN';
+                        } else if (ukOpen) {
+                            mBadge.className = 'market-badge';
+                            mText.innerText = 'UK MARKET OPEN';
+                        } else if (usOpen) {
+                            mBadge.className = 'market-badge';
+                            mText.innerText = 'US MARKET OPEN';
+                        } else {
+                            mBadge.className = 'market-badge closed';
+                            mText.innerText = 'MARKETS CLOSED';
+                        }
+                    }
+                }
+
                 updateHeroBadge();
             } catch(e) {
                 console.warn("Fast summary poll skipped/error:", e);
