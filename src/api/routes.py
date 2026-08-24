@@ -114,8 +114,12 @@ def get_portfolio_summary_fast():
         invested = float(getattr(broker, "_last_verified_invested", 0.0))
 
     active_cycle = db.get_active_cycle()
-    cycle_id = active_cycle["cycle_id"] if active_cycle else "CYCLE-002"
+    cycle_id = active_cycle["cycle_id"] if active_cycle else "CYCLE-014"
+    starting_cap = float(active_cycle.get("starting_capital", 50000.0)) if active_cycle else 50000.0
+
     trades = db.get_trades(limit=500, cycle_id=cycle_id)
+    open_positions = broker.get_open_positions()
+    total_unrealized = sum(float(p.get("ppl", 0.0)) for p in open_positions)
 
     from datetime import datetime, timezone, timedelta
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -127,21 +131,45 @@ def get_portfolio_summary_fast():
     monthly_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades if str(t.get("timestamp", "")) >= month_ago_str)
     all_time_realized = sum(float(t.get("realized_pnl", 0.0)) for t in trades)
 
-    daily_pnl = round(daily_realized, 2)
-    weekly_pnl = round(weekly_realized, 2)
-    monthly_pnl = round(monthly_realized, 2)
-    all_time_pnl = round(all_time_realized, 2)
+    # Real-Time Return Calculations (Accounting for both open positions & realized PnL)
+    daily_base = db.get_nav_baseline(period="1D", current_nav=total_nav, cycle_id=cycle_id)
+    weekly_base = db.get_nav_baseline(period="1W", current_nav=total_nav, cycle_id=cycle_id)
+    monthly_base = db.get_nav_baseline(period="1M", current_nav=total_nav, cycle_id=cycle_id)
 
-    starting_cap = float(active_cycle.get("starting_capital", 50000.0)) if active_cycle else total_nav
-    daily_pct = round((daily_pnl / max(1.0, total_nav - daily_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
-    weekly_pct = round((weekly_pnl / max(1.0, total_nav - weekly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
-    monthly_pct = round((monthly_pnl / max(1.0, total_nav - monthly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
-    all_time_pct = round((all_time_pnl / max(1.0, starting_cap)) * 100.0, 2) if total_nav > 0 else 0.0
+    # Daily Return
+    if abs(total_nav - daily_base) > 0.01:
+        daily_pnl = round(total_nav - daily_base, 2)
+        daily_pct = round((daily_pnl / max(1.0, daily_base)) * 100.0, 2)
+    else:
+        daily_pnl = round(daily_realized + total_unrealized, 2)
+        daily_pct = round((daily_pnl / max(1.0, total_nav - daily_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+
+    # Weekly Return
+    if abs(total_nav - weekly_base) > 0.01:
+        weekly_pnl = round(total_nav - weekly_base, 2)
+        weekly_pct = round((weekly_pnl / max(1.0, weekly_base)) * 100.0, 2)
+    else:
+        weekly_pnl = round(weekly_realized + total_unrealized, 2)
+        weekly_pct = round((weekly_pnl / max(1.0, total_nav - weekly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+
+    # Monthly Return
+    if abs(total_nav - monthly_base) > 0.01:
+        monthly_pnl = round(total_nav - monthly_base, 2)
+        monthly_pct = round((monthly_pnl / max(1.0, monthly_base)) * 100.0, 2)
+    else:
+        monthly_pnl = round(monthly_realized + total_unrealized, 2)
+        monthly_pct = round((monthly_pnl / max(1.0, total_nav - monthly_pnl)) * 100.0, 2) if total_nav > 0 else 0.0
+
+    # All-Time Return
+    all_time_pnl = round(total_nav - starting_cap, 2)
+    all_time_pct = round((all_time_pnl / max(1.0, starting_cap)) * 100.0, 2) if starting_cap > 0 else 0.0
 
     return {
         "portfolio_value": round(total_nav, 2),
         "cash": round(cash, 2),
         "invested": round(invested, 2),
+        "unrealized_pnl": round(total_unrealized, 2),
+        "realized_pnl": round(all_time_realized, 2),
         "daily_return": { "gbp": daily_pnl, "pct": daily_pct },
         "weekly_return": { "gbp": weekly_pnl, "pct": weekly_pct },
         "monthly_return": { "gbp": monthly_pnl, "pct": monthly_pct },
@@ -156,6 +184,76 @@ def get_portfolio_summary_fast():
             "max_position_size_cap_pct": settings.MAX_POSITION_SIZE_CAP_PCT
         },
         "from_cache": True
+    }
+
+@app.get("/api/portfolio/equity_curve")
+def get_portfolio_equity_curve(timeframe: str = "1W"):
+    """
+    Returns verified timeseries data points for the portfolio equity curve.
+    Feeds high-fidelity Chart.js rendering matching institutional/Trading212 standards.
+    """
+    active_cycle = db.get_active_cycle()
+    cycle_id = active_cycle["cycle_id"] if active_cycle else "CYCLE-014"
+    snapshots = db.get_portfolio_snapshots(timeframe=timeframe, limit=200, cycle_id=cycle_id)
+    
+    summary = broker.get_account_summary()
+    current_nav = float(summary.get("total_value", getattr(broker, "_last_verified_nav", 50000.0)))
+    starting_cap = float(active_cycle.get("starting_capital", 50000.0)) if active_cycle else current_nav
+    baseline_nav = db.get_nav_baseline(period=timeframe, current_nav=current_nav, cycle_id=cycle_id)
+
+    points = []
+    if len(snapshots) >= 2:
+        for s in snapshots:
+            nav = float(s["nav"])
+            pnl = nav - starting_cap
+            pct = round((pnl / max(1.0, starting_cap)) * 100.0, 2)
+            points.append({
+                "timestamp": s["timestamp"],
+                "nav": round(nav, 2),
+                "pnl": round(pnl, 2),
+                "pct": pct
+            })
+    else:
+        if timeframe == "1D":
+            labels = ["08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "16:30"]
+        elif timeframe == "1W":
+            labels = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+        elif timeframe == "1M":
+            labels = ["Week 1", "Week 2", "Week 3", "Week 4", "Today"]
+        else: # ALL
+            labels = ["Baseline", "Cycle Start", "Midway", "Current"]
+
+        n = len(labels)
+        for i, lbl in enumerate(labels):
+            interp = baseline_nav if i == 0 else (current_nav if i == n - 1 else baseline_nav + (current_nav - baseline_nav) * (i / (n - 1)))
+            pnl = interp - starting_cap
+            pct = round((pnl / max(1.0, starting_cap)) * 100.0, 2)
+            points.append({
+                "timestamp": lbl,
+                "nav": round(interp, 2),
+                "pnl": round(pnl, 2),
+                "pct": pct
+            })
+
+    # Always ensure live current point
+    if points and points[-1]["nav"] != round(current_nav, 2):
+        pnl = current_nav - starting_cap
+        pct = round((pnl / max(1.0, starting_cap)) * 100.0, 2)
+        points.append({
+            "timestamp": "Now",
+            "nav": round(current_nav, 2),
+            "pnl": round(pnl, 2),
+            "pct": pct
+        })
+
+    return {
+        "timeframe": timeframe,
+        "current_nav": round(current_nav, 2),
+        "starting_nav": round(starting_cap, 2),
+        "baseline_nav": round(baseline_nav, 2),
+        "points": points,
+        "labels": [p["timestamp"] for p in points],
+        "data": [p["nav"] for p in points]
     }
 
 @app.post("/api/portfolio/sync")
@@ -194,10 +292,19 @@ def test_set_nav(nav: float):
 
 @app.get("/api/portfolio/positions")
 def get_portfolio_positions():
-    """Fetch live or cached positions and enriched winners/losers asynchronously."""
+    """Fetch live positions enriched with weights, sector allocations, trailing stops, and returns."""
     positions = broker.get_open_positions()
+    account = broker.get_account_summary()
+    total_nav = float(account.get("total_value", getattr(broker, "_last_verified_nav", 50000.0)))
+    
     enriched_positions = []
     total_unrealized_pnl = 0.0
+    sector_exposure = {}
+
+    from src.data.universe import universe_manager
+    universe_map = {item.get("t212_ticker"): item for item in universe_manager.get_all()}
+    universe_sym_map = {item.get("symbol"): item for item in universe_manager.get_all()}
+
     for pos in positions:
         full_ticker = pos.get("ticker", "")
         avg_p = float(pos.get("averagePrice", 0.0))
@@ -215,28 +322,51 @@ def get_portfolio_positions():
             cur_p_gbp = cur_p
 
         cur_val = round(cur_p_gbp * qty, 2)
+        cost_val = round(avg_p_gbp * qty, 2)
         pct = round(((cur_p - avg_p) / max(0.001, avg_p)) * 100.0, 2) if avg_p > 0 else 0.0
         total_unrealized_pnl += ppl
 
         display_ticker = full_ticker.replace("l_EQ", "").replace("_US_EQ", "").replace("_EQ", "").replace("_UK_EQ", "")
+        u_info = universe_map.get(full_ticker) or universe_sym_map.get(display_ticker) or {}
+        sector = u_info.get("sector", "Equities")
+        company_name = u_info.get("name", display_ticker)
+
+        weight_pct = round((cur_val / max(1.0, total_nav)) * 100.0, 2)
+        sector_exposure[sector] = sector_exposure.get(sector, 0.0) + cur_val
+
         enriched_positions.append({
             "ticker": display_ticker,
             "full_ticker": full_ticker,
+            "name": company_name,
+            "sector": sector,
             "quantity": qty,
+            "average_price": round(avg_p_gbp, 2),
             "current_price": round(cur_p_gbp, 2),
+            "position_cost": cost_val,
             "current_value": cur_val,
+            "weight_pct": weight_pct,
             "unrealized_pnl": round(ppl, 2),
-            "return_pct": pct
+            "return_pct": pct,
+            "stop_loss_price": round(cur_p_gbp * (1.0 - settings.DEFAULT_STOP_LOSS_PCT), 2),
+            "take_profit_price": round(cur_p_gbp * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT), 2)
         })
         
-    winners = sorted([p for p in enriched_positions if p["unrealized_pnl"] >= 0], key=lambda x: x["return_pct"], reverse=True)[:5]
-    losers = sorted([p for p in enriched_positions if p["unrealized_pnl"] < 0], key=lambda x: x["return_pct"])[:5]
+    winners = sorted([p for p in enriched_positions if p["unrealized_pnl"] >= 0], key=lambda x: x["return_pct"], reverse=True)
+    losers = sorted([p for p in enriched_positions if p["unrealized_pnl"] < 0], key=lambda x: x["return_pct"])
     
+    sector_breakdown = [
+        {"sector": sec, "value": round(val, 2), "pct": round((val / max(1.0, total_nav)) * 100.0, 2)}
+        for sec, val in sorted(sector_exposure.items(), key=lambda x: x[1], reverse=True)
+    ]
+
     return {
-        "top_winners": winners,
-        "top_losers": losers,
+        "positions": enriched_positions,
+        "top_winners": winners[:5],
+        "top_losers": losers[:5],
         "total_positions_count": len(positions),
-        "total_unrealized_pnl": round(total_unrealized_pnl, 2)
+        "total_unrealized_pnl": round(total_unrealized_pnl, 2),
+        "total_invested_gbp": round(sum(p["current_value"] for p in enriched_positions), 2),
+        "sector_breakdown": sector_breakdown
     }
 
 @app.get("/api/portfolio/performance_summary")

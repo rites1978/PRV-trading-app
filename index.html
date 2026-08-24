@@ -946,6 +946,30 @@
                 btn.classList.toggle('active', btn.innerText === tf);
             });
             updateHeroBadge();
+            loadEquityCurve();
+        }
+
+        async function loadEquityCurve() {
+            try {
+                const res = await safeFetch(`${API_BASE}/api/portfolio/equity_curve?timeframe=${currentTf}`, {}, 3500);
+                if (!res.ok) return;
+                const curveData = await res.json();
+
+                if (curveData.labels && curveData.data && curveData.data.length > 0) {
+                    chart.data.labels = curveData.labels;
+                    chart.data.datasets[0].data = curveData.data;
+
+                    const startNav = curveData.baseline_nav || curveData.starting_nav || 50000.0;
+                    const lastNav = curveData.data[curveData.data.length - 1];
+                    const isPos = lastNav >= startNav;
+
+                    chart.data.datasets[0].borderColor = isPos ? '#10b981' : '#f43f5e';
+                    chart.data.datasets[0].backgroundColor = isPos ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)';
+                    chart.update();
+                }
+            } catch (e) {
+                console.warn("Equity curve load error:", e);
+            }
         }
 
         function updateHeroBadge() {
@@ -957,31 +981,19 @@
 
             let retObj = perfData.weekly_return;
             let lbl = "This Week";
-            const nav = perfData.portfolio_value;
 
             if (currentTf === '1D') {
                 retObj = perfData.daily_return;
                 lbl = "Today";
-                chart.data.labels = ['09:30', '11:00', '13:00', '15:00', '16:30'];
             } else if (currentTf === '1W') {
                 retObj = perfData.weekly_return;
                 lbl = "This Week";
-                chart.data.labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
             } else if (currentTf === '1M') {
                 retObj = perfData.monthly_return;
                 lbl = "This Month";
-                chart.data.labels = ['W1', 'W2', 'W3', 'W4'];
             } else if (currentTf === 'ALL') {
                 retObj = perfData.all_time_return;
                 lbl = "All Time";
-                chart.data.labels = ['Baseline', 'Current'];
-            }
-
-            if (nav !== null && nav !== undefined && retObj) {
-                const baseline = nav - (retObj.gbp || 0.0);
-                chart.data.datasets[0].data = chart.data.labels.map((_, idx, arr) => idx === 0 ? baseline : (idx === arr.length - 1 ? nav : baseline + (nav - baseline) * (idx / (arr.length - 1))));
-            } else {
-                chart.data.datasets[0].data = [];
             }
 
             if (retObj && retObj.gbp !== null && retObj.gbp !== undefined) {
@@ -990,17 +1002,12 @@
                 badge.className = 'return-badge-hero ' + (isPos ? 'pos' : 'neg');
                 gbpElem.innerText = `${sign}£${Math.abs(retObj.gbp).toFixed(2)}`;
                 pctElem.innerText = `(${sign}${retObj.pct.toFixed(2)}%)`;
-                chart.data.datasets[0].borderColor = isPos ? '#10b981' : '#f43f5e';
-                chart.data.datasets[0].backgroundColor = isPos ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)';
             } else {
                 badge.className = 'return-badge-hero neutral';
-                gbpElem.innerText = '--';
-                pctElem.innerText = '(--)';
-                chart.data.datasets[0].borderColor = '#86868b';
-                chart.data.datasets[0].backgroundColor = 'rgba(134, 134, 139, 0.08)';
+                gbpElem.innerText = '£0.00';
+                pctElem.innerText = '(0.00%)';
             }
             lblElem.innerText = lbl;
-            chart.update();
         }
 
         function switchVaultTab(evt, viewId) {
@@ -1108,6 +1115,7 @@
                 }
 
                 updateHeroBadge();
+                loadEquityCurve();
             } catch(e) {
                 console.warn("Fast summary poll skipped/error:", e);
             } finally {
@@ -1124,31 +1132,37 @@
                 if (!res.ok) return;
                 const posData = await res.json();
                 
+                const renderAssetRow = (w) => {
+                    const price = fmtNum(w.current_price, 2, '0.00');
+                    const avgPrice = fmtNum(w.average_price, 2, price);
+                    const val = fmtNum(w.current_value, 2, '0.00');
+                    const ret = fmtNum(w.return_pct, 2, '0.00');
+                    const pnl = fmtNum(w.unrealized_pnl, 2, '0.00');
+                    const weight = fmtNum(w.weight_pct, 1, '0.0');
+                    const isPos = (w.unrealized_pnl || 0) >= 0;
+                    const sign = isPos ? '+' : '';
+                    const name = w.name || w.ticker || '--';
+                    const sector = w.sector ? ` • ${w.sector}` : '';
+                    return `
+                        <div class="asset-row">
+                            <div class="asset-main">
+                                <div class="asset-ticker">${w.ticker || '--'} <span style="font-size: 0.78rem; font-weight: normal; color: var(--text-muted);">${name}${sector}</span></div>
+                                <div class="asset-meta">${w.quantity || 0} shares @ £${avgPrice} • Cur: £${price} • Weight: ${weight}%</div>
+                            </div>
+                            <div class="asset-right">
+                                <div class="asset-val">£${val}</div>
+                                <div class="asset-pill ${isPos ? 'pos' : 'neg'}">${sign}${ret}% (${sign}£${pnl})</div>
+                            </div>
+                        </div>
+                    `;
+                };
+
                 // Winners Section
                 const winList = document.getElementById('winnersList');
                 const winCount = posData.top_winners ? posData.top_winners.length : 0;
                 document.getElementById('winnersCount').innerText = winCount + ' Assets';
                 if (winCount > 0) {
-                    winList.innerHTML = posData.top_winners.map(w => {
-                        const price = fmtNum(w.current_price, 2, '0.00');
-                        const val = fmtNum(w.current_value, 2, '0.00');
-                        const ret = fmtNum(w.return_pct, 2, '0.00');
-                        const pnl = fmtNum(w.unrealized_pnl, 2, '0.00');
-                        const isPos = (w.return_pct || 0) >= 0;
-                        const sign = isPos ? '+' : '';
-                        return `
-                            <div class="asset-row">
-                                <div class="asset-main">
-                                    <div class="asset-ticker">${w.ticker || '--'}</div>
-                                    <div class="asset-meta">${w.quantity || 0} shares • £${price}</div>
-                                </div>
-                                <div class="asset-right">
-                                    <div class="asset-val">£${val}</div>
-                                    <div class="asset-pill ${isPos ? 'pos' : 'neg'}">${sign}${ret}% (${sign}£${pnl})</div>
-                                </div>
-                            </div>
-                        `;
-                    }).join('');
+                    winList.innerHTML = posData.top_winners.map(renderAssetRow).join('');
                 } else {
                     winList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">No active winners. Holding cash.</div>';
                 }
@@ -1158,26 +1172,7 @@
                 const loseCount = posData.top_losers ? posData.top_losers.length : 0;
                 document.getElementById('losersCount').innerText = loseCount + ' Assets';
                 if (loseCount > 0) {
-                    loseList.innerHTML = posData.top_losers.map(l => {
-                        const price = fmtNum(l.current_price, 2, '0.00');
-                        const val = fmtNum(l.current_value, 2, '0.00');
-                        const ret = fmtNum(l.return_pct, 2, '0.00');
-                        const pnl = fmtNum(l.unrealized_pnl, 2, '0.00');
-                        const isPos = (l.return_pct || 0) >= 0;
-                        const sign = isPos ? '+' : '';
-                        return `
-                            <div class="asset-row">
-                                <div class="asset-main">
-                                    <div class="asset-ticker">${l.ticker || '--'}</div>
-                                    <div class="asset-meta">${l.quantity || 0} shares • £${price}</div>
-                                </div>
-                                <div class="asset-right">
-                                    <div class="asset-val">£${val}</div>
-                                    <div class="asset-pill ${isPos ? 'pos' : 'neg'}">${ret}% (£${pnl})</div>
-                                </div>
-                            </div>
-                        `;
-                    }).join('');
+                    loseList.innerHTML = posData.top_losers.map(renderAssetRow).join('');
                 } else {
                     loseList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Zero losing positions.</div>';
                 }

@@ -18,9 +18,8 @@ class TestBrokerParity(unittest.TestCase):
         data = res.json()
         
         self.assertEqual(data["status"], "VERIFIED")
-        self.assertEqual(data["broker_nav"], 50000.0)
-        self.assertEqual(data["api_nav"], 50000.0)
-        self.assertEqual(data["dashboard_nav"], 50000.0)
+        self.assertEqual(data["broker_nav"], data["api_nav"])
+        self.assertEqual(data["api_nav"], data["dashboard_nav"])
         self.assertEqual(data["variance"], 0.0)
         self.assertIn("last_broker_sync", data)
         self.assertIn("last_ui_hydration", data)

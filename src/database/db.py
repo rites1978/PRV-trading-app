@@ -1,6 +1,6 @@
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from src.config.settings import settings
 
@@ -320,6 +320,19 @@ CREATE TABLE IF NOT EXISTS evidence_broker_sync (
     open_positions_internal INTEGER NOT NULL,
     status TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    nav REAL NOT NULL,
+    cash REAL NOT NULL,
+    invested REAL NOT NULL,
+    unrealized_pnl REAL NOT NULL,
+    realized_pnl REAL NOT NULL,
+    cycle_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_time ON portfolio_snapshots(timestamp);
+CREATE INDEX IF NOT EXISTS idx_snapshots_cycle ON portfolio_snapshots(cycle_id);
 """
 
 class Database:
@@ -481,6 +494,97 @@ class Database:
             else:
                 cur.execute("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
+
+    # --- Portfolio Snapshots & Historical Equity Curve ---
+    def record_portfolio_snapshot(self, snapshot: Dict[str, Any]):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cycle_id = snapshot.get("cycle_id")
+            if not cycle_id:
+                active = self.get_active_cycle()
+                cycle_id = active["cycle_id"] if active else "CYCLE-001"
+            now_str = snapshot.get("timestamp", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
+            cur.execute("""
+                INSERT INTO portfolio_snapshots (timestamp, nav, cash, invested, unrealized_pnl, realized_pnl, cycle_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                now_str,
+                float(snapshot["nav"]),
+                float(snapshot.get("cash", snapshot["nav"])),
+                float(snapshot.get("invested", 0.0)),
+                float(snapshot.get("unrealized_pnl", 0.0)),
+                float(snapshot.get("realized_pnl", 0.0)),
+                cycle_id
+            ))
+            conn.commit()
+
+    def get_portfolio_snapshots(self, timeframe: str = "1D", limit: int = 100, cycle_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            now = datetime.now(timezone.utc)
+            if timeframe == "1D":
+                since = now.strftime("%Y-%m-%d 00:00:00")
+            elif timeframe == "1W":
+                since = (now - timedelta(days=7)).strftime("%Y-%m-%d 00:00:00")
+            elif timeframe == "1M":
+                since = (now - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00")
+            else: # ALL
+                since = "2020-01-01 00:00:00"
+
+            if cycle_id:
+                cur.execute("""
+                    SELECT * FROM portfolio_snapshots 
+                    WHERE timestamp >= ? AND cycle_id = ? 
+                    ORDER BY timestamp ASC LIMIT ?
+                """, (since, cycle_id, limit))
+            else:
+                cur.execute("""
+                    SELECT * FROM portfolio_snapshots 
+                    WHERE timestamp >= ? 
+                    ORDER BY timestamp ASC LIMIT ?
+                """, (since, limit))
+            rows = [dict(row) for row in cur.fetchall()]
+            return rows
+
+    def get_nav_baseline(self, period: str = "1D", current_nav: float = 50000.0, cycle_id: Optional[str] = None) -> float:
+        """Fetch true starting NAV for the given period (1D = start of today, 1W = start of week, 1M = start of month, ALL = cycle start)."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            now = datetime.now(timezone.utc)
+            if period == "1D":
+                since = now.strftime("%Y-%m-%d 00:00:00")
+            elif period == "1W":
+                since = (now - timedelta(days=7)).strftime("%Y-%m-%d 00:00:00")
+            elif period == "1M":
+                since = (now - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00")
+            else:
+                if cycle_id:
+                    cur.execute("SELECT starting_capital FROM ai_performance_cycles WHERE cycle_id = ?", (cycle_id,))
+                    row = cur.fetchone()
+                    if row and row["starting_capital"]:
+                        return float(row["starting_capital"])
+                return current_nav
+
+            cur.execute("""
+                SELECT nav FROM portfolio_snapshots 
+                WHERE timestamp <= ? 
+                ORDER BY timestamp DESC LIMIT 1
+            """, (since,))
+            row = cur.fetchone()
+            if row and row["nav"]:
+                return float(row["nav"])
+
+            # Fallback to earliest snapshot today or active cycle starting capital
+            cur.execute("""
+                SELECT nav FROM portfolio_snapshots 
+                ORDER BY timestamp ASC LIMIT 1
+            """)
+            first_row = cur.fetchone()
+            if first_row and first_row["nav"]:
+                return float(first_row["nav"])
+                
+            active = self.get_active_cycle()
+            return float(active.get("starting_capital", current_nav)) if active else current_nav
 
     # --- AI Performance Cycles ---
     def get_active_cycle(self) -> Optional[Dict[str, Any]]:

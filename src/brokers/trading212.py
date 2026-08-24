@@ -120,13 +120,13 @@ class Trading212Broker:
 
                     # Record to persistent SQLite audit ledger
                     try:
-                        db.record_broker_sync_event({
-                            "broker_nav": tot_val,
-                            "internal_nav": tot_val,
-                            "nav_discrepancy_pct": 0.0,
-                            "open_positions_broker": 0,
-                            "open_positions_internal": 0,
-                            "status": "SYNCED"
+                        db.record_portfolio_snapshot({
+                            "nav": tot_val,
+                            "cash": avail_cash,
+                            "invested": invested,
+                            "unrealized_pnl": float(data.get("investments", {}).get("unrealizedProfitLoss", 0.0)),
+                            "realized_pnl": float(data.get("investments", {}).get("realizedProfitLoss", 0.0)),
+                            "timestamp": now_str
                         })
                     except Exception:
                         pass
