@@ -533,6 +533,20 @@ def get_live_validation_scorecards():
     """Live multi-horizon scorecard for rolling 20, rolling 50, and benchmark validation."""
     return live_alpha_validator.get_live_validation_scorecard()
 
+# --- Research Prediction Scoreboard Endpoints ---
+from src.analytics.research_prediction_scoreboard import research_scoreboard
+
+@app.get("/api/research/scoreboard")
+def get_research_prediction_scoreboard():
+    """Complete Research Prediction Scoreboard & Accountability Engine."""
+    return research_scoreboard.get_full_scoreboard()
+
+@app.get("/api/research/capital_efficiency")
+def get_research_capital_efficiency():
+    """Capital Efficiency & Dead Capital Score ranking for active holdings."""
+    sb = research_scoreboard.get_full_scoreboard()
+    return {"capital_efficiency_dashboard": sb["capital_efficiency_dashboard"]}
+
 # --- Governance, Telemetry, Attribution & Regime Endpoints ---
 from src.compliance.integrity_guard import integrity_guard
 from src.governance.evidence_ledger import evidence_ledger

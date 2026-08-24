@@ -333,6 +333,33 @@ CREATE TABLE IF NOT EXISTS portfolio_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_time ON portfolio_snapshots(timestamp);
 CREATE INDEX IF NOT EXISTS idx_snapshots_cycle ON portfolio_snapshots(cycle_id);
+
+CREATE TABLE IF NOT EXISTS research_predictions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prediction_id TEXT UNIQUE,
+    symbol TEXT NOT NULL,
+    entry_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    universe_rank INTEGER NOT NULL,
+    expected_value_pct REAL NOT NULL,
+    predicted_win_probability REAL NOT NULL,
+    expected_return_pct REAL NOT NULL DEFAULT 7.50,
+    expected_holding_period_days REAL NOT NULL DEFAULT 10.0,
+    catalyst_type TEXT NOT NULL,
+    catalyst_description TEXT NOT NULL,
+    investment_thesis TEXT NOT NULL,
+    invalidation_criteria TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED')),
+    exit_timestamp DATETIME DEFAULT NULL,
+    actual_return_pct REAL DEFAULT NULL,
+    actual_alpha_vs_benchmark REAL DEFAULT NULL,
+    benchmark_name TEXT DEFAULT 'S&P 500',
+    outcome TEXT DEFAULT NULL,
+    exit_reason TEXT DEFAULT NULL,
+    thesis_correct INTEGER DEFAULT NULL,
+    notes TEXT DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pred_symbol ON research_predictions(symbol);
+CREATE INDEX IF NOT EXISTS idx_pred_status ON research_predictions(status);
 """
 
 class Database:
@@ -938,5 +965,81 @@ class Database:
             row = cur.fetchone()
             return dict(row) if row else None
 
+    # --- Research Prediction Scoreboard Methods ---
+    def record_research_prediction(self, pred: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO research_predictions (
+                    prediction_id, symbol, entry_timestamp, universe_rank,
+                    expected_value_pct, predicted_win_probability, expected_return_pct,
+                    expected_holding_period_days, catalyst_type, catalyst_description,
+                    investment_thesis, invalidation_criteria, status, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                pred.get("prediction_id"),
+                pred.get("symbol"),
+                pred.get("entry_timestamp", datetime.now(timezone.utc).isoformat()),
+                int(pred.get("universe_rank", 1)),
+                float(pred.get("expected_value_pct", 5.0)),
+                float(pred.get("predicted_win_probability", 75.0)),
+                float(pred.get("expected_return_pct", 7.50)),
+                float(pred.get("expected_holding_period_days", 10.0)),
+                pred.get("catalyst_type", "EARNINGS"),
+                pred.get("catalyst_description", ""),
+                pred.get("investment_thesis", ""),
+                pred.get("invalidation_criteria", ""),
+                pred.get("status", "OPEN"),
+                pred.get("notes", "")
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def close_research_prediction(self, symbol: str, outcome_data: Dict[str, Any]) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE research_predictions
+                SET status = 'CLOSED',
+                    exit_timestamp = ?,
+                    actual_return_pct = ?,
+                    actual_alpha_vs_benchmark = ?,
+                    benchmark_name = ?,
+                    outcome = ?,
+                    exit_reason = ?,
+                    thesis_correct = ?,
+                    notes = ?
+                WHERE symbol = ? AND status = 'OPEN'
+            """, (
+                outcome_data.get("exit_timestamp", datetime.now(timezone.utc).isoformat()),
+                float(outcome_data.get("actual_return_pct", 0.0)),
+                float(outcome_data.get("actual_alpha_vs_benchmark", 0.0)),
+                outcome_data.get("benchmark_name", "S&P 500"),
+                outcome_data.get("outcome", "WIN" if float(outcome_data.get("actual_return_pct", 0.0)) > 0 else "LOSS"),
+                outcome_data.get("exit_reason", ""),
+                1 if outcome_data.get("thesis_correct") else 0,
+                outcome_data.get("notes", ""),
+                symbol
+            ))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def get_research_predictions(self, limit: int = 500, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            if status:
+                cur.execute("SELECT * FROM research_predictions WHERE status = ? ORDER BY id DESC LIMIT ?", (status, limit))
+            else:
+                cur.execute("SELECT * FROM research_predictions ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_open_research_prediction(self, symbol: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM research_predictions WHERE symbol = ? AND status = 'OPEN' ORDER BY id DESC LIMIT 1", (symbol,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
 db = Database()
+
 
