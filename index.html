@@ -1163,13 +1163,13 @@
             }
         }
 
-        // 🔄 Background Positions & Enricher Loader (Run once after first paint)
+        // 🔄 Background Positions & Enricher Loader (Fast render & continuous update)
         async function fetchPositionsBackground() {
             if (isPositionsInFlight) return;
             isPositionsInFlight = true;
             try {
-                const res = await safeFetch(API_BASE + '/api/portfolio/positions', {}, 4000);
-                if (!res.ok) return;
+                const res = await safeFetch(API_BASE + '/api/portfolio/positions', {}, 6000);
+                if (!res.ok) throw new Error("HTTP " + res.status);
                 const posData = await res.json();
                 
                 const renderAssetRow = (w) => {
@@ -1200,24 +1200,30 @@
                 // Winners Section
                 const winList = document.getElementById('winnersList');
                 const winCount = posData.top_winners ? posData.top_winners.length : 0;
-                document.getElementById('winnersCount').innerText = winCount + ' Assets';
-                if (winCount > 0) {
-                    winList.innerHTML = posData.top_winners.map(renderAssetRow).join('');
-                } else {
-                    winList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">No active winners. Holding cash.</div>';
+                const winBadge = document.getElementById('winnersCount');
+                if (winBadge) winBadge.innerText = winCount + ' Assets';
+                if (winList) {
+                    if (winCount > 0) {
+                        winList.innerHTML = posData.top_winners.map(renderAssetRow).join('');
+                    } else {
+                        winList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">No active winners. Holding cash.</div>';
+                    }
                 }
 
                 // Losers Section
                 const loseList = document.getElementById('losersList');
                 const loseCount = posData.top_losers ? posData.top_losers.length : 0;
-                document.getElementById('losersCount').innerText = loseCount + ' Assets';
-                if (loseCount > 0) {
-                    loseList.innerHTML = posData.top_losers.map(renderAssetRow).join('');
-                } else {
-                    loseList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Zero losing positions.</div>';
+                const loseBadge = document.getElementById('losersCount');
+                if (loseBadge) loseBadge.innerText = loseCount + ' Assets';
+                if (loseList) {
+                    if (loseCount > 0) {
+                        loseList.innerHTML = posData.top_losers.map(renderAssetRow).join('');
+                    } else {
+                        loseList.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px;">Zero losing positions.</div>';
+                    }
                 }
             } catch(e) {
-                console.warn("Background positions load error:", e);
+                console.warn("Positions load error:", e);
             } finally {
                 isPositionsInFlight = false;
             }
@@ -1730,16 +1736,17 @@
             }
         }
 
-        // 🚀 Initialize Page (Fast first paint + decoupled secondary loader)
-        fetchFastSummary().then(() => {
-            setTimeout(() => {
-                fetchBrokerParity();
-                fetchPositionsBackground();
-            }, 100);
-        });
+        // 🚀 Initialize Page (Concurrent immediate paint of summary, parity, and positions)
+        fetchFastSummary();
+        fetchBrokerParity();
+        fetchPositionsBackground();
 
-        // ⏱️ Lightweight periodic poll (Summary Only, Single In-Flight Lock)
-        setInterval(fetchFastSummary, 5000);
+        // ⏱️ Active periodic poll (Refreshes summary, parity, and positions every 5s)
+        setInterval(() => {
+            fetchFastSummary();
+            fetchBrokerParity();
+            fetchPositionsBackground();
+        }, 5000);
 
         // 🔄 Lifecycle Refresh Handlers (window focus, visibilitychange, pageshow)
         let isLifecycleSyncInFlight = false;
@@ -1748,8 +1755,11 @@
             isLifecycleSyncInFlight = true;
             try {
                 // 1. Immediately paint latest cached snapshot (< 10ms)
-                await fetchFastSummary();
-                await fetchBrokerParity();
+                await Promise.allSettled([
+                    fetchFastSummary(),
+                    fetchBrokerParity(),
+                    fetchPositionsBackground()
+                ]);
                 // 2. Trigger non-blocking broker sync on server in background
                 safeFetch(API_BASE + '/api/portfolio/sync', { method: 'POST' }, 3000).catch(() => {});
             } catch(e) {
