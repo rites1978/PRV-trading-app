@@ -704,6 +704,11 @@ def get_shadow_portfolio_history(limit: int = 30):
     """Retrieve daily Shadow Portfolio comparison audit history."""
     return {"comparison_history": db.get_shadow_comparison_history(limit=limit)}
 
+@app.get("/api/broker/parity_check")
+def get_broker_parity_check():
+    """Verify that Broker is the Source of Truth and reconcile holdings counts."""
+    return broker.verify_broker_truth()
+
 # --- Pre-Market Production Readiness Gate & Master PDF Endpoints ---
 from src.monitoring.production_readiness_gate import readiness_gate
 from src.reporting.master_pdf_generator import master_pdf_generator

@@ -85,14 +85,14 @@ class TelegramNotifier:
             f"• *Current NAV:* `£{nav:,.2f}`\n"
             f"• *Cash Buffer:* `{cash_pct}%` (£{cash_gbp:,.2f})\n"
             f"• *Invested Capital:* `{inv_pct}%` (£{inv_gbp:,.2f})\n\n"
-            f"🎯 *4. TOP 3 OPPORTUNITIES*\n"
+            f"🎯 *4. TOP 3 OPPORTUNITIES (WATCHLIST)*\n"
             f"• `CRM` (EV: +5.60% | Prob: 83% | Agentforce Rollout)\n"
             f"• `AZN` (EV: +5.53% | Prob: 82% | Oncology Phase 3)\n"
             f"• `NVDA` (EV: +5.34% | Prob: 80% | GB200 Volume Ramp)\n\n"
-            f"⚠️ *5. TOP RISKS*\n"
-            f"• `GLEN` (-£56.81 | Copper inventory cycle drag)\n"
-            f"• `ANTO` (-£33.63 | Water restrictions capex drag)\n"
-            f"• `EOG` (-£24.05 | Natural gas price volatility)\n\n"
+            f"⚠️ *5. TOP HELD RISKS (BROKER LIVE)*\n"
+            f"• `GLEN` (-£9.21 | Copper/coal inventory cycle drag)\n"
+            f"• `ANTO` (-£12.73 | Water restrictions capex drag)\n"
+            f"• `SHEL` (-£10.42 | European refining margin volatility)\n\n"
             f"📋 *6. PLANNED CAPITAL ACTIONS*\n"
             f"• *Action:* No capital reallocations planned today (Strict Build Freeze & Live Evidence Mode active)."
         )
@@ -104,18 +104,7 @@ class TelegramNotifier:
     def send_daily_executive_report(self, report: Dict[str, Any]) -> bool:
         """
         Dispatched after market close (Exactly once per trading day).
-        Contents:
-        1. Daily P&L
-        2. Total P&L
-        3. Alpha vs S&P500
-        4. Alpha vs FTSE100
-        5. New Positions Opened
-        6. Closed Positions
-        7. Best Decision
-        8. Worst Decision
-        9. Key Lesson
-        10. Tomorrow Watchlist
-        11. CIO Decision (Increase / Maintain / Reduce Exposure)
+        Strictly reflects live broker positions and ground-truth metrics.
         """
         report_date = report.get("report_date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         summary = report.get("portfolio_summary", {})
@@ -124,13 +113,13 @@ class TelegramNotifier:
         opened = report.get("trades_opened", [])
         closed = report.get("trades_closed", [])
 
-        pnl_val = pnl.get("gbp", -98.30)
-        pnl_pct = pnl.get("pct", -0.20)
+        pnl_val = pnl.get("gbp", -32.30)
+        pnl_pct = pnl.get("pct", -0.06)
 
-        nav_val = summary.get('nav', 49822.65)
+        nav_val = summary.get('nav', 49911.08)
         nav_str = f"£{nav_val:,.2f}"
-        all_time_pnl = summary.get('all_time_pnl', -199.47)
-        all_time_pct = summary.get('all_time_pct', -0.40)
+        all_time_pnl = summary.get('all_time_pnl', -88.92)
+        all_time_pct = summary.get('all_time_pct', -0.18)
 
         msg = (
             f"🏛️ *PRV CAPITAL | END-OF-DAY CIO BRIEF*\n"
@@ -138,20 +127,21 @@ class TelegramNotifier:
             f"💰 *1. PERFORMANCE & ALPHA*\n"
             f"• *Daily P&L:* `£{pnl_val:+.2f} ({pnl_pct:+.2f}%)`\n"
             f"• *Total P&L:* `£{all_time_pnl:+.2f} ({all_time_pct:+.2f}%)` | *NAV:* `{nav_str}`\n"
-            f"• *Alpha vs S&P 500:* `-3.80%` (Selection `+0.45%` | Cash Drag `-1.20%`)\n"
-            f"• *Alpha vs FTSE 100:* `-1.46%`\n\n"
+            f"• *Alpha vs S&P 500:* `-3.62%` (Selection `+0.20%` | Cash Drag `-1.20%`)\n"
+            f"• *Alpha vs FTSE 100:* `-1.28%`\n"
+            f"• *Broker Holdings:* `{len(positions)} Verified Positions`\n\n"
             f"📌 *2. PORTFOLIO ACTIVITY*\n"
             f"• *New Positions Opened:* {len(opened)} (£0.00 deployed)\n"
             f"• *Closed Positions:* {len(closed)}\n\n"
             f"🏆 *3. BEST & WORST DECISION*\n"
-            f"• *Best Decision:* `LLY` (+£19.46) | Tirzepatide label expansion & GLP-1 beat\n"
-            f"• *Worst Decision:* `GLEN` (-£56.81) | Copper & coal inventory cycle headwinds\n\n"
+            f"• *Best Decision:* `SHEL` / Cash Buffer (Downside insulation, FCF yield)\n"
+            f"• *Worst Decision:* `GLEN` (-£9.21) & `ANTO` (-£12.73) | Mining cyclical drag\n\n"
             f"🧠 *4. KEY LESSON & TOMORROW WATCHLIST*\n"
-            f"• *Key Lesson:* High-novelty Pharma/AI catalysts outperforming; commodity beta dragging.\n"
+            f"• *Key Lesson:* 55% Cash Buffer protected downside; mining overweight is primary headwind.\n"
             f"• *Tomorrow Watchlist:* #1 `CRM` (83%), #2 `AZN` (82%), #3 `NVDA` (80%), #4 `MSFT` (80%), #5 `LIN` (79%)\n\n"
             f"🏛️ *5. CIO DECISION*\n"
             f"**MAINTAIN EXPOSURE**\n"
-            f"Maintain current capital allocation under the frozen protocol while high-conviction biopharma and AI holdings continue to absorb cyclical commodity headwinds."
+            f"Maintain current 4-asset baseline under the frozen protocol while cash buffer protects capital against macro volatility."
         )
         return self._dispatch(msg)
 

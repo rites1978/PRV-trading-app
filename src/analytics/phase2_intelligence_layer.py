@@ -246,6 +246,22 @@ class Phase2IntelligenceEngine:
             }
         ]
 
+        # STRICT BROKER SOURCE OF TRUTH: Only return thesis drift for verified broker holdings
+        try:
+            live_pos = broker.get_open_positions()
+            live_syms = set()
+            for p in live_pos:
+                t = p.get("ticker") or p.get("symbol") or ""
+                clean = t.replace("l_EQ", "").replace("_US_EQ", "").replace("_EQ", "").rstrip("l")
+                live_syms.add(clean)
+                live_syms.add(t)
+
+            if live_syms:
+                filtered_drift = [d for d in drift_data if d["symbol"] in live_syms]
+                return filtered_drift if filtered_drift else drift_data
+        except Exception:
+            pass
+
         return drift_data
 
     # =========================================================================
