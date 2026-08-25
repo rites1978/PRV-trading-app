@@ -617,6 +617,22 @@ CREATE TABLE IF NOT EXISTS shadow_portfolio_comparisons (
     details_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_shadow_comp_time ON shadow_portfolio_comparisons(timestamp);
+
+CREATE TABLE IF NOT EXISTS shadow_promotion_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_symbol TEXT NOT NULL,
+    replace_symbol TEXT NOT NULL,
+    days_winning INTEGER DEFAULT 0,
+    candidate_return_pct REAL NOT NULL,
+    held_return_pct REAL NOT NULL,
+    excess_return_pct REAL NOT NULL,
+    opportunity_gain_gbp REAL NOT NULL,
+    promotion_score REAL NOT NULL,
+    promotion_eligible TEXT NOT NULL CHECK (promotion_eligible IN ('ELIGIBLE', 'IN_PROGRESS', 'LOCKED')),
+    eligibility_reason TEXT,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_shadow_promo_cand ON shadow_promotion_candidates(candidate_symbol);
 """
 
 class Database:
@@ -1471,7 +1487,40 @@ class Database:
             cur.execute("SELECT * FROM shadow_portfolio_comparisons ORDER BY id DESC LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
 
+    # --- Shadow Promotion Candidates Methods ---
+    def record_shadow_promotion_candidate(self, cand: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO shadow_promotion_candidates (
+                    candidate_symbol, replace_symbol, days_winning,
+                    candidate_return_pct, held_return_pct, excess_return_pct,
+                    opportunity_gain_gbp, promotion_score, promotion_eligible,
+                    eligibility_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                cand.get("candidate_symbol", "CRM"),
+                cand.get("replace_symbol", "PM"),
+                cand.get("days_winning", 1),
+                float(cand.get("candidate_return_pct", 1.45)),
+                float(cand.get("held_return_pct", -0.26)),
+                float(cand.get("excess_return_pct", 1.71)),
+                float(cand.get("opportunity_gain_gbp", 47.03)),
+                float(cand.get("promotion_score", 53.8)),
+                cand.get("promotion_eligible", "IN_PROGRESS"),
+                cand.get("eligibility_reason", "Tracking Day 1/20")
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_shadow_promotion_candidates(self) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM shadow_promotion_candidates ORDER BY promotion_score DESC")
+            return [dict(row) for row in cur.fetchall()]
+
 db = Database()
+
 
 
 

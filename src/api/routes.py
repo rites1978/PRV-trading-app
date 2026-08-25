@@ -694,6 +694,11 @@ def get_shadow_portfolio_comparison():
     """Evaluate live Portfolio A vs Shadow Ideal Portfolio B comparison."""
     return shadow_portfolio_engine.evaluate_shadow_comparison()
 
+@app.get("/api/shadow/promotions")
+def get_shadow_portfolio_promotions():
+    """Evaluate Shadow Portfolio Promotion Candidates."""
+    return shadow_portfolio_engine.get_shadow_promotions()
+
 @app.get("/api/shadow/history")
 def get_shadow_portfolio_history(limit: int = 30):
     """Retrieve daily Shadow Portfolio comparison audit history."""

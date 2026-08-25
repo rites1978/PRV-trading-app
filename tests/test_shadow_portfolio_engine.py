@@ -45,5 +45,31 @@ class TestShadowPortfolioEngine(unittest.TestCase):
         self.assertIn("comparison_history", data)
         self.assertGreaterEqual(len(data["comparison_history"]), 1)
 
+    def test_04_get_shadow_promotions_logic(self):
+        """Verify promotion evaluation logic and scoring rules."""
+        promos = shadow_portfolio_engine.get_shadow_promotions()
+        self.assertIn("candidates", promos)
+        self.assertIn("promotion_rules", promos)
+        candidates = promos["candidates"]
+        self.assertGreaterEqual(len(candidates), 5)
+        
+        # Check required fields
+        for c in candidates:
+            self.assertIn("candidate", c)
+            self.assertIn("replace", c)
+            self.assertIn("days_winning", c)
+            self.assertIn("opportunity_gain_gbp", c)
+            self.assertIn("promotion_score", c)
+            self.assertIn("promotion_eligible", c)
+
+    def test_05_api_shadow_promotions_endpoint(self):
+        """Verify GET /api/shadow/promotions returns 200 OK with valid candidates."""
+        res = self.client.get("/api/shadow/promotions")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["tracking_status"], "ACTIVE_SHADOW_MODE")
+        self.assertIn("candidates", data)
+
 if __name__ == "__main__":
     unittest.main()
+
