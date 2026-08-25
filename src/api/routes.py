@@ -686,6 +686,19 @@ def get_institutional_scorecard():
     """Phase 5 Engine 5: Institutional Readiness Scorecard."""
     return institutional_scorecard_engine.get_institutional_scorecard()
 
+# --- Capital Recycling Shadow Portfolio Comparison Endpoints ---
+from src.analytics.shadow_portfolio_engine import shadow_portfolio_engine
+
+@app.get("/api/shadow/comparison")
+def get_shadow_portfolio_comparison():
+    """Evaluate live Portfolio A vs Shadow Ideal Portfolio B comparison."""
+    return shadow_portfolio_engine.evaluate_shadow_comparison()
+
+@app.get("/api/shadow/history")
+def get_shadow_portfolio_history(limit: int = 30):
+    """Retrieve daily Shadow Portfolio comparison audit history."""
+    return {"comparison_history": db.get_shadow_comparison_history(limit=limit)}
+
 # --- Pre-Market Production Readiness Gate & Master PDF Endpoints ---
 from src.monitoring.production_readiness_gate import readiness_gate
 from src.reporting.master_pdf_generator import master_pdf_generator

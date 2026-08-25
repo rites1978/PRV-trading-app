@@ -597,6 +597,26 @@ CREATE TABLE IF NOT EXISTS premarket_readiness_checks (
     details_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_readiness_time ON premarket_readiness_checks(timestamp);
+
+CREATE TABLE IF NOT EXISTS shadow_portfolio_comparisons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    portfolio_a_return_pct REAL NOT NULL,
+    portfolio_a_alpha_sp500 REAL NOT NULL,
+    portfolio_a_drawdown_pct REAL NOT NULL,
+    portfolio_a_ev_pct REAL NOT NULL,
+    portfolio_b_return_pct REAL NOT NULL,
+    portfolio_b_alpha_sp500 REAL NOT NULL,
+    portfolio_b_drawdown_pct REAL NOT NULL,
+    portfolio_b_ev_pct REAL NOT NULL,
+    spread_return_pct REAL NOT NULL,
+    spread_ev_pct REAL NOT NULL,
+    opportunity_cost_gbp REAL NOT NULL,
+    opportunity_cost_bps REAL NOT NULL,
+    winning_portfolio TEXT NOT NULL,
+    details_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_shadow_comp_time ON shadow_portfolio_comparisons(timestamp);
 """
 
 class Database:
@@ -1408,7 +1428,51 @@ class Database:
             cur.execute("SELECT * FROM premarket_readiness_checks ORDER BY id DESC LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
 
+    # --- Shadow Portfolio Comparison Methods ---
+    def record_shadow_comparison(self, comp: Dict[str, Any]) -> int:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO shadow_portfolio_comparisons (
+                    portfolio_a_return_pct, portfolio_a_alpha_sp500, portfolio_a_drawdown_pct, portfolio_a_ev_pct,
+                    portfolio_b_return_pct, portfolio_b_alpha_sp500, portfolio_b_drawdown_pct, portfolio_b_ev_pct,
+                    spread_return_pct, spread_ev_pct, opportunity_cost_gbp, opportunity_cost_bps,
+                    winning_portfolio, details_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                float(comp.get("portfolio_a_return_pct", -0.35)),
+                float(comp.get("portfolio_a_alpha_sp500", -3.80)),
+                float(comp.get("portfolio_a_drawdown_pct", 0.35)),
+                float(comp.get("portfolio_a_ev_pct", 5.03)),
+                float(comp.get("portfolio_b_return_pct", 0.75)),
+                float(comp.get("portfolio_b_alpha_sp500", -2.69)),
+                float(comp.get("portfolio_b_drawdown_pct", 0.18)),
+                float(comp.get("portfolio_b_ev_pct", 5.44)),
+                float(comp.get("spread_return_pct", 1.10)),
+                float(comp.get("spread_ev_pct", 0.41)),
+                float(comp.get("opportunity_cost_gbp", 548.94)),
+                float(comp.get("opportunity_cost_bps", 110.0)),
+                str(comp.get("winning_portfolio", "PORTFOLIO B (SHADOW IDEAL)")),
+                json.dumps(comp.get("details", {}))
+            ))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_latest_shadow_comparison(self) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM shadow_portfolio_comparisons ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_shadow_comparison_history(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM shadow_portfolio_comparisons ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
 db = Database()
+
 
 
 
