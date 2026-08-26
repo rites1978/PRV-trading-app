@@ -1155,7 +1155,6 @@
                 }
 
                 updateHeroBadge();
-                loadEquityCurve();
             } catch(e) {
                 console.warn("Fast summary poll skipped/error:", e);
             } finally {
@@ -1736,17 +1735,18 @@
             }
         }
 
-        // 🚀 Initialize Page (Concurrent immediate paint of summary, parity, and positions)
+        // 🚀 Initialize Page (Concurrent immediate paint of summary, parity, positions, and equity curve)
         fetchFastSummary();
         fetchBrokerParity();
         fetchPositionsBackground();
+        loadEquityCurve();
 
-        // ⏱️ Active periodic poll (Refreshes summary, parity, and positions every 5s)
+        // ⏱️ Active periodic poll (Refreshes summary, parity, and positions every 10s)
         setInterval(() => {
             fetchFastSummary();
             fetchBrokerParity();
             fetchPositionsBackground();
-        }, 5000);
+        }, 10000);
 
         // 🔄 Lifecycle Refresh Handlers (window focus, visibilitychange, pageshow)
         let isLifecycleSyncInFlight = false;
