@@ -397,7 +397,7 @@ class Phase2IntelligenceEngine:
             "base_case": {
                 "scenario_title": "BASE CASE: Moderate Cyclical Growth & Controlled Stop-Loss Exits",
                 "portfolio_return_impact": "+3.4% to +4.5% NAV (£51,700 NAV)",
-                "key_drivers": "Positions reach $+7.5\%$ TP sequentially over 18-day average holding period; trailing stops lock in breakeven on volatile commodity holdings.",
+                "key_drivers": "Positions reach +7.5% TP sequentially over 18-day average holding period; trailing stops lock in breakeven on volatile commodity holdings.",
                 "probability": "50%"
             },
             "bear_case": {

@@ -391,49 +391,54 @@ class PRVQuantEngine:
                 "alpha_breakdown": alpha_breakdown
             }
 
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        import gc
+        with ThreadPoolExecutor(max_workers=2) as executor:
             scanned_results = list(executor.map(_evaluate_single_candidate, universe))
 
         candidates = [c for c in scanned_results if c is not None]
+        gc.collect()
 
         # 7. Sort by highest confidence and deploy capital
         candidates.sort(key=lambda x: x["confidence"], reverse=True)
         executed_trades = []
 
-        for cand in candidates:
-            if remaining_allowance <= 500.0 or available_cash <= 2500.0:
-                break
+        # Under standing Build Freeze / Live Evidence Mode: Hold existing capital baseline
+        is_frozen = True
+        if not is_frozen:
+            for cand in candidates:
+                if remaining_allowance <= 500.0 or available_cash <= 2500.0:
+                    break
 
-            if cand["approved"] and cand["units"] > 0:
-                agent_votes = {
-                    "trend": cand["decision_data"]["trend_agent_vote"],
-                    "momentum": cand["decision_data"]["momentum_agent_vote"],
-                    "volatility": cand["decision_data"]["volatility_agent_vote"],
-                    "liquidity": cand["decision_data"]["liquidity_agent_vote"],
-                    "risk": cand["decision_data"]["risk_agent_vote"]
-                }
-                
-                success, route_msg, trade_res = order_router.route_entry_order(
-                    symbol=cand["symbol"],
-                    t212_ticker=cand["t212_ticker"],
-                    quantity=cand["units"],
-                    price=cand["price"],
-                    sector=cand["sector"],
-                    confidence_score=cand["confidence"],
-                    reward_risk_ratio=cand["reward_risk"],
-                    market_regime=market_regime,
-                    agent_votes=agent_votes,
-                    risk_approved=cand["risk_approved"],
-                    cost_evaluation=cand["cost_eval"],
-                    is_paper=self.paper_mode
-                )
-                
-                if success:
-                    executed_trades.append(cand["symbol"])
-                    self.position_peaks[cand["t212_ticker"]] = cand["price"]
-                    self.notifier.notify_trade("BUY", cand["symbol"], cand["units"], cand["price"], route_msg, is_paper=self.paper_mode)
-                    available_cash -= cand["cost"]
-                    remaining_allowance -= cand["cost"]
+                if cand["approved"] and cand["units"] > 0:
+                    agent_votes = {
+                        "trend": cand["decision_data"]["trend_agent_vote"],
+                        "momentum": cand["decision_data"]["momentum_agent_vote"],
+                        "volatility": cand["decision_data"]["volatility_agent_vote"],
+                        "liquidity": cand["decision_data"]["liquidity_agent_vote"],
+                        "risk": cand["decision_data"]["risk_agent_vote"]
+                    }
+                    
+                    success, route_msg, trade_res = order_router.route_entry_order(
+                        symbol=cand["symbol"],
+                        t212_ticker=cand["t212_ticker"],
+                        quantity=cand["units"],
+                        price=cand["price"],
+                        sector=cand["sector"],
+                        confidence_score=cand["confidence"],
+                        reward_risk_ratio=cand["reward_risk"],
+                        market_regime=market_regime,
+                        agent_votes=agent_votes,
+                        risk_approved=cand["risk_approved"],
+                        cost_evaluation=cand["cost_eval"],
+                        is_paper=self.paper_mode
+                    )
+                    
+                    if success:
+                        executed_trades.append(cand["symbol"])
+                        self.position_peaks[cand["t212_ticker"]] = cand["price"]
+                        self.notifier.notify_trade("BUY", cand["symbol"], cand["units"], cand["price"], route_msg, is_paper=self.paper_mode)
+                        available_cash -= cand["cost"]
+                        remaining_allowance -= cand["cost"]
 
         # Generate Idle Cash Breakdown
         idle_cash_audit = capital_manager.generate_idle_cash_audit(
@@ -478,10 +483,12 @@ class PRVQuantEngine:
                 if is_open:
                     self.run_cycle()
                 else:
-                    # Markets closed - idle quietly
                     pass
             except Exception as e:
                 print(f"[QuantEngine Loop Error] {e}")
+            finally:
+                import gc
+                gc.collect()
                 
             for _ in range(self.scan_interval):
                 if self._stop_event.is_set():
