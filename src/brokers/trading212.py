@@ -42,7 +42,7 @@ class Trading212Broker:
         self._is_syncing: bool = False
         self._sync_thread_running: bool = False
 
-        # Hydrate last verified state from persistent SQLite snapshot ledger
+        # Hydrate last verified state from persistent SQLite snapshot ledger & disk cache
         try:
             with db.get_connection() as conn:
                 cur = conn.cursor()
@@ -53,6 +53,16 @@ class Trading212Broker:
                     self._last_verified_cash = float(last_snap["cash"])
                     self._last_verified_invested = float(last_snap["invested"])
                     self._last_sync_timestamp = str(last_snap["timestamp"])
+        except Exception:
+            pass
+
+        import json, os
+        cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "broker_positions_cache.json")
+        try:
+            if os.path.exists(cache_path):
+                with open(cache_path, "r") as f:
+                    self._cached_positions = json.load(f)
+                    self._cached_positions_time = time.time()
         except Exception:
             pass
 
@@ -186,6 +196,14 @@ class Trading212Broker:
                     data = res.json()
                     self._cached_positions = data
                     self._cached_positions_time = now
+                    try:
+                        import json, os
+                        cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "broker_positions_cache.json")
+                        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                        with open(cache_path, "w") as f:
+                            json.dump(data, f)
+                    except Exception:
+                        pass
                     return list(data)
                 return list(self._cached_positions)
             except Exception:
