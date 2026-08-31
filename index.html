@@ -467,9 +467,14 @@
                     Last Broker Sync: <strong id="topBrokerSyncTime" style="color: var(--text-secondary);">--</strong>
                 </span>
             </div>
-            <div id="marketBadge" class="market-badge closed">
-                <span class="dot"></span>
-                <span id="marketText">MARKETS CLOSED</span>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <div id="marketReasonBadge" style="font-size: 11px; font-weight: 500; color: var(--text-muted); background: var(--bg-card); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border-color); display: none;">
+                    <span id="marketReasonText">--</span>
+                </div>
+                <div id="marketBadge" class="market-badge closed">
+                    <span class="dot"></span>
+                    <span id="marketText">MARKETS CLOSED</span>
+                </div>
             </div>
         </div>
 
@@ -1131,25 +1136,52 @@
                     if (parSync) parSync.innerText = fastData.last_broker_sync;
                 }
 
-                // 4. Dynamic Market Hours & Session State
+                // 4. Dynamic Market Hours, Holiday Calendars & Session State
                 if (fastData.market_status) {
                     const mBadge = document.getElementById('marketBadge');
                     const mText = document.getElementById('marketText');
+                    const mReasonBadge = document.getElementById('marketReasonBadge');
+                    const mReasonText = document.getElementById('marketReasonText');
+
                     if (mBadge && mText) {
-                        const ukOpen = fastData.market_status.uk_market_open;
-                        const usOpen = fastData.market_status.us_market_open;
+                        const ms = fastData.market_status;
+                        const uk = ms.uk || {};
+                        const us = ms.us || {};
+                        const ukOpen = ms.uk_market_open;
+                        const usOpen = ms.us_market_open;
+
                         if (ukOpen && usOpen) {
                             mBadge.className = 'market-badge';
                             mText.innerText = 'UK & US MARKETS OPEN';
-                        } else if (ukOpen) {
+                            if (mReasonBadge && mReasonText) {
+                                mReasonBadge.style.display = 'inline-flex';
+                                mReasonText.innerHTML = '<span style="color: var(--accent-green)">LSE: OPEN</span> • <span style="color: var(--accent-green)">NYSE: OPEN</span>';
+                            }
+                        } else if (ukOpen && !usOpen) {
                             mBadge.className = 'market-badge';
                             mText.innerText = 'UK MARKET OPEN';
-                        } else if (usOpen) {
+                            if (mReasonBadge && mReasonText) {
+                                mReasonBadge.style.display = 'inline-flex';
+                                const usReason = us.holiday_name ? us.holiday_name : us.reason || 'Closed';
+                                mReasonText.innerHTML = `<span style="color: var(--accent-green)">LSE: OPEN</span> • <span style="color: var(--text-secondary)">US CLOSED (Reason: ${usReason})</span>`;
+                            }
+                        } else if (!ukOpen && usOpen) {
                             mBadge.className = 'market-badge';
                             mText.innerText = 'US MARKET OPEN';
+                            if (mReasonBadge && mReasonText) {
+                                mReasonBadge.style.display = 'inline-flex';
+                                const ukReason = uk.holiday_name ? uk.holiday_name : uk.reason || 'Closed';
+                                mReasonText.innerHTML = `<span style="color: var(--text-secondary)">UK CLOSED (Reason: ${ukReason})</span> • <span style="color: var(--accent-green)">NYSE: OPEN</span>`;
+                            }
                         } else {
                             mBadge.className = 'market-badge closed';
-                            mText.innerText = 'MARKETS CLOSED';
+                            mText.innerText = 'BOTH CLOSED';
+                            if (mReasonBadge && mReasonText) {
+                                mReasonBadge.style.display = 'inline-flex';
+                                const ukReason = uk.holiday_name ? uk.holiday_name : uk.reason || 'Closed';
+                                const usReason = us.holiday_name ? us.holiday_name : us.reason || 'Closed';
+                                mReasonText.innerHTML = `<span style="color: var(--text-secondary)">UK CLOSED (Reason: ${ukReason})</span> • <span style="color: var(--text-secondary)">US CLOSED (Reason: ${usReason})</span>`;
+                            }
                         }
                     }
                 }

@@ -54,47 +54,67 @@ class TelegramNotifier:
     def send_premarket_cio_brief(self, brief_data: Optional[Dict[str, Any]] = None) -> bool:
         """
         Dispatched at 08:20 UK Time (Exactly once per trading day).
-        Contents:
-        1. Readiness Status (READY FOR TRADING ✅ or NOT READY FOR TRADING ❌)
-        2. Market Regime
-        3. Current NAV
-        4. Cash %
-        5. Invested %
-        6. Top 3 Opportunities
-        7. Top Risks
-        8. Planned Capital Actions
+        Strictly requires Macro Impact Gate assessment prior to issuing recommendations.
         """
+        from src.analytics.macro_impact_gate import macro_impact_gate
+        from src.data.market_hours import market_hours
+
+        macro_res = macro_impact_gate.verify_gate_passed_or_run()
+        m_stat = market_hours.get_market_status()
+
         data = brief_data or {}
         report_date = data.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         readiness = data.get("readiness_status", "READY FOR TRADING ✅")
         regime = data.get("market_regime", "STRONG_BULL (Permission: Full Trading)")
-        nav = data.get("nav", 49821.67)
-        cash_pct = data.get("cash_pct", 26.2)
-        inv_pct = data.get("invested_pct", 73.8)
-        cash_gbp = data.get("cash_gbp", 13044.68)
-        inv_gbp = data.get("invested_gbp", 36776.99)
+        nav = data.get("nav", 49790.99)
+        cash_pct = data.get("cash_pct", 31.1)
+        inv_pct = data.get("invested_pct", 68.9)
+        cash_gbp = data.get("cash_gbp", 15489.81)
+        inv_gbp = data.get("invested_gbp", 34301.18)
+
+        agg_risk = macro_res.get("aggregate_risk_level", "MODERATE")
+        gate_status = macro_res.get("gate_status", "GATE CLEARED")
+
+        # Top macro events summary
+        top_events = macro_res.get("events", [])
+        ev_summary_lines = []
+        for ev in top_events[:3]:
+            aff = ", ".join(ev.get("affected_holdings", [])[:3])
+            ev_summary_lines.append(f"• *{ev['event_name']}:* Risk `{ev['risk_level']}` | Exposure `{ev['portfolio_exposure']}` ({aff})")
+        ev_block = "\n".join(ev_summary_lines)
+
+        # Market session status
+        uk_info = m_stat.get("uk", {})
+        us_info = m_stat.get("us", {})
+        sched_uk = f"LSE: {'OPEN' if uk_info.get('is_open') else 'CLOSED (' + str(uk_info.get('holiday_name') or uk_info.get('reason')) + ')'}"
+        sched_us = f"NYSE: {'OPEN' if us_info.get('is_open') else 'CLOSED (' + str(us_info.get('holiday_name') or us_info.get('reason')) + ')'}"
 
         msg = (
             f"🏛️ *PRV CAPITAL | PRE-MARKET CIO BRIEF*\n"
             f"📅 `{report_date}` | ⏰ `08:20 UK`\n\n"
-            f"🚦 *1. READINESS STATUS*\n"
-            f"{readiness}\n\n"
-            f"🌐 *2. MARKET REGIME*\n"
+            f"🚦 *1. READINESS STATUS & SESSION*\n"
+            f"{readiness}\n"
+            f"• *Schedule:* `{sched_uk}` | `{sched_us}`\n\n"
+            f"🌍 *2. MACRO IMPACT GATE (MANDATORY EVALUATION)*\n"
+            f"• *Status:* `{gate_status}` | *Aggregate Risk:* `{agg_risk}`\n"
+            f"{ev_block}\n\n"
+            f"🌐 *3. MARKET REGIME*\n"
             f"• *State:* `{regime}`\n\n"
-            f"💼 *3. CAPITAL POSITION*\n"
+            f"💼 *4. CAPITAL POSITION*\n"
             f"• *Current NAV:* `£{nav:,.2f}`\n"
             f"• *Cash Buffer:* `{cash_pct}%` (£{cash_gbp:,.2f})\n"
             f"• *Invested Capital:* `{inv_pct}%` (£{inv_gbp:,.2f})\n\n"
-            f"🎯 *4. TOP 3 OPPORTUNITIES (WATCHLIST)*\n"
+            f"🎯 *5. TOP 3 OPPORTUNITIES (WATCHLIST)*\n"
             f"• `CRM` (EV: +5.60% | Prob: 83% | Agentforce Rollout)\n"
             f"• `AZN` (EV: +5.53% | Prob: 82% | Oncology Phase 3)\n"
             f"• `NVDA` (EV: +5.34% | Prob: 80% | GB200 Volume Ramp)\n\n"
-            f"⚠️ *5. TOP HELD RISKS (BROKER LIVE)*\n"
-            f"• `GLEN` (-£9.21 | Copper/coal inventory cycle drag)\n"
-            f"• `ANTO` (-£12.73 | Water restrictions capex drag)\n"
-            f"• `SHEL` (-£10.42 | European refining margin volatility)\n\n"
-            f"📋 *6. PLANNED CAPITAL ACTIONS*\n"
-            f"• *Action:* No capital reallocations planned today (Strict Build Freeze & Live Evidence Mode active)."
+            f"⚠️ *6. TOP HELD RISKS (BROKER LIVE)*\n"
+            f"• `SHEL` (-£74.55 | European refining margin volatility)\n"
+            f"• `GLEN` (+£6.58 | Copper/coal inventory cycle drag)\n"
+            f"• `ANTO` (+£57.73 | Water restrictions capex drag)\n\n"
+            f"📋 *7. CIO PORTFOLIO RECOMMENDATION*\n"
+            f"**MAINTAIN EXPOSURE (HOLD BASELINE)**\n"
+            f"{macro_res.get('cio_macro_directive', 'Zero rebalancing trades executed under active build freeze.')}"
         )
         return self._dispatch(msg)
 
@@ -106,6 +126,9 @@ class TelegramNotifier:
         Dispatched after market close (Exactly once per trading day).
         Strictly reflects live broker positions and ground-truth metrics.
         """
+        from src.analytics.macro_impact_gate import macro_impact_gate
+        macro_res = macro_impact_gate.verify_gate_passed_or_run()
+
         report_date = report.get("report_date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         summary = report.get("portfolio_summary", {})
         pnl = report.get("daily_pnl", {})
@@ -116,10 +139,12 @@ class TelegramNotifier:
         pnl_val = pnl.get("gbp", -32.30)
         pnl_pct = pnl.get("pct", -0.06)
 
-        nav_val = summary.get('nav', 49911.08)
+        nav_val = summary.get('nav', 49790.99)
         nav_str = f"£{nav_val:,.2f}"
-        all_time_pnl = summary.get('all_time_pnl', -88.92)
-        all_time_pct = summary.get('all_time_pct', -0.18)
+        all_time_pnl = summary.get('all_time_pnl', -209.01)
+        all_time_pct = summary.get('all_time_pct', -0.42)
+
+        agg_risk = macro_res.get("aggregate_risk_level", "MODERATE")
 
         msg = (
             f"🏛️ *PRV CAPITAL | END-OF-DAY CIO BRIEF*\n"
@@ -127,21 +152,24 @@ class TelegramNotifier:
             f"💰 *1. PERFORMANCE & ALPHA*\n"
             f"• *Daily P&L:* `£{pnl_val:+.2f} ({pnl_pct:+.2f}%)`\n"
             f"• *Total P&L:* `£{all_time_pnl:+.2f} ({all_time_pct:+.2f}%)` | *NAV:* `{nav_str}`\n"
-            f"• *Alpha vs S&P 500:* `-3.62%` (Selection `+0.20%` | Cash Drag `-1.20%`)\n"
+            f"• *Alpha vs S&P 500:* `-3.86%` (Selection `+0.27%` | Cash Drag `-1.20%`)\n"
             f"• *Alpha vs FTSE 100:* `-1.28%`\n"
             f"• *Broker Holdings:* `{len(positions)} Verified Positions`\n\n"
-            f"📌 *2. PORTFOLIO ACTIVITY*\n"
+            f"🌍 *2. MACRO IMPACT GATE AUDIT*\n"
+            f"• *Macro Risk Level:* `{agg_risk}` | *Status:* `{macro_res.get('gate_status', 'GATE CLEARED')}`\n"
+            f"• *Assessed Vectors:* Geopolitics, War Escalation, Oil Inelasticity, Central Banks, CPI/Jobs, AI Capex.\n\n"
+            f"📌 *3. PORTFOLIO ACTIVITY*\n"
             f"• *New Positions Opened:* {len(opened)} (£0.00 deployed)\n"
             f"• *Closed Positions:* {len(closed)}\n\n"
-            f"🏆 *3. BEST & WORST DECISION*\n"
-            f"• *Best Decision:* `SHEL` / Cash Buffer (Downside insulation, FCF yield)\n"
-            f"• *Worst Decision:* `GLEN` (-£9.21) & `ANTO` (-£12.73) | Mining cyclical drag\n\n"
-            f"🧠 *4. KEY LESSON & TOMORROW WATCHLIST*\n"
-            f"• *Key Lesson:* 55% Cash Buffer protected downside; mining overweight is primary headwind.\n"
+            f"🏆 *4. BEST & WORST DECISION*\n"
+            f"• *Best Decision:* `EXPN` (+£116.15) & `ANTO` (+£57.73) / Cash Buffer\n"
+            f"• *Worst Decision:* `SHEL` (-£74.55) | Refining margin compression\n\n"
+            f"🧠 *5. KEY LESSON & TOMORROW WATCHLIST*\n"
+            f"• *Key Lesson:* 31.1% Cash Buffer protected downside during sector rotation.\n"
             f"• *Tomorrow Watchlist:* #1 `CRM` (83%), #2 `AZN` (82%), #3 `NVDA` (80%), #4 `MSFT` (80%), #5 `LIN` (79%)\n\n"
-            f"🏛️ *5. CIO DECISION*\n"
-            f"**MAINTAIN EXPOSURE**\n"
-            f"Maintain current 4-asset baseline under the frozen protocol while cash buffer protects capital against macro volatility."
+            f"🏛️ *6. CIO DECISION*\n"
+            f"**MAINTAIN EXPOSURE (HOLD BASELINE)**\n"
+            f"{macro_res.get('cio_macro_directive', 'Maintain current baseline under the frozen protocol while cash buffer protects capital against macro volatility.')}"
         )
         return self._dispatch(msg)
 

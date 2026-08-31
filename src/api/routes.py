@@ -915,3 +915,15 @@ def get_market_hours_status():
 @app.get("/api/monitoring/catalysts")
 def get_catalyst_monitoring():
     return JSONResponse(content=catalyst_engine.get_dashboard_payload())
+
+@app.get("/api/macro/assessment")
+def get_macro_impact_assessment():
+    from src.analytics.macro_impact_gate import macro_impact_gate
+    assessment = macro_impact_gate.verify_gate_passed_or_run()
+    return JSONResponse(content=assessment)
+
+@app.get("/api/macro/ledger")
+def get_macro_event_ledger(limit: int = 50):
+    entries = db.get_macro_ledger_entries(limit=limit)
+    return JSONResponse(content={"entries": entries, "count": len(entries)})
+

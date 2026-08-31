@@ -633,6 +633,24 @@ CREATE TABLE IF NOT EXISTS shadow_promotion_candidates (
     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_shadow_promo_cand ON shadow_promotion_candidates(candidate_symbol);
+
+CREATE TABLE IF NOT EXISTS macro_event_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    evaluation_date TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    category TEXT NOT NULL,
+    event_name TEXT NOT NULL,
+    portfolio_exposure TEXT NOT NULL CHECK (portfolio_exposure IN ('LOW', 'MODERATE', 'HIGH', 'CRITICAL')),
+    affected_holdings TEXT NOT NULL,
+    direct_impact TEXT NOT NULL,
+    indirect_impact TEXT NOT NULL,
+    risk_level TEXT NOT NULL CHECK (risk_level IN ('LOW', 'MODERATE', 'HIGH', 'CRITICAL')),
+    expected_effect TEXT NOT NULL,
+    mitigation_action TEXT,
+    raw_payload TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_macro_ledger_date ON macro_event_ledger(evaluation_date);
 """
 
 class Database:
@@ -1517,6 +1535,70 @@ class Database:
         with self.get_connection() as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM shadow_promotion_candidates ORDER BY promotion_score DESC")
+            return [dict(row) for row in cur.fetchall()]
+
+    # --- Macro Event Ledger Methods ---
+    def record_macro_assessment(self, assessment: Dict[str, Any]) -> bool:
+        """
+        Stores macro impact gate evaluation results in the permanent Macro Event Ledger.
+        """
+        eval_date = assessment.get("evaluation_date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        events = assessment.get("events", [])
+        raw_json = json.dumps(assessment)
+
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            for ev in events:
+                holdings_str = ",".join(ev.get("affected_holdings", [])) if isinstance(ev.get("affected_holdings"), list) else str(ev.get("affected_holdings", ""))
+                cur.execute("""
+                    INSERT INTO macro_event_ledger (
+                        evaluation_date, event_id, category, event_name,
+                        portfolio_exposure, affected_holdings, direct_impact,
+                        indirect_impact, risk_level, expected_effect,
+                        mitigation_action, raw_payload
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    eval_date,
+                    ev.get("event_id", "UNKNOWN"),
+                    ev.get("category", "MACRO"),
+                    ev.get("event_name", ev.get("headline", "")),
+                    ev.get("portfolio_exposure", "LOW"),
+                    holdings_str,
+                    ev.get("direct_impact", ""),
+                    ev.get("indirect_impact", ""),
+                    ev.get("risk_level", "LOW"),
+                    ev.get("expected_effect", ""),
+                    ev.get("mitigation_action", ""),
+                    raw_json
+                ))
+            conn.commit()
+            return True
+
+    def get_latest_macro_assessment(self, date_str: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves the most recent macro assessment payload.
+        """
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            if date_str:
+                cur.execute("SELECT raw_payload FROM macro_event_ledger WHERE evaluation_date = ? ORDER BY id DESC LIMIT 1", (date_str,))
+            else:
+                cur.execute("SELECT raw_payload FROM macro_event_ledger ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            if row and row[0]:
+                try:
+                    return json.loads(row[0])
+                except Exception:
+                    return None
+            return None
+
+    def get_macro_ledger_entries(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Retrieves recent entries from the Macro Event Ledger.
+        """
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM macro_event_ledger ORDER BY id DESC LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
 
 db = Database()

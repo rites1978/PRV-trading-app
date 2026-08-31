@@ -149,12 +149,61 @@ class MasterPDFGenerator:
         story.append(t_conv)
         story.append(Spacer(1, 6))
 
-        # Portfolio Action Recommendation
-        story.append(Paragraph("3. CIO Portfolio Action Recommendation", section_heading))
+        # 3. Macro Impact Gate & Systematic Risk Assessment
+        from src.analytics.macro_impact_gate import macro_impact_gate
+        macro_res = macro_impact_gate.verify_gate_passed_or_run(positions)
+        agg_risk = macro_res.get("aggregate_risk_level", "MODERATE")
+
+        story.append(Paragraph(f"3. News & Macro Impact Gate Assessment (Aggregate Risk: <b>{agg_risk}</b>)", section_heading))
+        macro_rows = [
+            [Paragraph("<b>Macro Vector / Event</b>", table_header), Paragraph("<b>Category</b>", table_header), Paragraph("<b>Exposure</b>", table_header), Paragraph("<b>Affected Holdings</b>", table_header), Paragraph("<b>Expected Effect & Risk Level</b>", table_header)],
+        ]
+
+        badge_risk_map = {
+            "LOW": badge_yes,
+            "MODERATE": ParagraphStyle('BM', parent=styles['Normal'], fontSize=7, leading=8.5, textColor=colors.HexColor("#d97706"), fontName='Helvetica-Bold'),
+            "HIGH": badge_no,
+            "CRITICAL": badge_no
+        }
+
+        category_label_map = {
+            "WAR_ESCALATION": "War Escalation",
+            "CENTRAL_BANK_ACTION": "Central Bank",
+            "OIL_MARKET_DISRUPTION": "Oil Disruption",
+            "GEOPOLITICAL_CONFLICT": "Geopolitics",
+            "ECONOMIC_RELEASE": "Econ Release",
+            "MARKET_MOVING_NEWS": "Market News"
+        }
+
+        for ev in macro_res.get("events", [])[:4]:
+            aff_str = ", ".join(ev.get("affected_holdings", [])[:3])
+            r_badge = badge_risk_map.get(ev.get("risk_level", "LOW"), badge_yes)
+            cat_raw = ev.get("category", "MACRO")
+            cat_label = category_label_map.get(cat_raw, cat_raw)
+            macro_rows.append([
+                Paragraph(f"<b>{ev['event_name'][:42]}</b>", table_cell),
+                Paragraph(cat_label, table_cell),
+                Paragraph(ev.get("portfolio_exposure", "LOW"), table_cell),
+                Paragraph(aff_str, table_cell),
+                Paragraph(f"{ev.get('expected_effect', '')[:50]} | <b>{ev.get('risk_level', 'LOW')}</b>", table_cell)
+            ])
+
+        t_macro = Table(macro_rows, colWidths=[160, 70, 50, 75, 185])
+        t_macro.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+            ('PADDING', (0, 0), (-1, -1), 2.5),
+        ]))
+        story.append(t_macro)
+        story.append(Spacer(1, 4))
+
+        # 4. Portfolio Action Recommendation
+        story.append(Paragraph("4. CIO Portfolio Action Recommendation", section_heading))
         p_recom = Paragraph(
             "<b>RECOMMENDATION: MAINTAIN EXPOSURE (HOLD BASELINE)</b><br/>"
-            "• <b>Action:</b> Zero rebalancing trades executed today under the standing build freeze.<br/>"
-            "• <b>Target Sizing Guidance:</b> Allow open positions to mature across their 14-day catalyst horizon. Sizing adjustments locked until 20 completed exits.",
+            f"• <b>Macro Clearance:</b> Evaluated across 6 systematic macro pillars ({macro_res.get('gate_status', 'GATE CLEARED')}). "
+            f"{macro_res.get('cio_macro_directive', 'Capital preserved across active holdings under strict frozen baseline.')}<br/>"
+            "• <b>Execution Action:</b> Zero rebalancing trades executed today under standing build freeze. Sizing adjustments locked until 20 completed exits.",
             body_style
         )
         story.append(p_recom)
