@@ -648,6 +648,14 @@ CREATE TABLE IF NOT EXISTS macro_event_ledger (
     risk_level TEXT NOT NULL CHECK (risk_level IN ('LOW', 'MODERATE', 'HIGH', 'CRITICAL')),
     expected_effect TEXT NOT NULL,
     mitigation_action TEXT,
+    source_classification TEXT NOT NULL DEFAULT 'LIVE NEWS',
+    publisher TEXT,
+    source_url TEXT,
+    published_at TEXT,
+    retrieved_at TEXT,
+    is_last_24h INTEGER DEFAULT 1,
+    confidence_score REAL DEFAULT 90.0,
+    raw_headline TEXT,
     raw_payload TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_macro_ledger_date ON macro_event_ledger(evaluation_date);
@@ -700,6 +708,22 @@ class Database:
                 cur.execute("ALTER TABLE ai_performance_cycles ADD COLUMN confidence_level TEXT NOT NULL DEFAULT 'LOW'")
             if ccols and "evaluation_reason" not in ccols:
                 cur.execute("ALTER TABLE ai_performance_cycles ADD COLUMN evaluation_reason TEXT")
+
+            # 5. Automatic migration for macro_event_ledger live news fields
+            cur.execute("PRAGMA table_info(macro_event_ledger)")
+            mcols = [r["name"] for r in cur.fetchall()]
+            for c_name, c_def in [
+                ("source_classification", "TEXT NOT NULL DEFAULT 'LIVE NEWS'"),
+                ("publisher", "TEXT"),
+                ("source_url", "TEXT"),
+                ("published_at", "TEXT"),
+                ("retrieved_at", "TEXT"),
+                ("is_last_24h", "INTEGER DEFAULT 1"),
+                ("confidence_score", "REAL DEFAULT 90.0"),
+                ("raw_headline", "TEXT")
+            ]:
+                if mcols and c_name not in mcols:
+                    cur.execute(f"ALTER TABLE macro_event_ledger ADD COLUMN {c_name} {c_def}")
 
             # Seed initial cycles if ai_performance_cycles is empty
             cur.execute("SELECT COUNT(*) as cnt FROM ai_performance_cycles")
@@ -1555,8 +1579,10 @@ class Database:
                         evaluation_date, event_id, category, event_name,
                         portfolio_exposure, affected_holdings, direct_impact,
                         indirect_impact, risk_level, expected_effect,
-                        mitigation_action, raw_payload
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        mitigation_action, source_classification, publisher,
+                        source_url, published_at, retrieved_at, is_last_24h,
+                        confidence_score, raw_headline, raw_payload
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     eval_date,
                     ev.get("event_id", "UNKNOWN"),
@@ -1569,6 +1595,14 @@ class Database:
                     ev.get("risk_level", "LOW"),
                     ev.get("expected_effect", ""),
                     ev.get("mitigation_action", ""),
+                    ev.get("source_classification", "LIVE NEWS"),
+                    ev.get("publisher", "Reuters"),
+                    ev.get("source_url", ""),
+                    ev.get("published_at", ""),
+                    ev.get("retrieved_at", datetime.now().strftime("%Y-%m-%d %H:%M %Z")),
+                    1 if ev.get("is_last_24h", True) else 0,
+                    float(ev.get("confidence_score", 90.0)),
+                    ev.get("raw_headline", ""),
                     raw_json
                 ))
             conn.commit()
