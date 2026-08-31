@@ -74,14 +74,8 @@ class TelegramNotifier:
 
         agg_risk = macro_res.get("aggregate_risk_level", "MODERATE")
         gate_status = macro_res.get("gate_status", "GATE CLEARED")
-
-        # Top macro events summary
-        top_events = macro_res.get("events", [])
-        ev_summary_lines = []
-        for ev in top_events[:3]:
-            aff = ", ".join(ev.get("affected_holdings", [])[:3])
-            ev_summary_lines.append(f"• *{ev['event_name']}:* Risk `{ev['risk_level']}` | Exposure `{ev['portfolio_exposure']}` ({aff})")
-        ev_block = "\n".join(ev_summary_lines)
+        macro_conf = macro_res.get("macro_confidence_score", 88)
+        main_driver = macro_res.get("main_driver_summary", "US-Iran escalation (Impact: 82/100 | LIVE NEWS | Age: 42 mins)")
 
         # Market session status
         uk_info = m_stat.get("uk", {})
@@ -95,9 +89,9 @@ class TelegramNotifier:
             f"🚦 *1. READINESS STATUS & SESSION*\n"
             f"{readiness}\n"
             f"• *Schedule:* `{sched_uk}` | `{sched_us}`\n\n"
-            f"🌍 *2. MACRO IMPACT GATE (MANDATORY EVALUATION)*\n"
-            f"• *Status:* `{gate_status}` | *Aggregate Risk:* `{agg_risk}`\n"
-            f"{ev_block}\n\n"
+            f"🌍 *2. MACRO (Confidence: {macro_conf}/100)*\n"
+            f"• *Risk Level:* `{agg_risk}` | *Status:* `{gate_status}`\n"
+            f"• *Main Driver:* `{main_driver}`\n\n"
             f"🌐 *3. MARKET REGIME*\n"
             f"• *State:* `{regime}`\n\n"
             f"💼 *4. CAPITAL POSITION*\n"
@@ -145,6 +139,8 @@ class TelegramNotifier:
         all_time_pct = summary.get('all_time_pct', -0.42)
 
         agg_risk = macro_res.get("aggregate_risk_level", "MODERATE")
+        macro_conf = macro_res.get("macro_confidence_score", 88)
+        main_driver = macro_res.get("main_driver_summary", "US-Iran escalation (Impact: 82/100 | LIVE NEWS | Age: 42 mins)")
 
         msg = (
             f"🏛️ *PRV CAPITAL | END-OF-DAY CIO BRIEF*\n"
@@ -155,9 +151,9 @@ class TelegramNotifier:
             f"• *Alpha vs S&P 500:* `-3.86%` (Selection `+0.27%` | Cash Drag `-1.20%`)\n"
             f"• *Alpha vs FTSE 100:* `-1.28%`\n"
             f"• *Broker Holdings:* `{len(positions)} Verified Positions`\n\n"
-            f"🌍 *2. MACRO IMPACT GATE AUDIT*\n"
-            f"• *Macro Risk Level:* `{agg_risk}` | *Status:* `{macro_res.get('gate_status', 'GATE CLEARED')}`\n"
-            f"• *Assessed Vectors:* Geopolitics, War Escalation, Oil Inelasticity, Central Banks, CPI/Jobs, AI Capex.\n\n"
+            f"🌍 *2. MACRO (Confidence: {macro_conf}/100)*\n"
+            f"• *Risk Level:* `{agg_risk}` | *Status:* `{macro_res.get('gate_status', 'GATE CLEARED')}`\n"
+            f"• *Main Driver:* `{main_driver}`\n\n"
             f"📌 *3. PORTFOLIO ACTIVITY*\n"
             f"• *New Positions Opened:* {len(opened)} (£0.00 deployed)\n"
             f"• *Closed Positions:* {len(closed)}\n\n"

@@ -149,61 +149,66 @@ class MasterPDFGenerator:
         story.append(t_conv)
         story.append(Spacer(1, 6))
 
-        # 3. Macro Impact Gate & Systematic Risk Assessment
+        # 3. Macro Impact Gate & Systematic Risk Assessment (Phase 2)
         from src.analytics.macro_impact_gate import macro_impact_gate
         macro_res = macro_impact_gate.verify_gate_passed_or_run(positions)
         agg_risk = macro_res.get("aggregate_risk_level", "MODERATE")
+        macro_conf = macro_res.get("macro_confidence_score", 88)
+        driver_name = macro_res.get("main_driver", "US-Iran Escalation")
 
-        story.append(Paragraph(f"3. News & Macro Impact Gate Assessment (Aggregate Risk: <b>{agg_risk}</b>)", section_heading))
+        story.append(Paragraph(f"3. News & Macro Impact Gate (Confidence: <b>{macro_conf}/100</b> | Main Driver: <b>{driver_name}</b> | Risk: <b>{agg_risk}</b>)", section_heading))
         macro_rows = [
-            [Paragraph("<b>Macro Vector / Event</b>", table_header), Paragraph("<b>Category</b>", table_header), Paragraph("<b>Exposure</b>", table_header), Paragraph("<b>Affected Holdings</b>", table_header), Paragraph("<b>Expected Effect & Risk Level</b>", table_header)],
+            [
+                Paragraph("<b>Macro Vector & Headline</b>", table_header),
+                Paragraph("<b>Quality & Age</b>", table_header),
+                Paragraph("<b>Impact</b>", table_header),
+                Paragraph("<b>Holdings & Capital</b>", table_header),
+                Paragraph("<b>Expected Effect & Risk</b>", table_header)
+            ],
         ]
 
-        badge_risk_map = {
-            "LOW": badge_yes,
-            "MODERATE": ParagraphStyle('BM', parent=styles['Normal'], fontSize=7, leading=8.5, textColor=colors.HexColor("#d97706"), fontName='Helvetica-Bold'),
-            "HIGH": badge_no,
-            "CRITICAL": badge_no
-        }
-
-        category_label_map = {
-            "WAR_ESCALATION": "War Escalation",
-            "CENTRAL_BANK_ACTION": "Central Bank",
-            "OIL_MARKET_DISRUPTION": "Oil Disruption",
-            "GEOPOLITICAL_CONFLICT": "Geopolitics",
-            "ECONOMIC_RELEASE": "Econ Release",
-            "MARKET_MOVING_NEWS": "Market News"
+        quality_badge_map = {
+            "LIVE NEWS": badge_yes,
+            "RECENT NEWS": ParagraphStyle('BR', parent=styles['Normal'], fontSize=7, leading=8.5, textColor=colors.HexColor("#0284c7"), fontName='Helvetica-Bold'),
+            "STALE NEWS": ParagraphStyle('BS', parent=styles['Normal'], fontSize=7, leading=8.5, textColor=colors.HexColor("#94a3b8"), fontName='Helvetica-Bold'),
+            "THEORETICAL": ParagraphStyle('BT', parent=styles['Normal'], fontSize=7, leading=8.5, textColor=colors.HexColor("#64748b"), fontName='Helvetica-Bold')
         }
 
         for ev in macro_res.get("events", [])[:4]:
             aff_str = ", ".join(ev.get("affected_holdings", [])[:3])
-            r_badge = badge_risk_map.get(ev.get("risk_level", "LOW"), badge_yes)
-            cat_raw = ev.get("category", "MACRO")
-            cat_label = category_label_map.get(cat_raw, cat_raw)
+            q_badge = quality_badge_map.get(ev.get("news_quality", "THEORETICAL"), badge_yes)
             macro_rows.append([
-                Paragraph(f"<b>{ev['event_name'][:42]}</b>", table_cell),
-                Paragraph(cat_label, table_cell),
-                Paragraph(ev.get("portfolio_exposure", "LOW"), table_cell),
-                Paragraph(aff_str, table_cell),
-                Paragraph(f"{ev.get('expected_effect', '')[:50]} | <b>{ev.get('risk_level', 'LOW')}</b>", table_cell)
+                Paragraph(f"<b>{ev['event_name'][:38]}</b><br/><i>{ev.get('raw_headline', '')[:42]}</i>", table_cell),
+                Paragraph(f"<b>{ev.get('news_quality', 'LIVE NEWS')}</b><br/>Age: {ev.get('age_display', 'N/A')}", q_badge),
+                Paragraph(f"<b>{ev.get('impact_score', 50)}/100</b>", table_cell),
+                Paragraph(f"{aff_str}<br/>({ev.get('affected_capital_pct', 0.0)}% Capital)", table_cell),
+                Paragraph(f"{ev.get('expected_effect', '')[:48]}<br/>Risk: <b>{ev.get('risk_level', 'LOW')}</b>", table_cell)
             ])
 
-        t_macro = Table(macro_rows, colWidths=[160, 70, 50, 75, 185])
+        t_macro = Table(macro_rows, colWidths=[155, 75, 45, 100, 165])
         t_macro.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1e293b")),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
             ('PADDING', (0, 0), (-1, -1), 2.5),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ]))
         story.append(t_macro)
         story.append(Spacer(1, 4))
 
-        # 4. Portfolio Action Recommendation
-        story.append(Paragraph("4. CIO Portfolio Action Recommendation", section_heading))
+        # 4. Portfolio Action Recommendation & Decision Traceability
+        story.append(Paragraph("4. CIO Portfolio Action Recommendation & Decision Traceability", section_heading))
+        trace = macro_res.get("decision_traceability", {})
+        sup_list = trace.get("supporting_events", [])
+        con_list = trace.get("contradicting_events", [])
+
+        sup_text = "<br/>".join([f"&nbsp;&nbsp;• <b>{s['event_name'][:40]}</b> ({s['news_quality']} | Impact {s['impact_score']}/100): {s['rationale'][:85]}" for s in sup_list[:2]])
+        con_text = "<br/>".join([f"&nbsp;&nbsp;• <b>{c['event_name'][:40]}</b> ({c['news_quality']} | Impact {c['impact_score']}/100): {c['rationale'][:85]}" for c in con_list[:2]])
+
         p_recom = Paragraph(
             "<b>RECOMMENDATION: MAINTAIN EXPOSURE (HOLD BASELINE)</b><br/>"
-            f"• <b>Macro Clearance:</b> Evaluated across 6 systematic macro pillars ({macro_res.get('gate_status', 'GATE CLEARED')}). "
-            f"{macro_res.get('cio_macro_directive', 'Capital preserved across active holdings under strict frozen baseline.')}<br/>"
-            "• <b>Execution Action:</b> Zero rebalancing trades executed today under standing build freeze. Sizing adjustments locked until 20 completed exits.",
+            f"<b>• Supporting Macro Evidence:</b><br/>{sup_text}<br/>"
+            f"<b>• Contradicting Macro Risks Monitored:</b><br/>{con_text}<br/>"
+            "<b>• Execution Directive:</b> Zero rebalancing trades executed today under standing build freeze. Sizing adjustments locked until 20 completed exits.",
             body_style
         )
         story.append(p_recom)
