@@ -185,6 +185,13 @@ class PortfolioSnapshotService:
             cost_basis = round(qty * avg_p_gbp, 2)
             pos_unrealized_gbp = round(cur_market_val - cost_basis, 2)
 
+            if is_uk:
+                asset_pnl_gbp = pos_unrealized_gbp
+                fx_trans_pnl_gbp = 0.0
+            else:
+                asset_pnl_gbp = round(qty * (cur_price_raw - avg_price_raw) * usd_gbp_rate, 2)
+                fx_trans_pnl_gbp = round(pos_unrealized_gbp - asset_pnl_gbp, 2)
+
             positions_market_sum += cur_market_val
             positions_cost_sum += cost_basis
             total_unrealized_pnl += pos_unrealized_gbp
@@ -208,12 +215,18 @@ class PortfolioSnapshotService:
                 "quantity": qty,
                 "broker_price_raw": avg_price_raw,
                 "current_price_raw": cur_price_raw,
+                "source_currency": "GBP" if is_uk else "USD",
+                "source_price": cur_price_raw / 100.0 if is_uk else cur_price_raw,
+                "source_avg_price": avg_price_raw / 100.0 if is_uk else avg_price_raw,
+                "usd_gbp_fx_rate": round(fx_rate_applied, 4),
                 "fx_conversion_rate": round(fx_rate_applied, 4),
                 "average_price_gbp": round(avg_p_gbp, 4),
                 "current_price_gbp": round(cur_p_gbp, 4),
                 "market_value_gbp": cur_market_val,
                 "cost_basis_gbp": cost_basis,
                 "unrealized_pnl_gbp": pos_unrealized_gbp,
+                "asset_price_pnl_gbp": asset_pnl_gbp,
+                "fx_translation_pnl_gbp": fx_trans_pnl_gbp,
                 "unrealized_pnl_pct": pnl_pct,
                 "weight_pct": 0.0,
                 "initial_entry_weight_cap_pct": settings.MAX_INITIAL_POSITION_WEIGHT_PCT,
@@ -224,6 +237,8 @@ class PortfolioSnapshotService:
         invested_capital = round(positions_market_sum, 2)
         positions_cost_sum = round(positions_cost_sum, 2)
         total_unrealized_pnl = round(invested_capital - positions_cost_sum, 2)
+        total_asset_price_pnl = round(sum(p.get("asset_price_pnl_gbp", 0.0) for p in positions), 2)
+        total_fx_translation_pnl = round(sum(p.get("fx_translation_pnl_gbp", 0.0) for p in positions), 2)
         
         # Ground-truth cash directly from broker summary
         free_cash = round(float(summary.get("free_cash", getattr(broker, "_last_verified_cash", 22625.20))), 2)
@@ -476,6 +491,8 @@ class PortfolioSnapshotService:
                 "active_holdings_count": pos_count,
                 "total_cost_basis_gbp": round(positions_cost_sum, 2),
                 "total_unrealized_pnl_gbp": total_unrealized_pnl,
+                "total_asset_price_pnl_gbp": total_asset_price_pnl,
+                "total_fx_translation_pnl_gbp": total_fx_translation_pnl,
                 "unrealized_pnl_invested_pct": round((total_unrealized_pnl / max(1.0, positions_cost_sum)) * 100.0, 2),
                 "all_time_pnl_gbp": nav_delta,
                 "all_time_pnl_pct": round((nav_delta / starting_capital) * 100.0, 2),

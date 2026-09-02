@@ -287,6 +287,12 @@ def get_portfolio_positions():
     sector_exposure = {}
 
     from src.data.universe import universe_manager
+    from src.data.universe import universe_manager
+    from src.portfolio.portfolio_snapshot import portfolio_snapshot
+    from src.data.market_hours import market_hours
+    
+    gbp_usd_rate = portfolio_snapshot.get_gbp_usd_rate()
+    usd_gbp_rate = 1.0 / gbp_usd_rate
     universe_map = {item.get("t212_ticker"): item for item in universe_manager.get_all()}
     universe_sym_map = {item.get("symbol"): item for item in universe_manager.get_all()}
 
@@ -297,41 +303,62 @@ def get_portfolio_positions():
         qty = float(pos.get("quantity", 0.0))
         ppl = float(pos.get("ppl", 0.0))
         
-        # Trading212 reports UK stock prices in pence (GBX)
+        # Determine jurisdiction, currency, and FX conversion
         is_uk = full_ticker.endswith("l_EQ") or full_ticker.endswith("_UK_EQ")
-        if is_uk and avg_p > 100:
-            avg_p_gbp = avg_p / 100.0
-            cur_p_gbp = cur_p / 100.0
+        if is_uk:
+            source_curr = "GBP"
+            fx_rate = 1.0
+            cur_p_native = cur_p / 100.0 if cur_p > 100 else cur_p
+            avg_p_native = avg_p / 100.0 if avg_p > 100 else avg_p
+            cur_p_gbp = cur_p_native
+            avg_p_gbp = avg_p_native
         else:
-            avg_p_gbp = avg_p
-            cur_p_gbp = cur_p
+            source_curr = "USD"
+            fx_rate = usd_gbp_rate
+            cur_p_native = cur_p
+            avg_p_native = avg_p
+            cur_p_gbp = cur_p * usd_gbp_rate
+            avg_p_gbp = avg_p * usd_gbp_rate
 
-        cur_val = round(cur_p_gbp * qty, 2)
-        cost_val = round(avg_p_gbp * qty, 2)
-        pct = round(((cur_p - avg_p) / max(0.001, avg_p)) * 100.0, 2) if avg_p > 0 else 0.0
-        total_unrealized_pnl += ppl
+        market_val_gbp = round(qty * cur_p_native * fx_rate, 2)
+        cost_val_gbp = round(qty * avg_p_native * fx_rate, 2)
+        unrealized_pnl_gbp = round(market_val_gbp - cost_val_gbp, 2)
+        pct = round(((cur_p_gbp - avg_p_gbp) / max(0.001, avg_p_gbp)) * 100.0, 2) if avg_p_gbp > 0 else 0.0
+        total_unrealized_pnl += unrealized_pnl_gbp
 
         display_ticker = full_ticker.replace("l_EQ", "").replace("_US_EQ", "").replace("_EQ", "").replace("_UK_EQ", "")
         u_info = universe_map.get(full_ticker) or universe_sym_map.get(display_ticker) or {}
         sector = u_info.get("sector", "Equities")
         company_name = u_info.get("name", display_ticker)
 
-        weight_pct = round((cur_val / max(1.0, total_nav)) * 100.0, 2)
-        sector_exposure[sector] = sector_exposure.get(sector, 0.0) + cur_val
+        weight_pct = round((market_val_gbp / max(1.0, total_nav)) * 100.0, 2)
+        sector_exposure[sector] = sector_exposure.get(sector, 0.0) + market_val_gbp
+
+        market_open = market_hours.is_asset_market_open("UK" if is_uk else "US")
+        order_status = "ORDER_EXECUTABLE_NOW" if market_open else "ORDER_ARMED"
 
         enriched_positions.append({
             "ticker": display_ticker,
             "full_ticker": full_ticker,
             "name": company_name,
             "sector": sector,
+            "source_currency": source_curr,
+            "source_price": round(cur_p_native, 2),
+            "source_avg_price": round(avg_p_native, 2),
+            "usd_gbp_fx_rate": round(fx_rate, 4),
             "quantity": qty,
             "average_price": round(avg_p_gbp, 2),
             "current_price": round(cur_p_gbp, 2),
-            "position_cost": cost_val,
-            "current_value": cur_val,
+            "price_gbp": round(cur_p_gbp, 2),
+            "average_price_gbp": round(avg_p_gbp, 2),
+            "position_cost": cost_val_gbp,
+            "cost_basis_gbp": cost_val_gbp,
+            "current_value": market_val_gbp,
+            "market_value_gbp": market_val_gbp,
             "weight_pct": weight_pct,
-            "unrealized_pnl": round(ppl, 2),
+            "unrealized_pnl": unrealized_pnl_gbp,
             "return_pct": pct,
+            "order_status": order_status,
             "stop_loss_price": round(cur_p_gbp * (1.0 - settings.DEFAULT_STOP_LOSS_PCT), 2),
             "take_profit_price": round(cur_p_gbp * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT), 2)
         })

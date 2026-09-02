@@ -1204,9 +1204,11 @@
                 const posData = await res.json();
                 
                 const renderAssetRow = (w) => {
-                    const price = fmtNum(w.current_price, 2, '0.00');
-                    const avgPrice = fmtNum(w.average_price, 2, price);
-                    const val = fmtNum(w.current_value, 2, '0.00');
+                    const isUs = (w.source_currency === 'USD');
+                    const srcAvg = fmtNum(w.source_avg_price || w.average_price, 2, '0.00');
+                    const srcCur = fmtNum(w.source_price || w.current_price, 2, '0.00');
+                    const gbpCur = fmtNum(w.price_gbp || w.current_price, 2, '0.00');
+                    const val = fmtNum(w.market_value_gbp || w.current_value, 2, '0.00');
                     const ret = fmtNum(w.return_pct, 2, '0.00');
                     const pnl = fmtNum(w.unrealized_pnl, 2, '0.00');
                     const weight = fmtNum(w.weight_pct, 1, '0.0');
@@ -1214,11 +1216,23 @@
                     const sign = isPos ? '+' : '';
                     const name = w.name || w.ticker || '--';
                     const sector = w.sector ? ` • ${w.sector}` : '';
+                    const orderState = w.order_status || 'ORDER_ARMED';
+                    const stateColor = orderState === 'ORDER_EXECUTABLE_NOW' ? '#047857' : '#64748b';
+                    const stateBg = orderState === 'ORDER_EXECUTABLE_NOW' ? '#ecfdf5' : '#f1f5f9';
+                    
+                    const priceMeta = isUs
+                        ? `${w.quantity || 0} shs @ $${srcAvg} • Cur: $${srcCur} (£${gbpCur}) • Wt: ${weight}%`
+                        : `${w.quantity || 0} shs @ £${srcAvg} • Cur: £${gbpCur} • Wt: ${weight}%`;
+
                     return `
                         <div class="asset-row">
                             <div class="asset-main">
-                                <div class="asset-ticker">${w.ticker || '--'} <span style="font-size: 0.78rem; font-weight: normal; color: var(--text-muted);">${name}${sector}</span></div>
-                                <div class="asset-meta">${w.quantity || 0} shares @ £${avgPrice} • Cur: £${price} • Weight: ${weight}%</div>
+                                <div class="asset-ticker">
+                                    ${w.ticker || '--'} 
+                                    <span style="font-size: 0.78rem; font-weight: normal; color: var(--text-muted);">${name}${sector}</span>
+                                    <span style="font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; background: ${stateBg}; color: ${stateColor}; font-weight: 600; margin-left: 4px;">${orderState}</span>
+                                </div>
+                                <div class="asset-meta">${priceMeta}</div>
                             </div>
                             <div class="asset-right">
                                 <div class="asset-val">£${val}</div>
