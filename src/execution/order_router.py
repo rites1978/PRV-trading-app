@@ -178,13 +178,14 @@ class OrderRouter:
             self._log_audit("HOLD_CASH", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, 0, "INVALID_QUANTITY")
             return False, reason, gate_result
 
-        # 2. Hard Closed-Market Gate: Disallow new regular-session entry orders while market is closed
-        from src.data.market_hours import market_hours
-        market_country = "UK" if is_uk else "US"
-        if not market_hours.is_asset_market_open(market_country):
-            reason = f"HOLD ORDER (MARKET CLOSED): {exchange} regular session is CLOSED. Signal queued for revalidation at next market open."
-            self._log_audit("HOLD_CLOSED_MARKET", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "MARKET_CLOSED")
-            return False, reason, {"approved": False, "rejection_reasons": [f"{exchange}_MARKET_CLOSED"]}
+        # 2. Hard Closed-Market Gate: Disallow new live regular-session entry orders while market is closed
+        if not is_paper:
+            from src.data.market_hours import market_hours
+            market_country = "UK" if is_uk else "US"
+            if not market_hours.is_asset_market_open(market_country):
+                reason = f"HOLD ORDER (MARKET CLOSED): {exchange} regular session is CLOSED. Signal queued for revalidation at next market open."
+                self._log_audit("HOLD_CLOSED_MARKET", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "MARKET_CLOSED")
+                return False, reason, {"approved": False, "rejection_reasons": [f"{exchange}_MARKET_CLOSED"]}
 
         # 3. Execution Routing with Marketable Limit Control (10 bps offset ceiling)
         trade_id = f"PRV_{int(time.time() * 1000)}_{symbol}"
