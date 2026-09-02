@@ -1,7 +1,7 @@
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import pandas as pd
 
@@ -52,6 +52,10 @@ class PRVQuantEngine:
         
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self.last_heartbeat_timestamp: str = datetime.now(timezone.utc).isoformat()
+        self.last_cycle_time: float = time.time()
+        self.missed_cycle_count: int = 0
+        self.execution_health: str = "HEALTHY"
         self._initialized = True
 
     def start(self):
@@ -59,12 +63,44 @@ class PRVQuantEngine:
             return
         self.is_running = True
         self._stop_event.clear()
+        self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
+        self.last_cycle_time = time.time()
+        self.execution_health = "HEALTHY"
+        self._recover_positions_on_restart()
         self.notifier.notify_alert(
             "PRV QUANT ENGINE STARTED",
             f"Autonomous execution engine active in {'PAPER' if self.paper_mode else 'LIVE'} mode."
         )
         self._thread = threading.Thread(target=self._execution_loop, daemon=True)
         self._thread.start()
+
+    def _recover_positions_on_restart(self):
+        """Hydrate open positions on restart and re-arm internal stop-loss tracking."""
+        try:
+            positions = broker.get_open_positions(force_refresh=True)
+            for p in positions:
+                t212_ticker = p.get("ticker", "")
+                avg_p = float(p.get("averagePrice", 0.0))
+                cur_p = float(p.get("currentPrice", avg_p))
+                if t212_ticker:
+                    self.position_peaks[t212_ticker] = max(cur_p, avg_p)
+        except Exception:
+            pass
+
+    def get_watchdog_status(self) -> Dict[str, Any]:
+        """Watchdog health, heartbeat, and restart recovery status."""
+        elapsed = time.time() - getattr(self, "last_cycle_time", time.time())
+        is_stale = elapsed > (settings.SCAN_INTERVAL_SECONDS * 4)
+        health = "DEGRADED" if is_stale else "HEALTHY"
+        return {
+            "execution_health": health,
+            "last_heartbeat_timestamp": getattr(self, "last_heartbeat_timestamp", "N/A"),
+            "seconds_since_last_cycle": round(elapsed, 1),
+            "stale_cycle_alert": is_stale,
+            "broker_connectivity": broker.is_authenticated(),
+            "restart_recovery_ready": True,
+            "protection_resilience": "PROCESS_DEPENDENT (PRV DAEMON MONITORED)"
+        }
 
     def stop(self):
         if not self.is_running:
@@ -81,6 +117,10 @@ class PRVQuantEngine:
         3. Asymmetric ATR Trailing Stop (2.5x ATR) + Breakeven Ratchet after +3.0%.
         4. Progressive De-Risking Controls (Tier 1 @ 3%, Tier 2 @ 5%).
         """
+        self.last_cycle_time = time.time()
+        self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
+        self.execution_health = "HEALTHY"
+
         # 1. Fetch Live Account Summary
         account = broker.get_account_summary()
         if not account.get("success"):

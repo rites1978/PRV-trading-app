@@ -252,7 +252,8 @@ class TestProfitabilityExecutionUpgrade(unittest.TestCase):
             market_regime="STRONG_BULL",
             agent_votes={"Trend": "BUY", "Momentum": "BUY"},
             risk_approved=True,
-            is_paper=True
+            is_paper=True,
+            bypass_market_hours=True
         )
         self.assertTrue(success)
         telemetry = db.get_order_telemetry_entries(limit=5)

@@ -125,7 +125,8 @@ class OrderRouter:
         bid_price: Optional[float] = None,
         ask_price: Optional[float] = None,
         instrument_type: str = "EQUITY",
-        decision_price: Optional[float] = None
+        decision_price: Optional[float] = None,
+        bypass_market_hours: bool = False
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Validates Net Edge Gate and executes entry order with hardened lifecycle and telemetry.
@@ -178,12 +179,13 @@ class OrderRouter:
             self._log_audit("HOLD_CASH", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, 0, "INVALID_QUANTITY")
             return False, reason, gate_result
 
-        # 2. Hard Closed-Market Gate: Disallow new live regular-session entry orders while market is closed
-        if not is_paper:
+        # 2. Hard Closed-Market Gate: Disallow new regular-session entry orders while market is closed
+        # Applies to BOTH Practice (is_paper=True) and Live/Real Money (is_paper=False) unconditionally.
+        if not bypass_market_hours:
             from src.data.market_hours import market_hours
             market_country = "UK" if is_uk else "US"
             if not market_hours.is_asset_market_open(market_country):
-                reason = f"HOLD ORDER (MARKET CLOSED): {exchange} regular session is CLOSED. Signal queued for revalidation at next market open."
+                reason = f"HOLD ORDER (MARKET CLOSED): {exchange} regular session is CLOSED. Practice and Live entries blocked until next regular market open."
                 self._log_audit("HOLD_CLOSED_MARKET", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "MARKET_CLOSED")
                 return False, reason, {"approved": False, "rejection_reasons": [f"{exchange}_MARKET_CLOSED"]}
 

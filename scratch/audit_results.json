@@ -1,0 +1,394 @@
+{
+  "open_orders": [],
+  "trades": [
+    {
+      "id": 10022,
+      "trade_id": "PRV_EXIT_1788378873_ADBE_US_EQ",
+      "symbol": "ADBE",
+      "action": "SELL",
+      "quantity": 9.86,
+      "price": 279.66,
+      "timestamp": "2026-09-02 19:54:33 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Stop Loss (-2.51%) triggered: -2.51%"
+    },
+    {
+      "id": 10023,
+      "trade_id": "54350015896",
+      "symbol": "V",
+      "action": "BUY",
+      "quantity": 9.05,
+      "price": 379.33,
+      "timestamp": "2026-09-02 18:23:11 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Capital recycled from ADBE stop loss into Visa"
+    },
+    {
+      "id": 10016,
+      "trade_id": "TRD_LIVE_AAL",
+      "symbol": "AAL",
+      "action": "BUY",
+      "quantity": 67.99,
+      "price": 41.05,
+      "timestamp": "2026-09-02 14:36:00 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10017,
+      "trade_id": "TRD_LIVE_ULVR",
+      "symbol": "ULVR",
+      "action": "BUY",
+      "quantity": 64.18,
+      "price": 47.73,
+      "timestamp": "2026-09-02 14:36:00 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10018,
+      "trade_id": "TRD_LIVE_GLEN",
+      "symbol": "GLEN",
+      "action": "BUY",
+      "quantity": 459.3,
+      "price": 5.903,
+      "timestamp": "2026-09-02 14:36:00 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10019,
+      "trade_id": "TRD_LIVE_HSBA",
+      "symbol": "HSBA",
+      "action": "BUY",
+      "quantity": 183.02,
+      "price": 15.354,
+      "timestamp": "2026-09-02 14:36:00 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10020,
+      "trade_id": "54350009599",
+      "symbol": "TSLA",
+      "action": "BUY",
+      "quantity": 7.57,
+      "price": 351.1,
+      "timestamp": "2026-09-02 14:06:07 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10015,
+      "trade_id": "54350007916",
+      "symbol": "SLB",
+      "action": "BUY",
+      "quantity": 49.36,
+      "price": 56.87,
+      "timestamp": "2026-09-02 13:33:40 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10021,
+      "trade_id": "PRV_ENTRY_1788377200_ADBE",
+      "symbol": "ADBE",
+      "action": "BUY",
+      "quantity": 9.86,
+      "price": 288.5,
+      "timestamp": "2026-09-02 13:33:40 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10013,
+      "trade_id": "54350007898",
+      "symbol": "NOW",
+      "action": "BUY",
+      "quantity": 20.3407,
+      "price": 138.65,
+      "timestamp": "2026-09-02 13:33:39 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10014,
+      "trade_id": "54350007911",
+      "symbol": "MRK",
+      "action": "BUY",
+      "quantity": 18.52,
+      "price": 151.48,
+      "timestamp": "2026-09-02 13:33:39 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10011,
+      "trade_id": "54350007887",
+      "symbol": "WFC",
+      "action": "BUY",
+      "quantity": 35.58,
+      "price": 88.38,
+      "timestamp": "2026-09-02 13:33:38 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    },
+    {
+      "id": 10012,
+      "trade_id": "54350007892",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "quantity": 13.26,
+      "price": 276.71,
+      "timestamp": "2026-09-02 13:33:38 UTC",
+      "mode": "LIVE",
+      "trade_reason": "Net Edge Gate buy: Net R:R 2.24x"
+    }
+  ],
+  "recon_events": [
+    {
+      "id": 1039,
+      "timestamp": "2026-09-02 21:05:25",
+      "nav": 49969.01,
+      "cash": 22625.2,
+      "invested": 27343.81,
+      "unrealized_pnl": 154.7,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    },
+    {
+      "id": 1038,
+      "timestamp": "2026-09-02 21:04:24",
+      "nav": 49967.64,
+      "cash": 22625.2,
+      "invested": 27342.44,
+      "unrealized_pnl": 153.33,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    },
+    {
+      "id": 1037,
+      "timestamp": "2026-09-02 21:00:21",
+      "nav": 49949.39,
+      "cash": 22625.2,
+      "invested": 27324.19,
+      "unrealized_pnl": 135.08,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    },
+    {
+      "id": 1036,
+      "timestamp": "2026-09-02 20:59:20",
+      "nav": 49969.22,
+      "cash": 22625.2,
+      "invested": 27344.02,
+      "unrealized_pnl": 154.91,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    },
+    {
+      "id": 1035,
+      "timestamp": "2026-09-02 20:58:17",
+      "nav": 49997.01,
+      "cash": 22625.2,
+      "invested": 27371.81,
+      "unrealized_pnl": 182.7,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    },
+    {
+      "id": 1034,
+      "timestamp": "2026-09-02 20:58:04",
+      "nav": 49996.26,
+      "cash": 22625.2,
+      "invested": 27371.06,
+      "unrealized_pnl": 181.95,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    },
+    {
+      "id": 1033,
+      "timestamp": "2026-09-02 20:57:59",
+      "nav": 49996.86,
+      "cash": 22625.2,
+      "invested": 27371.66,
+      "unrealized_pnl": 182.55,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    },
+    {
+      "id": 1032,
+      "timestamp": "2026-09-02 20:57:53",
+      "nav": 49995.79,
+      "cash": 22625.2,
+      "invested": 27370.59,
+      "unrealized_pnl": 181.48,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    },
+    {
+      "id": 1031,
+      "timestamp": "2026-09-02 20:57:47",
+      "nav": 49995.47,
+      "cash": 22625.2,
+      "invested": 27370.27,
+      "unrealized_pnl": 181.16,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    },
+    {
+      "id": 1030,
+      "timestamp": "2026-09-02 20:57:40",
+      "nav": 49994.2,
+      "cash": 22625.2,
+      "invested": 27369.0,
+      "unrealized_pnl": 179.89,
+      "realized_pnl": -106.22,
+      "cycle_id": "CYCLE-010"
+    }
+  ],
+  "current_snap": {
+    "snapshot_id": "SNAP_20260902_1b26ad83ede7",
+    "timestamp": "2026-09-02 21:05:53 UTC",
+    "account_summary": {
+      "total_nav": 49983.35,
+      "free_cash": 22625.2,
+      "invested_capital": 27358.15,
+      "cash_pct": 45.27,
+      "invested_pct": 54.73,
+      "active_holdings_count": 11,
+      "total_cost_basis_gbp": 27198.57,
+      "total_unrealized_pnl_gbp": 159.58,
+      "unrealized_pnl_invested_pct": 0.59,
+      "all_time_pnl_gbp": -16.65,
+      "all_time_pnl_pct": -0.03,
+      "avg_open_position_age_days": 14.0,
+      "avg_completed_holding_days": null,
+      "max_drawdown_pct": 0.32,
+      "capital_preservation_status": "CAPITAL PRESERVATION CASH"
+    },
+    "positions": [
+      {
+        "symbol": "HSBA",
+        "quantity": 183.02,
+        "current_price_raw": 1545.2,
+        "current_price_gbp": 15.452,
+        "average_price_gbp": 15.354,
+        "market_value_gbp": 2828.03,
+        "cost_basis_gbp": 2810.09,
+        "is_uk": true,
+        "instrument_currency": "GBP"
+      },
+      {
+        "symbol": "V",
+        "quantity": 9.05,
+        "current_price_raw": 379.0,
+        "current_price_gbp": 281.0171,
+        "average_price_gbp": 281.2588,
+        "market_value_gbp": 2543.2,
+        "cost_basis_gbp": 2545.39,
+        "is_uk": false,
+        "instrument_currency": "USD"
+      },
+      {
+        "symbol": "WFC",
+        "quantity": 35.58,
+        "current_price_raw": 89.27,
+        "current_price_gbp": 66.191,
+        "average_price_gbp": 65.5311,
+        "market_value_gbp": 2355.08,
+        "cost_basis_gbp": 2331.6,
+        "is_uk": false,
+        "instrument_currency": "USD"
+      },
+      {
+        "symbol": "JNJ",
+        "quantity": 13.26,
+        "current_price_raw": 275.53,
+        "current_price_gbp": 204.2972,
+        "average_price_gbp": 205.1719,
+        "market_value_gbp": 2708.98,
+        "cost_basis_gbp": 2720.58,
+        "is_uk": false,
+        "instrument_currency": "USD"
+      },
+      {
+        "symbol": "ULVR",
+        "quantity": 64.18,
+        "current_price_raw": 4782.5,
+        "current_price_gbp": 47.825,
+        "average_price_gbp": 47.73,
+        "market_value_gbp": 3069.41,
+        "cost_basis_gbp": 3063.31,
+        "is_uk": true,
+        "instrument_currency": "GBP"
+      },
+      {
+        "symbol": "MRK",
+        "quantity": 18.52,
+        "current_price_raw": 151.9,
+        "current_price_gbp": 112.6293,
+        "average_price_gbp": 112.3179,
+        "market_value_gbp": 2085.89,
+        "cost_basis_gbp": 2080.13,
+        "is_uk": false,
+        "instrument_currency": "USD"
+      },
+      {
+        "symbol": "NOW",
+        "quantity": 20.3407,
+        "current_price_raw": 139.0,
+        "current_price_gbp": 103.0643,
+        "average_price_gbp": 102.9048,
+        "market_value_gbp": 2096.4,
+        "cost_basis_gbp": 2093.15,
+        "is_uk": false,
+        "instrument_currency": "USD"
+      },
+      {
+        "symbol": "SLB",
+        "quantity": 49.36,
+        "current_price_raw": 58.12,
+        "current_price_gbp": 43.0942,
+        "average_price_gbp": 42.1673,
+        "market_value_gbp": 2127.13,
+        "cost_basis_gbp": 2081.38,
+        "is_uk": false,
+        "instrument_currency": "USD"
+      },
+      {
+        "symbol": "GLEN",
+        "quantity": 459.3,
+        "current_price_raw": 595.9,
+        "current_price_gbp": 5.959,
+        "average_price_gbp": 5.903,
+        "market_value_gbp": 2736.97,
+        "cost_basis_gbp": 2711.25,
+        "is_uk": true,
+        "instrument_currency": "GBP"
+      },
+      {
+        "symbol": "TSLA",
+        "quantity": 7.57,
+        "current_price_raw": 355.67,
+        "current_price_gbp": 263.7186,
+        "average_price_gbp": 260.3304,
+        "market_value_gbp": 1996.35,
+        "cost_basis_gbp": 1970.7,
+        "is_uk": false,
+        "instrument_currency": "USD"
+      },
+      {
+        "symbol": "AAL",
+        "quantity": 67.99,
+        "current_price_raw": 4134.0,
+        "current_price_gbp": 41.34,
+        "average_price_gbp": 41.05,
+        "market_value_gbp": 2810.71,
+        "cost_basis_gbp": 2790.99,
+        "is_uk": true,
+        "instrument_currency": "GBP"
+      }
+    ]
+  }
+}

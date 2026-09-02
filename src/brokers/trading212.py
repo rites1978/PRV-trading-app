@@ -70,6 +70,9 @@ class Trading212Broker:
     def auth(self):
         return (self.api_key, self.api_secret)
 
+    def is_authenticated(self) -> bool:
+        return bool(self.api_key and self.api_secret)
+
     def _rate_limit(self):
         elapsed = time.time() - self.last_request_time
         if elapsed < self.min_request_interval:
@@ -283,6 +286,52 @@ class Trading212Broker:
                 res = self._request_with_retry("POST", "equity/orders/market", json=payload)
                 if res.status_code in [200, 201]:
                     return {"success": True, "data": res.json()}
+                return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+    def place_stop_order(self, ticker: str, quantity: float, stop_price: float, time_validity: str = "DAY") -> Dict[str, Any]:
+        """Execute broker-native stop order (DAY in-force)."""
+        with self._lock:
+            try:
+                payload = {
+                    "ticker": ticker,
+                    "quantity": quantity,
+                    "stopPrice": stop_price,
+                    "timeValidity": time_validity
+                }
+                res = self._request_with_retry("POST", "equity/orders/stop", json=payload)
+                if res.status_code in [200, 201]:
+                    return {"success": True, "data": res.json()}
+                return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+    def place_stop_limit_order(self, ticker: str, quantity: float, stop_price: float, limit_price: float, time_validity: str = "DAY") -> Dict[str, Any]:
+        """Execute broker-native stop-limit order (DAY in-force)."""
+        with self._lock:
+            try:
+                payload = {
+                    "ticker": ticker,
+                    "quantity": quantity,
+                    "stopPrice": stop_price,
+                    "limitPrice": limit_price,
+                    "timeValidity": time_validity
+                }
+                res = self._request_with_retry("POST", "equity/orders/stop_limit", json=payload)
+                if res.status_code in [200, 201]:
+                    return {"success": True, "data": res.json()}
+                return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+    def cancel_order(self, order_id: str) -> Dict[str, Any]:
+        """Cancel open order by ID."""
+        with self._lock:
+            try:
+                res = self._request_with_retry("DELETE", f"equity/orders/{order_id}")
+                if res.status_code in [200, 204]:
+                    return {"success": True}
                 return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
             except Exception as e:
                 return {"success": False, "error": str(e)}

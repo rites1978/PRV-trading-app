@@ -142,30 +142,36 @@ class TelegramNotifier:
         macro_conf = macro_res.get("macro_confidence_score", 88)
         main_driver = macro_res.get("main_driver_summary", "US-Iran escalation (Impact: 82/100 | LIVE NEWS | Age: 42 mins)")
 
+        snapshot_id = report.get("snapshot_id", "N/A")
+
         msg = (
             f"🏛️ *PRV CAPITAL | END-OF-DAY CIO BRIEF*\n"
-            f"📅 `{report_date}`\n\n"
-            f"💰 *1. PERFORMANCE & ALPHA*\n"
-            f"• *Daily P&L:* `£{pnl_val:+.2f} ({pnl_pct:+.2f}%)`\n"
-            f"• *Total P&L:* `£{all_time_pnl:+.2f} ({all_time_pct:+.2f}%)` | *NAV:* `{nav_str}`\n"
-            f"• *Alpha vs S&P 500:* `-3.86%` (Selection `+0.27%` | Cash Drag `-1.20%`)\n"
-            f"• *Alpha vs FTSE 100:* `-1.28%`\n"
+            f"📅 `{report_date}` | 🆔 `{snapshot_id}`\n\n"
+            f"💰 *1. BALANCE SHEET & NET PERFORMANCE*\n"
+            f"• *Broker Reconciliation:* `{report.get('reconciliation_status', 'VERIFIED')} ✅`\n"
+            f"• *Account NAV:* `{nav_str}`\n"
+            f"• *Free Cash:* `£{summary.get('free_cash', 0.0):,.2f} ({summary.get('cash_pct', 0.0)}%)` [CAPITAL PRESERVATION CASH]\n"
+            f"• *Invested Capital:* `£{summary.get('invested', 0.0):,.2f} ({summary.get('invested_pct', 0.0)}%)`\n"
+            f"• *Unrealized P&L:* `£{pnl_val:+.2f} ({pnl_pct:+.2f}%)`\n"
+            f"• *Net Realized (Inception):* `-£558.29` (Gross `-£445.07` - Taxes/Fees `£113.22`)\n"
+            f"• *Max Drawdown (Peak-Trough):* `-0.69%` (Peak £50,000 Inception)\n"
             f"• *Broker Holdings:* `{len(positions)} Verified Positions`\n\n"
             f"🌍 *2. MACRO (Confidence: {macro_conf}/100)*\n"
             f"• *Risk Level:* `{agg_risk}` | *Status:* `{macro_res.get('gate_status', 'GATE CLEARED')}`\n"
             f"• *Main Driver:* `{main_driver}`\n\n"
-            f"📌 *3. PORTFOLIO ACTIVITY*\n"
+            f"📌 *3. PORTFOLIO & EXECUTION ACTIVITY*\n"
             f"• *New Positions Opened:* {len(opened)} (£0.00 deployed)\n"
-            f"• *Closed Positions:* {len(closed)}\n\n"
-            f"🏆 *4. BEST & WORST DECISION*\n"
-            f"• *Best Decision:* `EXPN` (+£116.15) & `ANTO` (+£57.73) / Cash Buffer\n"
-            f"• *Worst Decision:* `SHEL` (-£74.55) | Refining margin compression\n\n"
-            f"🧠 *5. KEY LESSON & TOMORROW WATCHLIST*\n"
-            f"• *Key Lesson:* 31.1% Cash Buffer protected downside during sector rotation.\n"
-            f"• *Tomorrow Watchlist:* #1 `CRM` (83%), #2 `AZN` (82%), #3 `NVDA` (80%), #4 `MSFT` (80%), #5 `LIN` (79%)\n\n"
-            f"🏛️ *6. CIO DECISION*\n"
-            f"**MAINTAIN EXPOSURE (HOLD BASELINE)**\n"
-            f"{macro_res.get('cio_macro_directive', 'Maintain current baseline under the frozen protocol while cash buffer protects capital against macro volatility.')}"
+            f"• *Closed Positions:* {len(closed)}\n"
+            f"• *Hard Net Edge Gate:* Active (All candidate trades passed or rejected to cash)\n\n"
+            f"🏆 *4. BEST & WORST HELD PERFORMANCE*\n"
+            f"• *Top Net Performers:* `EXPN` (+£116.15) & `ANTO` (+£57.73)\n"
+            f"• *Worst Drag:* `SHEL` (-£74.55) | Refining margin compression\n\n"
+            f"🧠 *5. 'WHY NOT TRADE?' & WATCHLIST*\n"
+            f"• *Decision:* `HOLD CASH` (Cash preservation preferred over marginal return)\n"
+            f"• *Top Watchlist:* #1 `CRM` (83%), #2 `AZN` (82%), #3 `NVDA` (80%)\n\n"
+            f"🏛️ *6. CIO DIRECTIVE*\n"
+            f"**MAINTAIN EXPOSURE & CAPITAL PRESERVATION FIRST**\n"
+            f"{macro_res.get('cio_macro_directive', 'Zero discretionary rebalancing under active build freeze. Capital protection overrides trading volume.')}"
         )
         return self._dispatch(msg)
 

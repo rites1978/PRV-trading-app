@@ -1,0 +1,359 @@
+{
+  "trades_in_window": [
+    {
+      "id": 10022,
+      "trade_id": "PRV_EXIT_1788378873_ADBE_US_EQ",
+      "timestamp": "2026-09-02 19:54:33 UTC",
+      "symbol": "ADBE",
+      "action": "SELL",
+      "quantity": 9.86,
+      "price": 279.66,
+      "total_cost": 2670.2,
+      "spread_cost": 0.0,
+      "slippage_cost": 0.0,
+      "fx_cost": 4.01,
+      "net_cost": 2670.2,
+      "realized_pnl": -87.25,
+      "confidence_score": 80.0,
+      "reward_risk_ratio": 2.5,
+      "trade_reason": "Stop Loss (-2.51%) triggered: -2.51%",
+      "mode": "LIVE",
+      "cycle_id": "CYCLE-001",
+      "gross_entry_value": 0.0,
+      "gross_exit_value": 0.0,
+      "gross_profit_loss": 0.0,
+      "broker_fees": 0.0,
+      "taxes": 0.0,
+      "stamp_duty_or_equivalent": 0.0,
+      "fx_entry_cost": 0.0,
+      "fx_exit_cost": 0.0,
+      "exchange_regulatory_charges": 0.0,
+      "estimated_spread_cost": 0.0,
+      "actual_slippage": 0.0,
+      "total_transaction_cost": 0.0,
+      "net_realized_pnl": 0.0,
+      "cost_as_pct_of_gross_profit": 0.0,
+      "holding_period_days": 0.0,
+      "mfe": 0.0,
+      "mae": 0.0,
+      "original_thesis": null,
+      "original_probability": 0.0,
+      "expected_return": 0.0,
+      "expected_loss": 0.0,
+      "expected_holding_period": 0.0,
+      "stop_loss_price": 0.0,
+      "take_profit_price": 0.0,
+      "expected_costs": 0.0,
+      "expected_net_expectancy": 0.0,
+      "thesis_outcome": null
+    }
+  ],
+  "snapshots_in_window": [
+    {
+      "id": 1008,
+      "timestamp": "2026-09-02 20:50:10",
+      "nav": 49967.62,
+      "cash": 22625.2,
+      "invested": 27342.42,
+      "unrealized_pnl": 153.31,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1009,
+      "timestamp": "2026-09-02 20:50:32",
+      "nav": 49966.48,
+      "cash": 22625.2,
+      "invested": 27341.28,
+      "unrealized_pnl": 152.17,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1010,
+      "timestamp": "2026-09-02 20:50:41",
+      "nav": 49964.19,
+      "cash": 22625.2,
+      "invested": 27338.99,
+      "unrealized_pnl": 149.88,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1011,
+      "timestamp": "2026-09-02 20:51:11",
+      "nav": 49962.2,
+      "cash": 22625.2,
+      "invested": 27337.0,
+      "unrealized_pnl": 147.89,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1012,
+      "timestamp": "2026-09-02 20:52:11",
+      "nav": 49960.96,
+      "cash": 22625.2,
+      "invested": 27335.76,
+      "unrealized_pnl": 146.65,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1013,
+      "timestamp": "2026-09-02 20:53:12",
+      "nav": 49977.2,
+      "cash": 22625.2,
+      "invested": 27352.0,
+      "unrealized_pnl": 162.89,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1014,
+      "timestamp": "2026-09-02 20:53:28",
+      "nav": 49976.49,
+      "cash": 22625.2,
+      "invested": 27351.29,
+      "unrealized_pnl": 162.18,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1015,
+      "timestamp": "2026-09-02 20:55:20",
+      "nav": 49977.89,
+      "cash": 22625.2,
+      "invested": 27352.69,
+      "unrealized_pnl": 163.58,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1016,
+      "timestamp": "2026-09-02 20:55:31",
+      "nav": 49975.27,
+      "cash": 22625.2,
+      "invested": 27350.07,
+      "unrealized_pnl": 160.96,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1017,
+      "timestamp": "2026-09-02 20:55:36",
+      "nav": 49975.15,
+      "cash": 22625.2,
+      "invested": 27349.95,
+      "unrealized_pnl": 160.84,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1018,
+      "timestamp": "2026-09-02 20:55:43",
+      "nav": 49975.26,
+      "cash": 22625.2,
+      "invested": 27350.06,
+      "unrealized_pnl": 160.95,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1019,
+      "timestamp": "2026-09-02 20:55:48",
+      "nav": 49975.95,
+      "cash": 22625.2,
+      "invested": 27350.75,
+      "unrealized_pnl": 161.64,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1020,
+      "timestamp": "2026-09-02 20:55:59",
+      "nav": 49991.8,
+      "cash": 22625.2,
+      "invested": 27366.6,
+      "unrealized_pnl": 177.49,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1021,
+      "timestamp": "2026-09-02 20:56:11",
+      "nav": 49988.97,
+      "cash": 22625.2,
+      "invested": 27363.77,
+      "unrealized_pnl": 174.66,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1022,
+      "timestamp": "2026-09-02 20:56:16",
+      "nav": 49988.29,
+      "cash": 22625.2,
+      "invested": 27363.09,
+      "unrealized_pnl": 173.98,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1023,
+      "timestamp": "2026-09-02 20:56:22",
+      "nav": 49990.73,
+      "cash": 22625.2,
+      "invested": 27365.53,
+      "unrealized_pnl": 176.42,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1024,
+      "timestamp": "2026-09-02 20:56:27",
+      "nav": 49988.49,
+      "cash": 22625.2,
+      "invested": 27363.29,
+      "unrealized_pnl": 174.18,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1025,
+      "timestamp": "2026-09-02 20:57:01",
+      "nav": 49993.1,
+      "cash": 22625.2,
+      "invested": 27367.9,
+      "unrealized_pnl": 178.79,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1026,
+      "timestamp": "2026-09-02 20:57:08",
+      "nav": 49992.3,
+      "cash": 22625.2,
+      "invested": 27367.1,
+      "unrealized_pnl": 177.99,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1027,
+      "timestamp": "2026-09-02 20:57:13",
+      "nav": 49992.43,
+      "cash": 22625.2,
+      "invested": 27367.23,
+      "unrealized_pnl": 178.12,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1028,
+      "timestamp": "2026-09-02 20:57:28",
+      "nav": 49992.36,
+      "cash": 22625.2,
+      "invested": 27367.16,
+      "unrealized_pnl": 178.05,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1029,
+      "timestamp": "2026-09-02 20:57:34",
+      "nav": 49993.76,
+      "cash": 22625.2,
+      "invested": 27368.56,
+      "unrealized_pnl": 179.45,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1030,
+      "timestamp": "2026-09-02 20:57:40",
+      "nav": 49994.2,
+      "cash": 22625.2,
+      "invested": 27369.0,
+      "unrealized_pnl": 179.89,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1031,
+      "timestamp": "2026-09-02 20:57:47",
+      "nav": 49995.47,
+      "cash": 22625.2,
+      "invested": 27370.27,
+      "unrealized_pnl": 181.16,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1032,
+      "timestamp": "2026-09-02 20:57:53",
+      "nav": 49995.79,
+      "cash": 22625.2,
+      "invested": 27370.59,
+      "unrealized_pnl": 181.48,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1033,
+      "timestamp": "2026-09-02 20:57:59",
+      "nav": 49996.86,
+      "cash": 22625.2,
+      "invested": 27371.66,
+      "unrealized_pnl": 182.55,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1034,
+      "timestamp": "2026-09-02 20:58:04",
+      "nav": 49996.26,
+      "cash": 22625.2,
+      "invested": 27371.06,
+      "unrealized_pnl": 181.95,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1035,
+      "timestamp": "2026-09-02 20:58:17",
+      "nav": 49997.01,
+      "cash": 22625.2,
+      "invested": 27371.81,
+      "unrealized_pnl": 182.7,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1036,
+      "timestamp": "2026-09-02 20:59:20",
+      "nav": 49969.22,
+      "cash": 22625.2,
+      "invested": 27344.02,
+      "unrealized_pnl": 154.91,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1037,
+      "timestamp": "2026-09-02 21:00:21",
+      "nav": 49949.39,
+      "cash": 22625.2,
+      "invested": 27324.19,
+      "unrealized_pnl": 135.08,
+      "realized_pnl": -106.22
+    },
+    {
+      "id": 1038,
+      "timestamp": "2026-09-02 21:04:24",
+      "nav": 49967.64,
+      "cash": 22625.2,
+      "invested": 27342.44,
+      "unrealized_pnl": 153.33,
+      "realized_pnl": -106.22
+    }
+  ],
+  "current_broker_summary": {
+    "success": true,
+    "available_cash": 22625.2,
+    "total_value": 49954.73,
+    "free_cash": 22625.2,
+    "invested": 27329.53,
+    "currency": "GBP",
+    "raw": {
+      "id": 50468568,
+      "currency": "GBP",
+      "totalValue": 49954.73,
+      "cash": {
+        "availableToTrade": 22625.2,
+        "reservedForOrders": 0,
+        "inPies": 0
+      },
+      "investments": {
+        "currentValue": 27329.53,
+        "totalCost": 27189.11,
+        "realizedProfitLoss": -106.22,
+        "unrealizedProfitLoss": 140.42
+      }
+    },
+    "sync_timestamp": "2026-09-02 21:08:57",
+    "from_cache": false
+  },
+  "positions_count": 11
+}
