@@ -91,7 +91,11 @@ class PortfolioConstructor:
             target_pct = max(self.min_position_pct, min(self.max_position_pct, interpolated))
             tier = "AVERAGE_CONFLUENCE_5_PCT"
 
-        raw_capital_allocation = core_capital * target_pct
+        # Normalize target_pct to fraction
+        target_fraction = target_pct / 100.0 if target_pct > 1.0 else target_pct
+        max_fraction = self.max_position_pct / 100.0 if self.max_position_pct > 1.0 else self.max_position_pct
+
+        raw_capital_allocation = core_capital * target_fraction
 
         # 2. Asset Volatility Scaling Multiplier
         annual_vol = self.compute_asset_volatility(df)
@@ -104,7 +108,7 @@ class PortfolioConstructor:
 
         # 4. Synthesize Target Capital
         target_position_value = raw_capital_allocation * vol_multiplier * correlation_multiplier
-        target_position_value = min(target_position_value, core_capital * self.max_position_pct)
+        target_position_value = min(target_position_value, core_capital * max_fraction)
 
         # 5. Scale-In Capital Delta
         needed_capital = max(0.0, target_position_value - current_holding_val)

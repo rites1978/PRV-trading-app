@@ -310,7 +310,7 @@ class PRVQuantEngine:
                 target_price=target_price,
                 stop_loss_price=stop_loss_price,
                 nominal_value=nominal_cost,
-                is_foreign_currency=is_foreign,
+                is_foreign=is_foreign,
                 is_uk=is_uk
             )
 
@@ -402,9 +402,12 @@ class PRVQuantEngine:
         candidates.sort(key=lambda x: x["confidence"], reverse=True)
         executed_trades = []
 
-        # Under standing Build Freeze / Live Evidence Mode: Hold existing capital baseline
-        is_frozen = True
-        if not is_frozen:
+        # Check practice vs real-money entry permissions
+        entries_allowed = (
+            (settings.ACCOUNT_MODE == "PRACTICE" and settings.PRACTICE_TRADING_ENABLED and settings.PRACTICE_NEW_ENTRIES_ALLOWED)
+            or (settings.ACCOUNT_MODE == "LIVE" and settings.REAL_MONEY_TRADING_ENABLED and settings.NORMAL_LIVE_ENTRIES_ALLOWED)
+        )
+        if entries_allowed:
             for cand in candidates:
                 if remaining_allowance <= 500.0 or available_cash <= 2500.0:
                     break
@@ -418,18 +421,21 @@ class PRVQuantEngine:
                         "risk": cand["decision_data"]["risk_agent_vote"]
                     }
                     
+                    target_price = round(cand["price"] * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT), 4)
+                    stop_loss_price = round(cand["price"] * (1.0 - settings.DEFAULT_STOP_LOSS_PCT), 4)
+
                     success, route_msg, trade_res = order_router.route_entry_order(
                         symbol=cand["symbol"],
                         t212_ticker=cand["t212_ticker"],
                         quantity=cand["units"],
                         price=cand["price"],
+                        target_price=target_price,
+                        stop_loss_price=stop_loss_price,
                         sector=cand["sector"],
                         confidence_score=cand["confidence"],
-                        reward_risk_ratio=cand["reward_risk"],
                         market_regime=market_regime,
                         agent_votes=agent_votes,
                         risk_approved=cand["risk_approved"],
-                        cost_evaluation=cand["cost_eval"],
                         is_paper=self.paper_mode
                     )
                     

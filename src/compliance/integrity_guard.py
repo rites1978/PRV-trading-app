@@ -48,13 +48,14 @@ class ForwardTestIntegrityGuard:
         if self.expected_hash and current_hash != self.expected_hash:
             return False, f"COMPLIANCE REJECTION: Code hash '{current_hash}' does not match locked commit '{self.expected_hash}'!", audit_log
 
-        # 2. Verify Position Sizing Limit (8.80% of NAV + £1.0 buffer)
-        pos_pct = getattr(settings, "MAX_POSITION_SIZE_CAP_PCT", 0.088)
-        max_allowed_cost = (current_nav_gbp * pos_pct) + 1.0
+        # 2. Verify Position Sizing Limit (8.0% of NAV + £1.0 buffer)
+        raw_cap = getattr(settings, "MAX_INITIAL_POSITION_WEIGHT_PCT", 8.0)
+        pos_fraction = raw_cap / 100.0 if raw_cap > 1.0 else raw_cap
+        max_allowed_cost = (current_nav_gbp * pos_fraction) + 1.0
         audit_log["order_cost"] = order_cost_gbp
         audit_log["max_allowed_cost"] = max_allowed_cost
         if order_cost_gbp > max_allowed_cost:
-            return False, f"COMPLIANCE REJECTION: Order cost (£{order_cost_gbp:.2f}) exceeds {pos_pct*100:.2f}% sizing limit (£{max_allowed_cost:.2f})!", audit_log
+            return False, f"COMPLIANCE REJECTION: Order cost (£{order_cost_gbp:.2f}) exceeds {pos_fraction*100:.2f}% sizing limit (£{max_allowed_cost:.2f})!", audit_log
 
         # 3. Verify Hard Portfolio Drawdown Ceiling (<= 5.00%)
         audit_log["current_drawdown_pct"] = current_drawdown_pct

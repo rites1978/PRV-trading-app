@@ -927,3 +927,60 @@ def get_macro_event_ledger(limit: int = 50):
     entries = db.get_macro_ledger_entries(limit=limit)
     return JSONResponse(content={"entries": entries, "count": len(entries)})
 
+@app.get("/api/portfolio/snapshot")
+def get_authoritative_portfolio_snapshot(force_refresh: bool = False):
+    from src.portfolio.portfolio_snapshot import portfolio_snapshot
+    snapshot = portfolio_snapshot.get_authoritative_snapshot(force_refresh=force_refresh)
+    return JSONResponse(content=snapshot)
+
+@app.get("/api/reconciliation/status")
+def get_balance_sheet_reconciliation():
+    from src.portfolio.portfolio_snapshot import portfolio_snapshot
+    snapshot = portfolio_snapshot.get_authoritative_snapshot(force_refresh=False)
+    latest_event = db.get_latest_reconciliation_event()
+    return JSONResponse(content={
+        "status": snapshot["reconciliation_status"],
+        "is_reconciled": snapshot["is_reconciled"],
+        "failed_invariants": snapshot["failed_invariants"],
+        "account_summary": snapshot["account_summary"],
+        "latest_ledger_record": latest_event
+    })
+
+@app.get("/api/analytics/net-edge")
+def evaluate_net_edge(symbol: str = "CRM", entry: float = 280.0, target: float = 296.0, sl: float = 273.0, nominal: float = 2500.0, is_uk: bool = False, is_foreign: bool = True):
+    from src.execution.net_edge_gate import net_edge_gate
+    res = net_edge_gate.evaluate_candidate(
+        symbol=symbol,
+        entry_price=entry,
+        target_price=target,
+        stop_loss_price=sl,
+        nominal_value=nominal,
+        is_uk=is_uk,
+        is_foreign=is_foreign
+    )
+    return JSONResponse(content=res)
+
+@app.get("/api/analytics/shadow-strategies")
+def get_shadow_strategies():
+    from src.analytics.shadow_portfolio_engine import shadow_portfolio_engine
+    comparison = shadow_portfolio_engine.evaluate_shadow_comparison()
+    return JSONResponse(content=comparison)
+
+@app.get("/api/analytics/dead-capital")
+def get_dead_capital_audits():
+    from src.portfolio.dead_capital_manager import dead_capital_manager
+    audits = dead_capital_manager.audit_all_holdings_for_dead_capital()
+    return JSONResponse(content={"audits": audits, "count": len(audits)})
+
+@app.get("/api/analytics/convictions")
+def get_unified_convictions():
+    from src.analytics.unified_conviction_engine import unified_conviction_engine
+    convictions = unified_conviction_engine.get_all_holdings_convictions()
+    return JSONResponse(content={"convictions": convictions, "count": len(convictions)})
+
+@app.get("/api/analytics/expectancy")
+def get_expectancy_analytics():
+    from src.analytics.expectancy_engine import expectancy_engine
+    metrics = expectancy_engine.compute_expectancy_metrics()
+    return JSONResponse(content=metrics)
+

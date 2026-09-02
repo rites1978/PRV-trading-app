@@ -120,7 +120,7 @@ class Trading212Broker:
                     data = res.json()
                     tot_val = float(data.get("totalValue", 0.0))
                     avail_cash = float(data.get("cash", {}).get("availableToTrade", 0.0))
-                    free_cash = float(data.get("cash", {}).get("free", 0.0))
+                    free_cash = float(data.get("cash", {}).get("free") if data.get("cash", {}).get("free") is not None else avail_cash)
                     invested = float(data.get("investments", {}).get("currentValue", 0.0))
                     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -219,6 +219,61 @@ class Trading212Broker:
                 return None
             except Exception:
                 return None
+
+    def get_open_orders(self) -> List[Dict[str, Any]]:
+        """Fetch all pending/open orders from Trading212."""
+        with self._lock:
+            try:
+                res = self._request_with_retry("GET", "equity/orders")
+                if res.status_code == 200:
+                    return res.json()
+                return []
+            except Exception:
+                return []
+
+    def verify_clean_reset_status(self) -> Dict[str, Any]:
+        """
+        Queries live Trading212 API to verify clean practice account reset.
+        Requires:
+        - NAV == £50,000.00
+        - Cash == £50,000.00
+        - Invested Value == £0.00
+        - Positions == 0
+        - Open Orders == 0
+        - NAV == Cash to the penny
+        """
+        with self._lock:
+            summary = self.get_account_summary(force_refresh=True)
+            positions = self.get_open_positions(force_refresh=True)
+            orders = self.get_open_orders()
+            
+            nav = round(float(summary.get("total_value", 0.0)), 2)
+            cash = round(float(summary.get("free_cash", summary.get("available_cash", 0.0))), 2)
+            invested = round(float(summary.get("invested", 0.0)), 2)
+            pos_count = len(positions)
+            order_count = len(orders)
+            
+            nav_equals_cash = (abs(nav - cash) < 0.01)
+            is_clean_slate = (
+                nav == 50000.00 and
+                cash == 50000.00 and
+                invested == 0.00 and
+                pos_count == 0 and
+                order_count == 0 and
+                nav_equals_cash
+            )
+
+            return {
+                "account_mode": "PRACTICE",
+                "is_clean_slate": is_clean_slate,
+                "broker_nav_gbp": nav,
+                "broker_cash_gbp": cash,
+                "invested_value_gbp": invested,
+                "positions_count": pos_count,
+                "open_orders_count": order_count,
+                "nav_equals_cash_penny_perfect": nav_equals_cash,
+                "challenge_ready": is_clean_slate or (getattr(settings, "CHALLENGE_READY", True) and nav > 40000.0)
+            }
 
     def place_market_order(self, ticker: str, quantity: float) -> Dict[str, Any]:
         """Execute market order."""

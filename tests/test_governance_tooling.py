@@ -30,9 +30,9 @@ class TestGovernanceTooling(unittest.TestCase):
 
     def tearDown(self):
         with db.get_connection() as conn:
-            conn.execute("DELETE FROM trade_attributions WHERE trade_id >= 9000")
-            conn.execute("DELETE FROM trade_trajectories WHERE trade_id >= 9000")
-            conn.execute("DELETE FROM trades WHERE id >= 9000")
+            conn.execute("DELETE FROM trade_attributions WHERE trade_id IN (9991, 9992, 9993)")
+            conn.execute("DELETE FROM trade_trajectories WHERE trade_id IN (9991, 9992, 9993)")
+            conn.execute("DELETE FROM trades WHERE id IN (9991, 9992, 9993)")
 
     def test_pre_flight_compliance_sizing_rejection(self):
         """Test that orders exceeding 5.53% sizing are strictly rejected."""

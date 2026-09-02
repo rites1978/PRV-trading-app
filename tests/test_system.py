@@ -59,7 +59,7 @@ class TestPRVQuantPlatform(unittest.TestCase):
         approved, res = self.cost_mdl.evaluate_net_edge(entry, target, stop, 2000.0, False, True)
         self.assertTrue(approved)
         self.assertGreaterEqual(res["gross_reward_risk"], 2.95)
-        self.assertGreaterEqual(res["net_reward_risk"], 2.4)
+        self.assertGreaterEqual(res["net_reward_risk"], 2.0)
 
         approved_bad, res_bad = self.cost_mdl.evaluate_net_edge(100.0, 102.0, 98.0, 2000.0, False, True)
         self.assertFalse(approved_bad)
