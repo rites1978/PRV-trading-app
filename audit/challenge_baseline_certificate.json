@@ -1,0 +1,31 @@
+{
+  "challenge_name": "PRV_CAPITAL_OFFICIAL_30_DAY_CHALLENGE",
+  "official_start_timestamp": "2026-09-03T09:48:35.752079+00:00",
+  "official_start_date": "2026-09-03",
+  "baseline_metrics": {
+    "starting_broker_nav_gbp": 50000.0,
+    "starting_free_cash_gbp": 50000.0,
+    "starting_invested_value_gbp": 0.0,
+    "starting_open_positions_count": 0,
+    "starting_open_orders_count": 0,
+    "starting_banked_profit_gbp": 0.0,
+    "starting_capital_transfers_gbp": 0.0
+  },
+  "operating_mandate": {
+    "reference_base_capital_gbp": 50000.0,
+    "max_normal_deployable_capital_gbp": 50000.0,
+    "daily_bankable_net_target_gbp": 250.0,
+    "daily_new_entry_loss_lock_gbp": 250.0,
+    "daily_emergency_loss_level_gbp": 500.0,
+    "banked_profit_is_non_deployable": true,
+    "banked_profit_reserve_location": "RINGFENCED_INSIDE_BROKER",
+    "force_trade_to_reach_daily_target": false,
+    "anti_gambling_safeguards_enforced": true
+  },
+  "cryptographic_freeze": {
+    "final_commit_sha": "99e214b29a8c93263b64aa60b4862f9a670379df",
+    "final_config_sha256": "a09e308a755a41d2d7630a8a3db3f95bcfebb8e514ec66ba443885a0383f3512",
+    "final_parameter_manifest_sha256": "7c512be5bc26910c1c4ed81a3e650480a676cd750faa49bc8dbd8901360bc708"
+  },
+  "challenge_verdict": "OFFICIAL_CHALLENGE_ACTIVE"
+}
