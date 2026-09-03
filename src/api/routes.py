@@ -64,6 +64,55 @@ def health_check():
         "environment": broker.env
     }
 
+@app.get("/api/system/memory")
+def get_system_memory_diagnostics():
+    """Returns real-time memory RSS, cgroup limits, and cache diagnostics."""
+    import os, sys, resource, gc, threading, time
+    rss_mb = 0.0
+    vm_peak_mb = 0.0
+    if os.path.exists("/proc/self/status"):
+        try:
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        rss_mb = float(line.split()[1]) / 1024.0
+                    elif line.startswith("VmPeak:"):
+                        vm_peak_mb = float(line.split()[1]) / 1024.0
+        except Exception:
+            pass
+    if rss_mb == 0.0:
+        ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss_mb = ru / (1024.0 * 1024.0) if sys.platform == "darwin" else ru / 1024.0
+
+    limit_mb = 512.0
+    try:
+        if os.path.exists("/sys/fs/cgroup/memory.max"):
+            val = open("/sys/fs/cgroup/memory.max").read().strip()
+            if val != "max":
+                limit_mb = float(val) / (1024.0 * 1024.0)
+        elif os.path.exists("/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+            val = open("/sys/fs/cgroup/memory/memory.limit_in_bytes").read().strip()
+            limit_mb = float(val) / (1024.0 * 1024.0)
+    except Exception:
+        pass
+
+    from src.data.market_data import market_data
+    uptime_sec = round(time.time() - getattr(quant_engine, "boot_time", time.time()), 1)
+
+    return {
+        "memory_rss_mb": round(rss_mb, 2),
+        "memory_peak_mb": round(vm_peak_mb, 2),
+        "memory_limit_mb": round(limit_mb, 2),
+        "memory_utilization_pct": round((rss_mb / max(1.0, limit_mb)) * 100.0, 2),
+        "process_uptime_sec": uptime_sec,
+        "active_threads": threading.active_count(),
+        "scan_cycles_today": quant_engine.scan_cycles_today,
+        "market_data_cache_count": len(getattr(market_data, "_cache", {})),
+        "market_data_snapshot_count": len(getattr(market_data, "_snapshot_cache", {})),
+        "gc_counts": gc.get_count(),
+        "new_entries_allowed": settings.PRACTICE_NEW_ENTRIES_ALLOWED
+    }
+
 @app.get("/capital")
 def get_capital_status():
     account = broker.get_account_summary()

@@ -20,12 +20,15 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
 
     def setUp(self):
         self.orig_mode = settings.ACCOUNT_MODE
+        self.orig_entries = settings.PRACTICE_NEW_ENTRIES_ALLOWED
+        settings.PRACTICE_NEW_ENTRIES_ALLOWED = True
         self.engine = PRVQuantEngine()
         self.engine._stop_event.set()
         self.engine.is_running = False
 
     def tearDown(self):
         settings.ACCOUNT_MODE = self.orig_mode
+        settings.PRACTICE_NEW_ENTRIES_ALLOWED = self.orig_entries
 
     def test_1_practice_calls_broker_place_market_order(self):
         """1. ACCOUNT_MODE=PRACTICE must call broker.place_market_order() on Trading212 Demo API."""
