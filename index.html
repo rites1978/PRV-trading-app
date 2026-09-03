@@ -579,14 +579,14 @@
                     <div style="font-size: 14px; font-weight: 700; color: #f59e0b; display: flex; align-items: center; gap: 6px;">
                         <span>🏛️ PRV Capital Capital Preservation, Daily Banking & Loss-Recovery State Machine</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 11px; color: var(--text-muted);">State:</span>
-                        <span id="objStateBadge" class="status-badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 700; font-size: 11px;">
-                            NORMAL
-                        </span>
-                        <span id="objTargetStatusBadge" class="status-badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; font-weight: 700; font-size: 11px;">
-                            PROGRESS: 0.0%
-                        </span>
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                        <span style="font-size: 11px; color: var(--text-muted);">Cap:</span>
+                        <span id="objCapitalStateBadge" class="status-badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 700; font-size: 11px;">NORMAL</span>
+                        <span style="font-size: 11px; color: var(--text-muted);">Day:</span>
+                        <span id="objDailyStateBadge" class="status-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 700; font-size: 11px;">ACTIVE</span>
+                        <span style="font-size: 11px; color: var(--text-muted);">Mkt:</span>
+                        <span id="objMarketStateBadge" class="status-badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 700; font-size: 11px;">NORMAL</span>
+                        <span id="objTargetStatusBadge" class="status-badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; font-weight: 700; font-size: 11px;">BANKABLE: 0.0%</span>
                     </div>
                 </div>
 
@@ -599,7 +599,7 @@
                                 Active Equity: <strong id="promptActiveEquity">£0.00</strong> | Deficit: <strong id="promptDeficit" style="color: #f43f5e;">£0.00</strong> | Banked Reserve: <strong id="promptReserve" style="color: #10b981;">£0.00</strong> | Proposed Top-Up: <strong id="promptAmount" style="color: #38bdf8;">£0.00</strong>
                             </div>
                             <div style="color: #94a3b8; font-size: 10px; margin-top: 2px;">
-                                ℹ️ Capital transfers restore trading capital to £50,000 and are <strong>NEVER counted as trading P&L</strong>.
+                                ℹ️ Capital transfers restore trading capital toward £50,000 and are <strong>NEVER counted as trading P&L</strong>.
                             </div>
                         </div>
                         <div style="display: flex; gap: 8px;">
@@ -628,20 +628,20 @@
                         <div id="objBaseDeficit" style="font-weight: 700; font-size: 15px; color: #10b981; margin-top:2px;">£0.00</div>
                     </div>
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
-                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Banked Reserve</div>
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Banked Reserve (Practice)</div>
                         <div id="objTotalBanked" style="font-weight: 700; font-size: 15px; color: #eab308; margin-top:2px;">£0.00</div>
                     </div>
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
-                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Net Realized Today</div>
-                        <div id="objNetRealized" style="font-weight: 700; font-size: 15px; color: #10b981; margin-top:2px;">£0.00</div>
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Bankable Today</div>
+                        <div id="objBankableToday" style="font-weight: 700; font-size: 15px; color: #10b981; margin-top:2px;">£0.00</div>
                     </div>
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
-                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Unrealized Today</div>
-                        <div id="objNetUnrealized" style="font-weight: 700; font-size: 15px; color: #94a3b8; margin-top:2px;">£0.00</div>
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Daily MTM P&L</div>
+                        <div id="objDailyMtmPnl" style="font-weight: 700; font-size: 15px; color: #38bdf8; margin-top:2px;">£0.00</div>
                     </div>
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
-                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Daily Net Target</div>
-                        <div style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">+£250.00</div>
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Corridor Limits</div>
+                        <div style="font-weight: 700; font-size: 13px; color: #fff; margin-top:2px;">-£250 / +£250</div>
                     </div>
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
                         <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">New Entries Allowed</div>
@@ -1223,10 +1223,13 @@
                     const vaultTotEl = document.getElementById('objVaultTotal');
                     const xferEl = document.getElementById('objTransfersTotal');
                     const stratEl = document.getElementById('objStrategyNet');
-                    const unrealEl = document.getElementById('objNetUnrealized');
+                    const bankableEl = document.getElementById('objBankableToday');
+                    const mtmEl = document.getElementById('objDailyMtmPnl');
                     const costEl = document.getElementById('objTradingCosts');
                     const allowEl = document.getElementById('objEntriesAllowed');
-                    const stateBadgeEl = document.getElementById('objStateBadge');
+                    const capBadgeEl = document.getElementById('objCapitalStateBadge');
+                    const dayBadgeEl = document.getElementById('objDailyStateBadge');
+                    const mktBadgeEl = document.getElementById('objMarketStateBadge');
                     const badgeEl = document.getElementById('objTargetStatusBadge');
                     const turnEl = document.getElementById('objTurnover');
                     const ppcEl = document.getElementById('objProfitPerCost');
@@ -1245,41 +1248,54 @@
                         stratEl.innerText = (strat >= 0 ? '+' : '') + '£' + strat.toFixed(2);
                         stratEl.style.color = strat >= 0 ? '#10b981' : '#f43f5e';
                     }
-                    if (unrealEl) {
-                        const un = Number(obj.daily_net_unrealized_pnl_gbp || 0);
-                        unrealEl.innerText = (un >= 0 ? '+' : '') + '£' + un.toFixed(2);
-                        unrealEl.style.color = un >= 0 ? '#10b981' : '#f43f5e';
+                    if (bankableEl) {
+                        const bnk = Number(obj.bankable_profit_today_gbp || 0);
+                        bankableEl.innerText = (bnk >= 0 ? '+' : '') + '£' + bnk.toFixed(2);
+                        bankableEl.style.color = bnk >= 250 ? '#10b981' : (bnk > 0 ? '#38bdf8' : '#cbd5e1');
                     }
-                    if (netEl) {
-                        netEl.innerText = (obj.net_realized_today_gbp >= 0 ? '+' : '') + '£' + Number(obj.net_realized_today_gbp).toFixed(2);
-                        netEl.style.color = obj.net_realized_today_gbp >= 0 ? '#10b981' : '#f43f5e';
+                    if (mtmEl) {
+                        const mtm = Number(obj.daily_mtm_pnl_gbp || 0);
+                        mtmEl.innerText = (mtm >= 0 ? '+' : '') + '£' + mtm.toFixed(2);
+                        mtmEl.style.color = mtm >= 0 ? '#10b981' : (mtm <= -250 ? '#f43f5e' : '#f59e0b');
                     }
-                    if (costEl) costEl.innerText = '£' + Number(obj.trading_costs_today_gbp).toFixed(2);
+                    if (costEl) costEl.innerText = '£' + Number(obj.trading_costs_today_gbp || 0).toFixed(2);
                     if (allowEl) {
                         allowEl.innerText = obj.new_entries_allowed ? 'TRUE' : 'FALSE (LOCKED)';
                         allowEl.style.color = obj.new_entries_allowed ? '#10b981' : '#eab308';
                     }
-                    if (stateBadgeEl) {
-                        const st = obj.current_capital_state || 'NORMAL';
-                        stateBadgeEl.innerText = st;
-                        if (st === 'NORMAL') {
-                            stateBadgeEl.style.background = 'rgba(16, 185, 129, 0.2)';
-                            stateBadgeEl.style.color = '#10b981';
-                        } else if (st === 'TARGET_ACHIEVED') {
-                            stateBadgeEl.style.background = 'rgba(56, 189, 248, 0.2)';
-                            stateBadgeEl.style.color = '#38bdf8';
-                        } else if (st === 'RECOVERY') {
-                            stateBadgeEl.style.background = 'rgba(234, 179, 8, 0.2)';
-                            stateBadgeEl.style.color = '#eab308';
-                        } else if (st === 'DAILY_LOSS_LOCK') {
-                            stateBadgeEl.style.background = 'rgba(244, 63, 94, 0.2)';
-                            stateBadgeEl.style.color = '#f43f5e';
-                        } else if (st === 'MARKET_STRESS') {
-                            stateBadgeEl.style.background = 'rgba(168, 85, 247, 0.2)';
-                            stateBadgeEl.style.color = '#a855f7';
-                        } else if (st === 'USER_TOPUP_PENDING') {
-                            stateBadgeEl.style.background = 'rgba(245, 158, 11, 0.3)';
-                            stateBadgeEl.style.color = '#f59e0b';
+
+                    // 3 Independent State Badges
+                    if (capBadgeEl) {
+                        const cap = obj.capital_state || 'NORMAL';
+                        capBadgeEl.innerText = cap;
+                        if (cap === 'NORMAL') {
+                            capBadgeEl.style.background = 'rgba(16, 185, 129, 0.2)'; capBadgeEl.style.color = '#10b981';
+                        } else if (cap === 'RECOVERY') {
+                            capBadgeEl.style.background = 'rgba(234, 179, 8, 0.2)'; capBadgeEl.style.color = '#eab308';
+                        } else {
+                            capBadgeEl.style.background = 'rgba(245, 158, 11, 0.3)'; capBadgeEl.style.color = '#f59e0b';
+                        }
+                    }
+                    if (dayBadgeEl) {
+                        const day = obj.daily_state || 'ACTIVE';
+                        dayBadgeEl.innerText = day;
+                        if (day === 'ACTIVE') {
+                            dayBadgeEl.style.background = 'rgba(56, 189, 248, 0.2)'; dayBadgeEl.style.color = '#38bdf8';
+                        } else if (day === 'TARGET_LOCK') {
+                            dayBadgeEl.style.background = 'rgba(16, 185, 129, 0.2)'; dayBadgeEl.style.color = '#10b981';
+                        } else if (day === 'LOSS_LOCK') {
+                            dayBadgeEl.style.background = 'rgba(244, 63, 94, 0.2)'; dayBadgeEl.style.color = '#f43f5e';
+                        } else if (day === 'EMERGENCY_LOCK') {
+                            dayBadgeEl.style.background = 'rgba(225, 29, 72, 0.3)'; dayBadgeEl.style.color = '#fda4af';
+                        }
+                    }
+                    if (mktBadgeEl) {
+                        const mkt = obj.market_state || 'NORMAL';
+                        mktBadgeEl.innerText = mkt;
+                        if (mkt === 'NORMAL') {
+                            mktBadgeEl.style.background = 'rgba(16, 185, 129, 0.2)'; mktBadgeEl.style.color = '#10b981';
+                        } else {
+                            mktBadgeEl.style.background = 'rgba(168, 85, 247, 0.2)'; mktBadgeEl.style.color = '#a855f7';
                         }
                     }
                     if (badgeEl) {

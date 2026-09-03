@@ -177,21 +177,20 @@ class OrderRouter:
         objective_reason = daily_status["gate_reason"]
 
         if not entries_allowed:
+            if daily_status.get("emergency_risk_mode", False):
+                try:
+                    if hasattr(broker, "cancel_all_pending_orders"):
+                        broker.cancel_all_pending_orders()
+                except Exception:
+                    pass
             self._log_audit("HOLD_CAPITAL_STATE_GATE", symbol, market_regime, agent_votes, confidence_score, objective_reason, risk_approved, quantity, "CAPITAL_STATE_HALT")
             return False, f"HOLD: {objective_reason}", {"approved": False, "rejection_reasons": [objective_reason]}
 
-        # Anti-gambling and soft loss limit sizing adjustments
+        # Anti-gambling recovery sizing adjustment (Loss never increases risk; sizing scales down strictly with remaining equity)
         sizing_mult = daily_status.get("sizing_multiplier", 1.0)
         if sizing_mult < 1.0:
             quantity = max(1, int(quantity * sizing_mult))
             nominal_value = quantity * price
-
-        # Soft loss limit conviction requirements (raise bar to 85+ confidence)
-        if daily_status.get("soft_loss_limit_breached", False):
-            if confidence_score < 85.0:
-                reason = f"HOLD: Daily soft loss threshold reached. Setup confidence ({confidence_score:.1f}) below required 85.0 threshold."
-                self._log_audit("HOLD_SOFT_LOSS_GATE", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "SOFT_LOSS_QUALITY_REJECT")
-                return False, reason, {"approved": False, "rejection_reasons": [reason]}
 
         # Compute spread
         bid = bid_price or (price * 0.9997)

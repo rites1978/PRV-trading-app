@@ -35,14 +35,17 @@ class DailyObjectiveService:
     def __init__(self):
         self.base_trading_capital: float = settings.BASE_TRADING_CAPITAL
         self.max_deployable_capital: float = settings.MAX_DEPLOYABLE_TRADING_CAPITAL
-        self.daily_net_profit_target: float = settings.DAILY_NET_PROFIT_OBJECTIVE
+        self.daily_net_profit_target: float = getattr(settings, "DAILY_BANKABLE_NET_TARGET", 250.0)
+        self.daily_bankable_target: float = getattr(settings, "DAILY_BANKABLE_NET_TARGET", 250.0)
+        self.daily_loss_lock_gbp: float = getattr(settings, "DAILY_NEW_ENTRY_LOSS_LOCK", 250.0)
+        self.daily_emergency_loss_gbp: float = getattr(settings, "DAILY_EMERGENCY_LOSS_LEVEL", 500.0)
         self.daily_net_return_target_pct: float = settings.DAILY_NET_RETURN_OBJECTIVE_PCT
         self.banked_profit_is_non_deployable: bool = settings.BANKED_PROFIT_IS_NON_DEPLOYABLE
         self.force_trade_to_reach_daily_target: bool = settings.FORCE_TRADE_TO_REACH_DAILY_TARGET
         self.daily_max_net_loss_pct: float = settings.DAILY_MAX_NET_LOSS_PCT
-        self.daily_max_net_loss_gbp: float = settings.DAILY_MAX_NET_LOSS_GBP
-        self.daily_soft_loss_limit_gbp: float = getattr(settings, "DAILY_SOFT_LOSS_LIMIT_GBP", 250.0)
-        self.daily_hard_loss_limit_gbp: float = getattr(settings, "DAILY_HARD_LOSS_LIMIT_GBP", 500.0)
+        self.daily_max_net_loss_gbp: float = self.daily_emergency_loss_gbp
+        self.daily_soft_loss_limit_gbp: float = self.daily_loss_lock_gbp
+        self.daily_hard_loss_limit_gbp: float = self.daily_emergency_loss_gbp
 
         self._ensure_table_exists()
 
@@ -136,22 +139,22 @@ class DailyObjectiveService:
         from src.risk.market_stress_detector import market_stress_detector
         stress_active, stress_reason, _ = market_stress_detector.evaluate_market_stress()
 
-        c_state = capital_state_machine.evaluate_capital_state(
+        c_state = capital_state_machine.evaluate_portfolio_states(
             current_broker_nav=nav,
+            current_unrealized_pnl=unrealized,
             daily_realized_pnl=daily_net_realized,
-            daily_unrealized_pnl=unrealized,
             market_stress_active=stress_active,
-            market_stress_reason=stress_reason
+            market_stress_reason=stress_reason,
+            is_sod_or_eod_check=False
         )
 
-        target_progress_pct = round((daily_net_realized / max(0.01, self.daily_net_profit_target)) * 100.0, 2)
+        bankable_today = c_state["bankable_profit_today_gbp"]
+        target_progress_pct = c_state["daily_target_progress_pct"]
         target_achieved = c_state["daily_target_achieved"]
-        downside_breached = c_state["hard_loss_limit_breached"]
+        loss_lock_breached = c_state["daily_loss_lock_breached"]
+        emergency_mode = c_state["emergency_risk_mode"]
         new_entries_allowed = c_state["new_discretionary_entries_allowed"]
         gate_reason = c_state["state_reason"]
-
-        # In recovery mode: Bankable profit is £0 until £50k base restored
-        bankable_today = 0.0 if c_state["in_recovery_mode"] else max(0.0, daily_net_realized)
 
         # Net Profit per £1 Trading Cost
         profit_per_pound_cost = round(daily_net_realized / max(0.01, daily_total_costs), 2) if daily_total_costs > 0 else (daily_net_realized if daily_net_realized > 0 else 0.0)
@@ -166,9 +169,13 @@ class DailyObjectiveService:
             "deployable_bankroll_gbp": c_state["active_trading_equity_gbp"],
             "base_capital_deficit_gbp": c_state["base_capital_deficit_gbp"],
             "in_recovery_mode": c_state["in_recovery_mode"],
-            "current_capital_state": c_state["current_state"],
+            "capital_state": c_state["capital_state"],
+            "daily_state": c_state["daily_state"],
+            "market_state": c_state["market_state"],
+            "current_capital_state": c_state["capital_state"],
             "banked_profit_reserve_gbp": c_state["banked_profit_reserve_gbp"],
             "cumulative_banked_profit_gbp": c_state["banked_profit_reserve_gbp"],
+            "banked_profit_reserve_location": c_state["banked_profit_reserve_location"],
             "total_capital_transfers_gbp": c_state["total_capital_transfers_gbp"],
             "net_strategy_profit_gbp": c_state["net_strategy_profit_gbp"],
             "banked_profit_is_non_deployable": self.banked_profit_is_non_deployable,
@@ -176,23 +183,27 @@ class DailyObjectiveService:
             "topup_permission_required": c_state["topup_permission_required"],
             "proposed_topup_amount_gbp": c_state["proposed_topup_amount_gbp"],
             "daily_net_profit_objective_gbp": self.daily_net_profit_target,
+            "daily_bankable_target_gbp": self.daily_bankable_target,
             "daily_net_return_objective_pct": self.daily_net_return_target_pct,
             "force_trade_to_reach_daily_target": self.force_trade_to_reach_daily_target,
             "daily_gross_realized_pnl_gbp": daily_gross_realized,
             "daily_total_costs_gbp": daily_total_costs,
             "daily_net_realized_pnl_gbp": daily_net_realized,
-            "daily_net_unrealized_pnl_gbp": c_state["daily_net_unrealized_pnl_gbp"],
-            "daily_total_net_pnl_gbp": c_state["daily_total_net_pnl_gbp"],
+            "daily_net_unrealized_pnl_gbp": c_state["daily_unrealized_pnl_gbp"],
+            "change_in_unrealized_today_gbp": c_state["change_in_unrealized_today_gbp"],
+            "daily_mtm_pnl_gbp": c_state["daily_mtm_pnl_gbp"],
+            "daily_total_net_pnl_gbp": c_state["daily_mtm_pnl_gbp"],
+            "bankable_profit_today_gbp": bankable_today,
             "daily_target_progress_pct": target_progress_pct,
             "daily_target_achieved": target_achieved,
-            "bankable_profit_today_gbp": bankable_today,
+            "daily_loss_lock_gbp": self.daily_loss_lock_gbp,
+            "daily_emergency_loss_gbp": self.daily_emergency_loss_gbp,
             "daily_soft_loss_limit_gbp": self.daily_soft_loss_limit_gbp,
             "daily_hard_loss_limit_gbp": self.daily_hard_loss_limit_gbp,
-            "daily_max_net_loss_gbp": self.daily_max_net_loss_gbp,
-            "daily_max_net_loss_pct": self.daily_max_net_loss_pct,
-            "soft_loss_limit_breached": c_state["soft_loss_limit_breached"],
-            "hard_loss_limit_breached": downside_breached,
-            "daily_downside_breached": downside_breached,
+            "daily_loss_lock_breached": loss_lock_breached,
+            "emergency_risk_mode": emergency_mode,
+            "cancel_unfilled_entry_orders": c_state["cancel_unfilled_entry_orders"],
+            "daily_downside_breached": loss_lock_breached,
             "new_discretionary_entries_allowed": new_entries_allowed,
             "sizing_multiplier": c_state["sizing_multiplier"],
             "gate_reason": gate_reason,

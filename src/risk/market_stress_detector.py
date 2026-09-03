@@ -47,30 +47,53 @@ class MarketStressDetector:
         metrics = {
             "sp500_day_change_pct": 0.0,
             "vix_level": 16.0,
-            "watchlist_avg_spread_bps": 8.0
+            "watchlist_avg_spread_bps": 8.0,
+            "data_fresh": True
         }
 
+        from src.data.market_hours import market_hours
+        is_uk_open = market_hours.is_asset_market_open("UK")
+        is_us_open = market_hours.is_asset_market_open("US")
+
+        # 1. Benchmark index evaluation with freshness check
         try:
-            # Query S&P 500 ETF (SPY) or ^GSPC intraday move
             spy = yf.Ticker("SPY").history(period="2d")
             if len(spy) >= 2:
+                last_ts = spy.index[-1]
+                # If US is open, check freshness (should not be older than 90 mins)
+                now_utc = datetime.now(timezone.utc)
+                if is_us_open and hasattr(last_ts, "tz_convert"):
+                    age_mins = (now_utc - last_ts.tz_convert(timezone.utc)).total_seconds() / 60.0
+                    if age_mins > 90.0:
+                        metrics["data_fresh"] = False
+                        stress_reasons.append(f"STRESS_CAUTION: S&P benchmark feed is stale ({age_mins:.0f} mins old) during active US session.")
+
                 prev_close = float(spy["Close"].iloc[-2])
                 curr_price = float(spy["Close"].iloc[-1])
                 change_pct = ((curr_price - prev_close) / prev_close) * 100.0
                 metrics["sp500_day_change_pct"] = round(change_pct, 2)
                 if change_pct <= -self.index_drawdown_threshold_pct:
                     stress_reasons.append(f"Benchmark S&P 500 down {change_pct:.2f}% (exceeds -{self.index_drawdown_threshold_pct:.1f}% crash threshold)")
-        except Exception:
-            pass
+            elif is_us_open:
+                # Active US market but no data returned
+                metrics["data_fresh"] = False
+                stress_reasons.append("STRESS_CAUTION: Unable to retrieve benchmark index during active trading session.")
+        except Exception as e:
+            if is_us_open:
+                metrics["data_fresh"] = False
+                stress_reasons.append(f"STRESS_CAUTION: Benchmark index feed exception during active trading session ({e}).")
 
+        # 2. VIX evaluation with freshness check
         try:
-            # Query VIX level
             vix = yf.Ticker("^VIX").history(period="1d")
             if not vix.empty:
                 vix_val = float(vix["Close"].iloc[-1])
                 metrics["vix_level"] = round(vix_val, 2)
                 if vix_val >= 28.0:
                     stress_reasons.append(f"Volatility index elevated at {vix_val:.1f} (>= 28.0 stress ceiling)")
+            elif is_us_open:
+                metrics["data_fresh"] = False
+                stress_reasons.append("STRESS_CAUTION: VIX volatility feed unavailable during active trading session.")
         except Exception:
             pass
 

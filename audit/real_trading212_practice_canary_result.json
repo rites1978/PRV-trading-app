@@ -1,0 +1,13 @@
+{
+  "canary_passed": true,
+  "entry_broker_order_id": 54350045160,
+  "exit_broker_order_id": 54350045171,
+  "ticker": "LLOYl_EQ",
+  "shares": 10.0,
+  "fill_price_gbp": 1.116999969482422,
+  "balance_sheet_variance_gbp": 0.0,
+  "pnl_bridge_variance_gbp": 0.0,
+  "broker_nav_gbp": 50043.69,
+  "broker_free_cash_gbp": 22613.81,
+  "timestamp_utc": "2026-09-03T09:30:06.903631+00:00"
+}

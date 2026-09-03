@@ -143,7 +143,11 @@ def run_canary():
     quant_engine.position_peaks.clear()
     assert len(quant_engine.position_peaks) == 0
     print("  Re-hydrating positions from Trading212 Broker API...")
-    quant_engine._recover_positions_on_restart()
+    for attempt in range(5):
+        quant_engine._recover_positions_on_restart()
+        if ticker in quant_engine.position_peaks:
+            break
+        time.sleep(1.0)
     print(f"  Hydrated Position Peaks: {len(quant_engine.position_peaks)} active holdings")
     assert ticker in quant_engine.position_peaks, f"Expected {ticker} in position peaks!"
     print(f"✅ Restart Recovery Successful! {ticker} hydrated peak: £{quant_engine.position_peaks[ticker]:.4f}")
@@ -166,7 +170,7 @@ def run_canary():
     print("\n[STAGE 7] Authoritative Broker Reconciliation & P&L Continuity Bridge...")
     snap = portfolio_snapshot.get_authoritative_snapshot(force_refresh=True)
     acc = snap["account_summary"]
-    inv = snap["invariants"]
+    inv = snap.get("invariants_audit") or snap.get("invariants", {})
 
     print(f"  Broker NAV: £{acc['total_nav']:,.2f}")
     print(f"  Broker Free Cash: £{acc['free_cash']:,.2f}")
@@ -182,9 +186,10 @@ def run_canary():
     # Invariant 6: P&L Continuity Bridge
     inv6 = inv["inv6_pnl_continuity_bridge"]
     bridge_var = inv6["variance_gbp"]
+    rhs_val = inv6.get("pnl_bridge_rhs_gbp") or inv6.get("ledger_bridge_rhs_gbp", 0.0)
     print(f"\n  [INVARIANT 6: LEDGER P&L CONTINUITY BRIDGE]")
     print(f"  NAV Delta (LHS): £{inv6['nav_delta_lhs_gbp']:,.2f}")
-    print(f"  Ledger Bridge (RHS): £{inv6['ledger_bridge_rhs_gbp']:,.2f}")
+    print(f"  Ledger Bridge (RHS): £{rhs_val:,.2f}")
     print(f"  Realized P&L: £{inv6['realized_gross_pnl_gbp']:,.2f}")
     print(f"  Unrealized P&L: £{inv6['unrealized_pnl_gbp']:,.2f}")
     print(f"  UK SDRT Paid: £{inv6['uk_stamp_duty_taxes_gbp']:,.2f}")

@@ -41,6 +41,18 @@ CREATE TABLE IF NOT EXISTS capital_state_transitions (
     trigger_reason TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS daily_start_of_day_snapshots (
+    date TEXT PRIMARY KEY,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    start_active_equity REAL NOT NULL,
+    start_broker_nav REAL NOT NULL,
+    start_vault_balance REAL NOT NULL,
+    start_unrealized_pnl REAL NOT NULL DEFAULT 0.0,
+    position_marks_json TEXT NOT NULL DEFAULT '{}',
+    fx_rates_json TEXT NOT NULL DEFAULT '{}',
+    notes TEXT
+);
+
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trade_id TEXT UNIQUE,
@@ -1048,6 +1060,75 @@ class Database:
             cur.execute("SELECT COALESCE(SUM(realized_pnl), 0.0) as net_pnl FROM trades WHERE action = 'SELL'")
             row = cur.fetchone()
             return round(float(row["net_pnl"]), 2) if row else 0.0
+
+    # --- Start of Day Snapshots (Delta-based Daily MTM Accounting) ---
+    def record_start_of_day_snapshot(
+        self,
+        date_str: str,
+        start_active_equity: float,
+        start_broker_nav: float,
+        start_vault_balance: float,
+        start_unrealized_pnl: float = 0.0,
+        position_marks: Optional[Dict[str, Any]] = None,
+        fx_rates: Optional[Dict[str, Any]] = None,
+        notes: str = ""
+    ):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT OR REPLACE INTO daily_start_of_day_snapshots (
+                    date, start_active_equity, start_broker_nav, start_vault_balance,
+                    start_unrealized_pnl, position_marks_json, fx_rates_json, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                date_str, start_active_equity, start_broker_nav, start_vault_balance,
+                start_unrealized_pnl,
+                json.dumps(position_marks or {}),
+                json.dumps(fx_rates or {}),
+                notes
+            ))
+            conn.commit()
+
+    def get_start_of_day_snapshot(self, date_str: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM daily_start_of_day_snapshots WHERE date = ?", (date_str,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            try:
+                res["position_marks"] = json.loads(res.get("position_marks_json") or "{}")
+                res["fx_rates"] = json.loads(res.get("fx_rates_json") or "{}")
+            except Exception:
+                res["position_marks"] = {}
+                res["fx_rates"] = {}
+            return res
+
+    def get_or_create_sod_snapshot(
+        self,
+        date_str: str,
+        current_active_equity: float,
+        current_broker_nav: float,
+        current_vault_balance: float,
+        current_unrealized_pnl: float = 0.0,
+        position_marks: Optional[Dict[str, Any]] = None,
+        fx_rates: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        existing = self.get_start_of_day_snapshot(date_str)
+        if existing:
+            return existing
+        self.record_start_of_day_snapshot(
+            date_str=date_str,
+            start_active_equity=current_active_equity,
+            start_broker_nav=current_broker_nav,
+            start_vault_balance=current_vault_balance,
+            start_unrealized_pnl=current_unrealized_pnl,
+            position_marks=position_marks,
+            fx_rates=fx_rates,
+            notes="Authoritative start-of-day reference snapshot created."
+        )
+        return self.get_start_of_day_snapshot(date_str)
 
     # --- Trades ---
     def record_trade(self, trade: Dict[str, Any]):
