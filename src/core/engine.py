@@ -407,6 +407,8 @@ class PRVQuantEngine:
 
         def _evaluate_single_candidate(item):
             symbol = item.get("symbol", "UNKNOWN")
+            self.last_heartbeat_time = time.time()
+            self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
             try:
                 yf_ticker = item["yf_ticker"]
                 t212_ticker = item["t212_ticker"]
