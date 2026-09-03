@@ -212,7 +212,7 @@ class Trading212Broker:
         """Fetch all active positions with read-through cache and retry protection."""
         with self._lock:
             now = time.time()
-            if not force_refresh and self._cached_positions and (now - self._cached_positions_time) < self._cache_ttl_seconds:
+            if not force_refresh and self._cached_positions is not None and (now - self._cached_positions_time) < self._cache_ttl_seconds:
                 return list(self._cached_positions)
 
             try:

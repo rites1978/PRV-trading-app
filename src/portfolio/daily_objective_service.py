@@ -19,6 +19,7 @@ Mandate Principles:
    5. Stop taking unnecessary new risk after £250 is banked
 """
 import os
+import time
 import json
 import statistics
 from datetime import datetime, timezone, timedelta
@@ -46,6 +47,9 @@ class DailyObjectiveService:
         self.daily_max_net_loss_gbp: float = self.daily_emergency_loss_gbp
         self.daily_soft_loss_limit_gbp: float = self.daily_loss_lock_gbp
         self.daily_hard_loss_limit_gbp: float = self.daily_emergency_loss_gbp
+        self._cached_daily_status: Optional[Dict[str, Any]] = None
+        self._cached_status_time: float = 0.0
+        self._cache_ttl_seconds: float = 3.0
 
         self._ensure_table_exists()
 
@@ -79,11 +83,15 @@ class DailyObjectiveService:
         """Returns today's date in UTC (YYYY-MM-DD)."""
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    def get_daily_status(self, target_date: Optional[str] = None) -> Dict[str, Any]:
+    def get_daily_status(self, target_date: Optional[str] = None, force_refresh: bool = False) -> Dict[str, Any]:
         """
         Computes the complete daily profit accounting, target progress, banking status,
         and entry permissions for the specified date (defaults to UTC today).
         """
+        now_t = time.time()
+        if not force_refresh and target_date is None and self._cached_daily_status is not None and (now_t - self._cached_status_time) < self._cache_ttl_seconds:
+            return self._cached_daily_status
+
         today_str = target_date or self.get_today_str()
         
         # 1. Fetch all closed trades and order records for today from database
@@ -213,6 +221,12 @@ class DailyObjectiveService:
             "net_profit_per_pound_cost": profit_per_pound_cost,
             "anti_gambling_safeguards": c_state["anti_gambling_safeguards"]
         }
+
+        if target_date is None:
+            self._cached_daily_status = status_payload
+            self._cached_status_time = time.time()
+
+        return status_payload
 
     def are_new_discretionary_entries_allowed(self) -> Tuple[bool, str]:
         """

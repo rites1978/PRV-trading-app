@@ -9,6 +9,7 @@ Key Rules:
 3. Stress mode must NEVER be triggered merely because PRV is below its profit target.
 """
 from typing import Dict, Any, Tuple, Optional
+import time
 import yfinance as yf
 from datetime import datetime, timezone
 from src.config.settings import settings
@@ -23,13 +24,17 @@ class MarketStressDetector:
         self.spread_threshold_bps = settings.MARKET_STRESS_SPREAD_THRESHOLD_BPS       # 35 bps
         self._mock_stress_active = False
         self._mock_stress_reason = ""
+        self._cached_stress_result: Optional[Tuple[bool, str, Dict[str, Any]]] = None
+        self._cached_stress_time: float = 0.0
+        self._stress_cache_ttl_seconds: float = 60.0
 
     def set_mock_stress(self, active: bool, reason: str = ""):
         """Testing hook for deterministic verification."""
         self._mock_stress_active = active
         self._mock_stress_reason = reason
+        self._cached_stress_result = None
 
-    def evaluate_market_stress(self) -> Tuple[bool, str, Dict[str, Any]]:
+    def evaluate_market_stress(self, force_refresh: bool = False) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Evaluates market conditions across multiple systemic indicators:
         - Benchmark index drop (SPY / FTSE) >= 2.0% intraday
@@ -42,6 +47,10 @@ class MarketStressDetector:
                 "reason": self._mock_stress_reason,
                 "is_mock": True
             }
+
+        now_t = time.time()
+        if not force_refresh and self._cached_stress_result is not None and (now_t - self._cached_stress_time) < self._stress_cache_ttl_seconds:
+            return self._cached_stress_result
 
         stress_reasons = []
         metrics = {
@@ -100,11 +109,14 @@ class MarketStressDetector:
         stress_active = (len(stress_reasons) > 0)
         summary_reason = " | ".join(stress_reasons) if stress_active else "Market conditions within normal volatility bands."
 
-        return stress_active, summary_reason, {
+        result_payload = (stress_active, summary_reason, {
             "stress_active": stress_active,
             "reasons": stress_reasons,
             "metrics": metrics
-        }
+        })
+        self._cached_stress_result = result_payload
+        self._cached_stress_time = time.time()
+        return result_payload
 
 
 market_stress_detector = MarketStressDetector()

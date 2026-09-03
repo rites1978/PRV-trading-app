@@ -17,6 +17,7 @@ Every downstream module consumes this exact snapshot object and propagates its i
 Zero runtime contamination: No fallback to stale cached positions when broker reports zero positions.
 """
 import os
+import time
 import json
 import hashlib
 import yfinance as yf
@@ -45,19 +46,26 @@ class PortfolioSnapshotService:
         self._last_snapshot_time: float = 0.0
         self._snapshot_ttl_seconds: float = 5.0
         self._cached_gbp_usd: float = 1.3500
-        self._cached_fees: Dict[str, float] = {"sdrt": 43.38, "fx": 36.15}
+        self._cached_gbp_usd_time: float = 0.0
+        self._gbp_usd_ttl_seconds: float = 300.0
+        self._cached_fees: Dict[str, float] = {"sdrt": 0.0, "fx": 0.0}
 
     def get_gbp_usd_rate(self) -> float:
-        """Fetches live GBP/USD exchange rate with fallback."""
+        """Fetches live GBP/USD exchange rate with fallback and TTL caching."""
+        now_t = time.time()
+        if (now_t - self._cached_gbp_usd_time) < self._gbp_usd_ttl_seconds:
+            return self._cached_gbp_usd
         try:
             fx = yf.Ticker("GBPUSD=X").history(period="1d")
             if not fx.empty:
                 rate = float(fx["Close"].iloc[-1])
                 if rate > 0.5:
                     self._cached_gbp_usd = rate
+                    self._cached_gbp_usd_time = now_t
                     return rate
         except Exception:
             pass
+        self._cached_gbp_usd_time = now_t
         return self._cached_gbp_usd
 
     def _normalize_ticker(self, raw_ticker: str) -> Tuple[str, str, bool, str]:
@@ -156,6 +164,10 @@ class PortfolioSnapshotService:
         Generates the single authoritative portfolio snapshot.
         Enforces balance sheet invariants, zero-cache contamination, and records verification status.
         """
+        now_t = time.time()
+        if not force_refresh and self._last_snapshot is not None and (now_t - self._last_snapshot_time) < self._snapshot_ttl_seconds:
+            return self._last_snapshot
+
         now_dt = datetime.now(timezone.utc)
         now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
         report_date = now_dt.strftime("%Y-%m-%d")
@@ -382,8 +394,8 @@ class PortfolioSnapshotService:
 
         # Actual debited fees: query filled orders ledger from broker for explicit taxes/fees
         # (STAMP_DUTY_RESERVE_TAX, CURRENCY_CONVERSION_FEE)
-        total_sdrt_paid = self._cached_fees.get("sdrt", 43.38)
-        total_fx_paid = self._cached_fees.get("fx", 36.15)
+        total_sdrt_paid = self._cached_fees.get("sdrt", 0.0)
+        total_fx_paid = self._cached_fees.get("fx", 0.0)
         try:
             res_orders = broker._request_with_retry("GET", "equity/history/orders?limit=50")
             if res_orders.status_code == 200:
@@ -612,6 +624,7 @@ class PortfolioSnapshotService:
             pass
 
         self._last_snapshot = snapshot
+        self._last_snapshot_time = time.time()
         return snapshot
 
 

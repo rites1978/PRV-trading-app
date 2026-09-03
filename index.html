@@ -75,6 +75,16 @@
             color: var(--text-secondary);
             border-color: rgba(100, 116, 139, 0.3);
         }
+        .market-badge.pending {
+            background: rgba(100, 116, 139, 0.15);
+            color: var(--text-secondary);
+            border-color: rgba(100, 116, 139, 0.3);
+        }
+        .market-badge.warning {
+            background: rgba(245, 158, 11, 0.15);
+            color: #f59e0b;
+            border-color: rgba(245, 158, 11, 0.3);
+        }
         .dot {
             width: 6px;
             height: 6px;
@@ -471,9 +481,9 @@
                 <div id="marketReasonBadge" style="font-size: 11px; font-weight: 500; color: var(--text-muted); background: var(--bg-card); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border-color); display: none;">
                     <span id="marketReasonText">--</span>
                 </div>
-                <div id="marketBadge" class="market-badge closed">
+                <div id="marketBadge" class="market-badge pending">
                     <span class="dot"></span>
-                    <span id="marketText">MARKETS CLOSED</span>
+                    <span id="marketText">CHECKING MARKET SESSIONS...</span>
                 </div>
             </div>
         </div>
@@ -1134,8 +1144,8 @@
             return Number(val).toFixed(decimals);
         };
 
-        // 🛡️ Safe Fetch with AbortController Timeout (3.5s limit)
-        async function safeFetch(url, options = {}, timeoutMs = 3500) {
+        // 🛡️ Safe Fetch with AbortController Timeout (8s limit)
+        async function safeFetch(url, options = {}, timeoutMs = 8000) {
             const controller = new AbortController();
             const id = setTimeout(() => controller.abort(), timeoutMs);
             try {
@@ -1345,58 +1355,85 @@
                 }
 
                 // 4. Dynamic Market Hours, Holiday Calendars & Session State
-                if (fastData.market_status) {
-                    const mBadge = document.getElementById('marketBadge');
-                    const mText = document.getElementById('marketText');
-                    const mReasonBadge = document.getElementById('marketReasonBadge');
-                    const mReasonText = document.getElementById('marketReasonText');
+                const mBadge = document.getElementById('marketBadge');
+                const mText = document.getElementById('marketText');
+                const mReasonBadge = document.getElementById('marketReasonBadge');
+                const mReasonText = document.getElementById('marketReasonText');
 
-                    if (mBadge && mText) {
-                        const ms = fastData.market_status;
-                        const uk = ms.uk || {};
-                        const us = ms.us || {};
-                        const ukOpen = ms.uk_market_open;
-                        const usOpen = ms.us_market_open;
+                if (fastData.market_status && mBadge && mText) {
+                    const ms = fastData.market_status;
+                    const uk = ms.uk || {};
+                    const us = ms.us || {};
+                    const ukOpen = ms.uk_market_open;
+                    const usOpen = ms.us_market_open;
+                    const isStress = fastData.daily_objective && fastData.daily_objective.market_state === 'STRESS';
 
-                        if (ukOpen && usOpen) {
-                            mBadge.className = 'market-badge';
-                            mText.innerText = 'UK & US MARKETS OPEN';
-                            if (mReasonBadge && mReasonText) {
-                                mReasonBadge.style.display = 'inline-flex';
-                                mReasonText.innerHTML = '<span style="color: var(--accent-green)">LSE: OPEN</span> • <span style="color: var(--accent-green)">NYSE: OPEN</span>';
-                            }
-                        } else if (ukOpen && !usOpen) {
-                            mBadge.className = 'market-badge';
-                            mText.innerText = 'UK MARKET OPEN';
-                            if (mReasonBadge && mReasonText) {
-                                mReasonBadge.style.display = 'inline-flex';
-                                const usReason = us.holiday_name ? us.holiday_name : us.reason || 'Closed';
-                                mReasonText.innerHTML = `<span style="color: var(--accent-green)">LSE: OPEN</span> • <span style="color: var(--text-secondary)">US CLOSED (Reason: ${usReason})</span>`;
-                            }
-                        } else if (!ukOpen && usOpen) {
-                            mBadge.className = 'market-badge';
-                            mText.innerText = 'US MARKET OPEN';
-                            if (mReasonBadge && mReasonText) {
-                                mReasonBadge.style.display = 'inline-flex';
-                                const ukReason = uk.holiday_name ? uk.holiday_name : uk.reason || 'Closed';
-                                mReasonText.innerHTML = `<span style="color: var(--text-secondary)">UK CLOSED (Reason: ${ukReason})</span> • <span style="color: var(--accent-green)">NYSE: OPEN</span>`;
-                            }
-                        } else {
-                            mBadge.className = 'market-badge closed';
-                            mText.innerText = 'BOTH CLOSED';
-                            if (mReasonBadge && mReasonText) {
-                                mReasonBadge.style.display = 'inline-flex';
-                                const ukReason = uk.holiday_name ? uk.holiday_name : uk.reason || 'Closed';
-                                const usReason = us.holiday_name ? us.holiday_name : us.reason || 'Closed';
-                                mReasonText.innerHTML = `<span style="color: var(--text-secondary)">UK CLOSED (Reason: ${ukReason})</span> • <span style="color: var(--text-secondary)">US CLOSED (Reason: ${usReason})</span>`;
-                            }
+                    if (isStress) {
+                        mBadge.className = 'market-badge warning';
+                        mText.innerText = 'MARKET STRESS (HALTED)';
+                        if (mReasonBadge && mReasonText) {
+                            mReasonBadge.style.display = 'inline-flex';
+                            mReasonText.innerHTML = '<span style="color: #f59e0b">SYSTEMIC VOLATILITY CEILING BREACHED</span>';
                         }
+                    } else if (ukOpen && usOpen) {
+                        mBadge.className = 'market-badge';
+                        mText.innerText = 'UK & US MARKETS OPEN';
+                        if (mReasonBadge && mReasonText) {
+                            mReasonBadge.style.display = 'inline-flex';
+                            mReasonText.innerHTML = '<span style="color: var(--accent-green)">LSE: OPEN</span> • <span style="color: var(--accent-green)">NYSE: OPEN</span>';
+                        }
+                    } else if (ukOpen && !usOpen) {
+                        mBadge.className = 'market-badge';
+                        mText.innerText = 'UK MARKET OPEN';
+                        if (mReasonBadge && mReasonText) {
+                            mReasonBadge.style.display = 'inline-flex';
+                            const usReason = us.holiday_name ? us.holiday_name : us.reason || 'Closed';
+                            mReasonText.innerHTML = `<span style="color: var(--accent-green)">LSE: OPEN</span> • <span style="color: var(--text-secondary)">US CLOSED (${usReason})</span>`;
+                        }
+                    } else if (!ukOpen && usOpen) {
+                        mBadge.className = 'market-badge';
+                        mText.innerText = 'US MARKET OPEN';
+                        if (mReasonBadge && mReasonText) {
+                            mReasonBadge.style.display = 'inline-flex';
+                            const ukReason = uk.holiday_name ? uk.holiday_name : uk.reason || 'Closed';
+                            mReasonText.innerHTML = `<span style="color: var(--text-secondary)">UK CLOSED (${ukReason})</span> • <span style="color: var(--accent-green)">NYSE: OPEN</span>`;
+                        }
+                    } else {
+                        mBadge.className = 'market-badge closed';
+                        mText.innerText = 'BOTH CLOSED';
+                        if (mReasonBadge && mReasonText) {
+                            mReasonBadge.style.display = 'inline-flex';
+                            const ukReason = uk.holiday_name ? uk.holiday_name : uk.reason || 'Closed';
+                            const usReason = us.holiday_name ? us.holiday_name : us.reason || 'Closed';
+                            mReasonText.innerHTML = `<span style="color: var(--text-secondary)">UK CLOSED (${ukReason})</span> • <span style="color: var(--text-secondary)">US CLOSED (${usReason})</span>`;
+                        }
+                    }
+                } else if (mBadge && mText) {
+                    mBadge.className = 'market-badge warning';
+                    mText.innerText = 'MARKET STATUS UNAVAILABLE';
+                    if (mReasonBadge && mReasonText) {
+                        mReasonBadge.style.display = 'inline-flex';
+                        mReasonText.innerHTML = '<span style="color: #f59e0b">Session status feed temporarily unreachable</span>';
                     }
                 }
 
                 updateHeroBadge();
             } catch(e) {
                 console.warn("Fast summary poll skipped/error:", e);
+                const mBadge = document.getElementById('marketBadge');
+                const mText = document.getElementById('marketText');
+                if (mBadge && mText && (mText.innerText === 'CHECKING MARKET SESSIONS...' || mText.innerText === 'MARKETS CLOSED')) {
+                    mBadge.className = 'market-badge warning';
+                    mText.innerText = 'MARKET STATUS UNAVAILABLE';
+                }
+                const topSync = document.getElementById('topBrokerSyncTime');
+                if (topSync && topSync.innerText === '--') {
+                    topSync.innerText = 'RECONNECTING...';
+                }
+                const heroLbl = document.getElementById('heroPeriodLabel');
+                if (heroLbl && heroLbl.innerText === 'Loading...') {
+                    heroLbl.innerText = 'Awaiting Sync';
+                }
             } finally {
                 isSummaryInFlight = false;
             }

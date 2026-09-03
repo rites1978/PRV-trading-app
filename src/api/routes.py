@@ -120,7 +120,7 @@ def get_portfolio_summary_fast():
     starting_cap = float(active_cycle.get("starting_capital", 50000.0)) if active_cycle else 50000.0
 
     trades = db.get_trades(limit=500, cycle_id=cycle_id)
-    open_positions = broker.get_open_positions()
+    open_positions = broker.get_open_positions(force_refresh=False)
     total_unrealized = sum(float(p.get("ppl", 0.0)) for p in open_positions)
 
     from datetime import datetime, timezone, timedelta
@@ -204,7 +204,7 @@ def get_portfolio_summary_fast():
         },
         "active_cycle_id": cycle_id,
         "active_cycle_name": active_cycle.get("cycle_name") if active_cycle else "Active Cycle",
-        "last_broker_sync": getattr(broker, "_last_sync_timestamp", ""),
+        "last_broker_sync": getattr(broker, "_last_sync_timestamp", "") or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "market_status": market_hours.get_market_status(),
         "calibration_config": {
             "min_confidence_threshold": settings.MIN_CONFIDENCE_THRESHOLD,
