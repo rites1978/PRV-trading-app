@@ -155,11 +155,15 @@ class OrderRouter:
                 return False, reason, {"approved": False, "rejection_reasons": [f"{exchange}_MARKET_CLOSED"]}
 
         # 2. Permission Gates
-        if is_paper:
+        if settings.ACCOUNT_MODE == "PRACTICE":
             if not settings.PRACTICE_TRADING_ENABLED:
                 reason = "HOLD: PRACTICE_TRADING_ENABLED is False."
                 self._log_audit("HOLD_PRACTICE_DISABLED", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "PRACTICE_DISABLED")
                 return False, reason, {"approved": False, "rejection_reasons": ["PRACTICE_TRADING_DISABLED"]}
+            if not settings.PRACTICE_NEW_ENTRIES_ALLOWED and not bypass_market_hours:
+                reason = "HOLD AUDIT FREEZE: Practice new entries are disabled."
+                self._log_audit("HOLD_AUDIT_FREEZE", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "PRACTICE_ENTRIES_DISABLED")
+                return False, reason, {"approved": False, "rejection_reasons": ["PRACTICE_NEW_ENTRIES_DISABLED"]}
         else:
             if not (settings.REAL_MONEY_TRADING_ENABLED and settings.REAL_MONEY_NEW_ENTRIES_ALLOWED):
                 reason = "VETO REAL MONEY: Real-money trading is disabled."
