@@ -25,6 +25,11 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        html, body {
+            overflow-x: hidden;
+            max-width: 100vw;
+        }
+
         body {
             background-color: var(--bg-color);
             color: var(--text-primary);
@@ -40,6 +45,8 @@
             max-width: 1440px;
             margin-left: auto;
             margin-right: auto;
+            overflow-x: hidden;
+            box-sizing: border-box;
         }
 
         /* Top Header Bar */
@@ -48,6 +55,8 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
         }
         .header-title {
             font-size: 18px;
@@ -202,6 +211,41 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+        }
+
+        /* 🏛️ Capital Preservation & Daily Banking Panel */
+        .capital-preservation-panel {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 20px;
+            width: 100%;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            box-sizing: border-box;
+            clear: both;
+        }
+
+        .capital-telemetry-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+            width: 100%;
+        }
+
+        @media (min-width: 640px) {
+            .capital-telemetry-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        @media (min-width: 1024px) {
+            .capital-telemetry-grid {
+                grid-template-columns: repeat(8, 1fr);
+            }
         }
 
         /* Middle Section Layout */
@@ -380,9 +424,13 @@
         .vault-view {
             display: none;
             font-size: 12px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
         .vault-view.active {
             display: block;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
         table {
             width: 100%;
@@ -583,11 +631,11 @@
         </div>
 
         <!-- 🏛️ PRV Capital Capital Preservation, Daily Banking & Loss-Recovery State Machine -->
-        <div class="integrity-card" style="margin-bottom: 24px; border-color: rgba(245, 158, 11, 0.4);">
+        <div id="capitalPreservationPanel" class="capital-preservation-panel">
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                    <div style="font-size: 14px; font-weight: 700; color: #f59e0b; display: flex; align-items: center; gap: 6px;">
-                        <span>🏛️ PRV Capital Capital Preservation, Daily Banking & Loss-Recovery State Machine</span>
+                    <div style="font-size: 13px; font-weight: 700; color: #f59e0b; display: flex; align-items: center; gap: 6px;">
+                        <span>🏛️ PRV Capital Preservation & Daily Banking</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                         <span style="font-size: 11px; color: var(--text-muted);">Cap:</span>
@@ -624,7 +672,7 @@
                 </div>
 
                 <!-- 3-Ledger Architecture & Telemetry Grid -->
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px;">
+                <div class="capital-telemetry-grid">
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
                         <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Reference Base</div>
                         <div style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">£50,000.00</div>
@@ -638,7 +686,7 @@
                         <div id="objBaseDeficit" style="font-weight: 700; font-size: 15px; color: #10b981; margin-top:2px;">£0.00</div>
                     </div>
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
-                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Banked Reserve (Practice)</div>
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Banked Reserve</div>
                         <div id="objTotalBanked" style="font-weight: 700; font-size: 15px; color: #eab308; margin-top:2px;">£0.00</div>
                     </div>
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
@@ -660,9 +708,9 @@
                 </div>
 
                 <!-- Isolated Ledgers & Performance Integrity -->
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--card-border); padding-top: 8px; flex-wrap: wrap; gap: 8px;">
-                    <span>Total Banked Profit: <strong id="objVaultTotal" style="color: #eab308;">£0.00</strong> | Capital Transfers: <strong id="objTransfersTotal" style="color: #38bdf8;">£0.00</strong> | Net Strategy Profit: <strong id="objStrategyNet" style="color: #10b981;">£0.00</strong></span>
-                    <span>Costs Today: <strong id="objTradingCosts" style="color: #f43f5e;">£0.00</strong> | Profit/£1 Cost: <strong id="objProfitPerCost" style="color: var(--text-secondary);">0.00x</strong> | Anti-Gambling: <strong style="color: #10b981;">ENFORCED</strong></span>
+                <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); border-top: 1px solid var(--card-border); padding-top: 8px; flex-wrap: wrap; gap: 6px; line-height: 1.4;">
+                    <div>Total Banked: <strong id="objVaultTotal" style="color: #eab308;">£0.00</strong> | Transfers: <strong id="objTransfersTotal" style="color: #38bdf8;">£0.00</strong> | Net Strategy: <strong id="objStrategyNet" style="color: #10b981;">£0.00</strong></div>
+                    <div>Costs Today: <strong id="objTradingCosts" style="color: #f43f5e;">£0.00</strong> | Profit/Cost: <strong id="objProfitPerCost" style="color: var(--text-secondary);">0.00x</strong> | Anti-Gambling: <strong style="color: #10b981;">ENFORCED</strong></div>
                 </div>
             </div>
         </div>
