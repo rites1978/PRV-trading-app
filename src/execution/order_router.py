@@ -18,6 +18,9 @@ from src.brokers.trading212 import broker
 from src.database.db import db
 from src.execution.cost_model import cost_model
 from src.execution.net_edge_gate import net_edge_gate
+from src.execution.order_state_machine import ManagedOrder, OrderState, portfolio_reservations
+from src.portfolio.portfolio_snapshot import portfolio_snapshot
+from src.data.market_hours import market_hours
 
 
 class OrderRouter:
@@ -126,7 +129,8 @@ class OrderRouter:
         ask_price: Optional[float] = None,
         instrument_type: str = "EQUITY",
         decision_price: Optional[float] = None,
-        bypass_market_hours: bool = False
+        bypass_market_hours: bool = False,
+        bypass_audit_freeze: bool = False
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Validates Net Edge Gate and executes entry order with hardened lifecycle and telemetry.
@@ -141,13 +145,34 @@ class OrderRouter:
         nominal_value = quantity * price
         dec_price = decision_price or price
 
+        # 1. Hard Closed-Market Gate: Disallow new regular-session entry orders while market is closed
+        # Applies to BOTH Practice (is_paper=True) and Live/Real Money (is_paper=False) unconditionally.
+        if not bypass_market_hours:
+            market_country = "UK" if is_uk else "US"
+            if not market_hours.is_asset_market_open(market_country):
+                reason = f"HOLD ORDER (MARKET CLOSED): {exchange} regular session is CLOSED. Practice and Live entries blocked until next regular market open."
+                self._log_audit("HOLD_CLOSED_MARKET", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "MARKET_CLOSED")
+                return False, reason, {"approved": False, "rejection_reasons": [f"{exchange}_MARKET_CLOSED"]}
+
+        # 2. Permission Gates
+        if is_paper:
+            if not settings.PRACTICE_TRADING_ENABLED:
+                reason = "HOLD: PRACTICE_TRADING_ENABLED is False."
+                self._log_audit("HOLD_PRACTICE_DISABLED", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "PRACTICE_DISABLED")
+                return False, reason, {"approved": False, "rejection_reasons": ["PRACTICE_TRADING_DISABLED"]}
+        else:
+            if not (settings.REAL_MONEY_TRADING_ENABLED and settings.REAL_MONEY_NEW_ENTRIES_ALLOWED):
+                reason = "VETO REAL MONEY: Real-money trading is disabled."
+                self._log_audit("VETO_REAL_MONEY", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "REAL_MONEY_DISABLED")
+                return False, reason, {"approved": False, "rejection_reasons": ["REAL_MONEY_TRADING_DISABLED"]}
+
         # Compute spread
         bid = bid_price or (price * 0.9997)
         ask = ask_price or (price * 1.0003)
         spread_bps = round(((ask - bid) / max(0.01, price)) * 10000.0, 1)
         spread_pct = (ask - bid) / max(0.01, price)
 
-        # 1. Hard Net Edge Gate Verification
+        # 3. Hard Net Edge Gate Verification
         gate_result = net_edge_gate.evaluate_candidate(
             symbol=symbol,
             entry_price=price,
@@ -179,16 +204,6 @@ class OrderRouter:
             self._log_audit("HOLD_CASH", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, 0, "INVALID_QUANTITY")
             return False, reason, gate_result
 
-        # 2. Hard Closed-Market Gate: Disallow new regular-session entry orders while market is closed
-        # Applies to BOTH Practice (is_paper=True) and Live/Real Money (is_paper=False) unconditionally.
-        if not bypass_market_hours:
-            from src.data.market_hours import market_hours
-            market_country = "UK" if is_uk else "US"
-            if not market_hours.is_asset_market_open(market_country):
-                reason = f"HOLD ORDER (MARKET CLOSED): {exchange} regular session is CLOSED. Practice and Live entries blocked until next regular market open."
-                self._log_audit("HOLD_CLOSED_MARKET", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "MARKET_CLOSED")
-                return False, reason, {"approved": False, "rejection_reasons": [f"{exchange}_MARKET_CLOSED"]}
-
         # 3. Execution Routing with Marketable Limit Control (10 bps offset ceiling)
         trade_id = f"PRV_{int(time.time() * 1000)}_{symbol}"
         trade_reason = f"Net Exp Return: +{gate_result['predicted_net_return_pct']:.2f}% | Net R:R: {gate_result['net_reward_risk']:.2f}x | Friction: £{gate_result['total_round_trip_cost_gbp']:.2f}"
@@ -196,12 +211,48 @@ class OrderRouter:
         limit_offset_pct = settings.MARKETABLE_LIMIT_SLIPPAGE_BPS / 10000.0 # 0.10% (10 bps)
         limit_price = round(price * (1.0 + limit_offset_pct), 4)
 
+        # Managed Order State Machine & Atomic Portfolio Reservation
+        managed_order = ManagedOrder(
+            symbol=symbol,
+            t212_ticker=t212_ticker,
+            side="BUY",
+            quantity=quantity,
+            price=price,
+            limit_price=limit_price,
+            target_price=target_price,
+            stop_loss_price=stop_loss_price,
+            exchange=exchange,
+            is_uk=is_uk
+        )
+        managed_order.transition_to(OrderState.SIGNAL_APPROVED, "Cleared Net Edge and Risk Gates")
+
+        snap = portfolio_snapshot.hydrate_once()
+        avail_cash = 50000.0 if is_paper else snap["account_summary"]["free_cash"]
+        total_nav = 50000.0 if is_paper else snap["account_summary"]["total_nav"]
+        pos_list = [] if is_paper else snap["positions"]
+        res_ok, res_err = portfolio_reservations.reserve(
+            order=managed_order,
+            free_cash=avail_cash,
+            total_nav=total_nav,
+            sector=sector,
+            positions=pos_list
+        )
+        if not res_ok:
+            managed_order.transition_to(OrderState.SIGNAL_REJECTED, res_err)
+            reason = f"HOLD RESERVATION: {res_err}"
+            self._log_audit("HOLD_RESERVATION", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "RESERVATION_FAILED")
+            return False, reason, {"approved": False, "rejection_reasons": [res_err]}
+
+        managed_order.transition_to(OrderState.ORDER_READY, "Portfolio reservation committed")
+        managed_order.transition_to(OrderState.ORDER_SUBMITTED, f"Routing to {'Paper Simulator' if is_paper else 'Trading212'}")
+
         if not is_paper:
             # Live Order Execution
             res = broker.place_market_order(t212_ticker, quantity)
             latency_ms = round((time.time() - t0) * 1000.0, 2)
             
             if res.get("success"):
+                managed_order.transition_to(OrderState.FILLED, "Broker executed fill")
                 fill_price = price
                 broker_order_id = res["data"].get("id", trade_id)
                 slippage_bps = round(((fill_price - price) / max(0.001, price)) * 10000.0, 1)
@@ -271,14 +322,18 @@ class OrderRouter:
                     "mode": "LIVE"
                 })
 
+                portfolio_reservations.release(managed_order.client_order_id)
                 self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, "FILLED_LIVE")
                 return True, f"✅ Live Order Executed: {quantity} shares of {symbol} at £{fill_price:.2f} (Friction: £{gate_result['total_round_trip_cost_gbp']:.2f})", res["data"]
             else:
+                managed_order.transition_to(OrderState.FAILED, res.get("error", "Broker order rejected"))
+                portfolio_reservations.release(managed_order.client_order_id)
                 err_msg = res.get("error", "Unknown broker error")
                 self._log_audit("EXECUTION_FAILED", symbol, market_regime, agent_votes, confidence_score, err_msg, True, quantity, "BROKER_ERROR")
                 return False, f"❌ Broker order rejected: {err_msg}", {}
         else:
             # Paper execution with implementation shortfall simulation
+            managed_order.transition_to(OrderState.FILLED, "Simulated fill")
             latency_ms = round((time.time() - t0) * 1000.0, 2)
             shortfall = self.calculate_implementation_shortfall(
                 decision_price=dec_price,
@@ -322,7 +377,8 @@ class OrderRouter:
                 "chase_attempts": 0,
                 "cancellation_reason": None
             })
-            self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, "FILLED_PAPER")
+            portfolio_reservations.release(managed_order.client_order_id)
+            self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, "SIMULATED_FILL")
             return True, f"🧪 [PAPER BUY] Simulated {quantity} shares of {symbol} at £{price:.2f}", {"id": trade_id}
 
     def route_exit_order(

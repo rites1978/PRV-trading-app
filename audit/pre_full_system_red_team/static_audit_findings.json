@@ -1,0 +1,518 @@
+{
+  "swallowed_exceptions": [
+    {
+      "file": "trading212_client.py",
+      "line": 49,
+      "except_clause": "except Exception:",
+      "action": "return []"
+    },
+    {
+      "file": "trading212_client.py",
+      "line": 60,
+      "except_clause": "except Exception:",
+      "action": "return None"
+    },
+    {
+      "file": "trading212_client.py",
+      "line": 119,
+      "except_clause": "except Exception:",
+      "action": "return []"
+    },
+    {
+      "file": "trading212_client.py",
+      "line": 130,
+      "except_clause": "except Exception:",
+      "action": "return []"
+    },
+    {
+      "file": "market_screener.py",
+      "line": 41,
+      "except_clause": "except Exception as e:",
+      "action": "pass # Skip broken tickers silently during scan"
+    },
+    {
+      "file": "bot_runner.py",
+      "line": 113,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "tests/test_system.py",
+      "line": 27,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/research/news_sentiment.py",
+      "line": 55,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/cycles/comparison_engine.py",
+      "line": 242,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/cycles/cycle_manager.py",
+      "line": 25,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/database/db.py",
+      "line": 1759,
+      "except_clause": "except Exception:",
+      "action": "return None"
+    },
+    {
+      "file": "src/database/db.py",
+      "line": 1813,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/brokers/trading212.py",
+      "line": 56,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/brokers/trading212.py",
+      "line": 66,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/brokers/trading212.py",
+      "line": 160,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/brokers/trading212.py",
+      "line": 208,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/brokers/trading212.py",
+      "line": 223,
+      "except_clause": "except Exception:",
+      "action": "return None"
+    },
+    {
+      "file": "src/brokers/trading212.py",
+      "line": 234,
+      "except_clause": "except Exception:",
+      "action": "return []"
+    },
+    {
+      "file": "src/brokers/trading212.py",
+      "line": 372,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/brokers/trading212.py",
+      "line": 378,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/core/engine.py",
+      "line": 87,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/core/engine.py",
+      "line": 251,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/core/engine.py",
+      "line": 280,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/security/startup_security_gate.py",
+      "line": 134,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/agents/boardroom.py",
+      "line": 70,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/execution/order_router.py",
+      "line": 402,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/ai/scoring_engine.py",
+      "line": 189,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/portfolio/portfolio_snapshot.py",
+      "line": 48,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/portfolio/portfolio_snapshot.py",
+      "line": 103,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/portfolio/portfolio_snapshot.py",
+      "line": 147,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/portfolio/portfolio_snapshot.py",
+      "line": 520,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/monitoring/production_readiness_gate.py",
+      "line": 308,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/monitoring/broker_parity_monitor.py",
+      "line": 93,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/risk/risk_engine.py",
+      "line": 156,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/macro_impact_gate.py",
+      "line": 539,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/live_evidence_tracker.py",
+      "line": 135,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/live_evidence_tracker.py",
+      "line": 212,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/phase2_intelligence_layer.py",
+      "line": 262,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/practice_challenge_engine.py",
+      "line": 70,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/practice_challenge_engine.py",
+      "line": 86,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/shadow_portfolio_engine.py",
+      "line": 231,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/shadow_portfolio_engine.py",
+      "line": 309,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/shadow_portfolio_engine.py",
+      "line": 414,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    },
+    {
+      "file": "src/analytics/research_prediction_scoreboard.py",
+      "line": 34,
+      "except_clause": "except Exception:",
+      "action": "pass"
+    }
+  ],
+  "keyword_hits": {
+    "TODO": [],
+    "FIXME": [],
+    "HACK": [],
+    "NotImplemented": [],
+    "deprecated": [],
+    "hardcoded": [
+      {
+        "file": "src/analytics/shadow_dataset.py",
+        "line": 7,
+        "content": "Zero hardcoded summary metrics. Guaranteed mathematical reconciliation:"
+      }
+    ],
+    "fallback": [
+      {
+        "file": "db_manager.py",
+        "line": 71,
+        "content": "# In your telemetry initialization or default fallback:"
+      },
+      {
+        "file": "risk_engine.py",
+        "line": 18,
+        "content": "# Fallback to standard 5% capital allocation if data is unavailable"
+      },
+      {
+        "file": "tests/test_governance_tooling.py",
+        "line": 109,
+        "content": "def test_git_fallback_when_binary_missing(self):"
+      },
+      {
+        "file": "src/research/fundamental_alpha.py",
+        "line": 89,
+        "content": "fallback = {"
+      },
+      {
+        "file": "src/research/fundamental_alpha.py",
+        "line": 95,
+        "content": "return fallback"
+      },
+      {
+        "file": "src/research/news_sentiment.py",
+        "line": 58,
+        "content": "# 2. Fallback / Default Heuristic if headlines empty"
+      },
+      {
+        "file": "src/cycles/comparison_engine.py",
+        "line": 112,
+        "content": "# Default fallback to previous chronological cycle"
+      },
+      {
+        "file": "src/cycles/cycle_manager.py",
+        "line": 30,
+        "content": "\"\"\"Fetch active cycle or create a fallback default.\"\"\""
+      },
+      {
+        "file": "src/cycles/cycle_manager.py",
+        "line": 44,
+        "content": "\"feature_set\": \"Unified Ingress, Single Daily Executive Report, Zero-Fallback Broker Parity\","
+      },
+      {
+        "file": "src/brokers/trading212.py",
+        "line": 112,
+        "content": "Uses thread-safe read-through cache (2s TTL) and SQLite snapshot fallback."
+      },
+      {
+        "file": "src/brokers/trading212.py",
+        "line": 165,
+        "content": "# If rate limited (429) or non-200, use last verified snapshot fallback"
+      },
+      {
+        "file": "src/reporting/email_dispatcher.py",
+        "line": 3,
+        "content": "Supports SMTP delivery when configured in environment, with structured logging fallback."
+      },
+      {
+        "file": "src/reporting/email_dispatcher.py",
+        "line": 66,
+        "content": "# Clean fallback log when SMTP credentials are not configured in local environment"
+      },
+      {
+        "file": "src/portfolio/portfolio_snapshot.py",
+        "line": 40,
+        "content": "\"\"\"Fetches live GBP/USD exchange rate with cached fallback.\"\"\""
+      },
+      {
+        "file": "src/portfolio/portfolio_snapshot.py",
+        "line": 138,
+        "content": "# Fallback to cached positions if broker returned empty during transient network glitch"
+      },
+      {
+        "file": "src/data/market_data.py",
+        "line": 14,
+        "content": "\"\"\"Fetch historical price series from Yahoo Finance with TTL in-memory caching and fallback.\"\"\""
+      },
+      {
+        "file": "src/data/market_data.py",
+        "line": 96,
+        "content": "\"\"\"Generate structured analytical market snapshot for a ticker with cache fallback.\"\"\""
+      },
+      {
+        "file": "src/data/market_data.py",
+        "line": 106,
+        "content": "# Fallback baseline snapshot for index/macro tickers like ^GSPC"
+      },
+      {
+        "file": "src/data/market_data.py",
+        "line": 107,
+        "content": "fallback_snap = {"
+      },
+      {
+        "file": "src/data/market_data.py",
+        "line": 131,
+        "content": "return fallback_snap"
+      },
+      {
+        "file": "src/regime/regime_service.py",
+        "line": 64,
+        "content": "# Fallback values if network down"
+      }
+    ],
+    "mock": [
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 11,
+        "content": "from unittest.mock import patch"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 46,
+        "content": "def test_practice_uk_closed_entry_denied(self, mock_is_open):"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 48,
+        "content": "mock_is_open.return_value = False"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 55,
+        "content": "def test_practice_us_closed_entry_denied(self, mock_is_open):"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 57,
+        "content": "mock_is_open.return_value = False"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 64,
+        "content": "def test_practice_uk_open_routing_permitted(self, mock_is_open):"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 66,
+        "content": "mock_is_open.return_value = True"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 72,
+        "content": "def test_practice_us_open_routing_permitted(self, mock_is_open):"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 74,
+        "content": "mock_is_open.return_value = True"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 80,
+        "content": "def test_live_closed_entry_denied(self, mock_is_open):"
+      },
+      {
+        "file": "tests/test_practice_market_hours_gate.py",
+        "line": 82,
+        "content": "mock_is_open.return_value = False"
+      },
+      {
+        "file": "src/reporting/email_dispatcher.py",
+        "line": 67,
+        "content": "print(f\"[Email Dispatcher] Mock sent daily report email to {self.recipient_email or 'executive@prvcapital.local'} (Subject: {subject})\")"
+      }
+    ],
+    "synthetic": [
+      {
+        "file": "tests/test_alpha_research.py",
+        "line": 27,
+        "content": "# 30 synthetic trade returns (60% wins @ +7.0%, 40% losses @ -2.5%)"
+      },
+      {
+        "file": "tests/test_alpha_research.py",
+        "line": 28,
+        "content": "synthetic_returns = np.array([0.07 if i % 10 < 6 else -0.025 for i in range(30)])"
+      },
+      {
+        "file": "tests/test_alpha_research.py",
+        "line": 29,
+        "content": "mc_results = validation_engine.run_monte_carlo_simulation(synthetic_returns, num_simulations=500)"
+      },
+      {
+        "file": "tests/test_portfolio_construction.py",
+        "line": 10,
+        "content": "# Create synthetic price series"
+      },
+      {
+        "file": "src/analytics/evidence_classification_engine.py",
+        "line": 191,
+        "content": "\"epistemic_notes\": \"Synthetic index weighting research accuracy, capital efficiency, and risk controls.\","
+      }
+    ],
+    "test data": [],
+    "August": [
+      {
+        "file": "src/data/exchange_calendar.py",
+        "line": 94,
+        "content": "# 5. Summer Bank Holiday (Last Monday in August)"
+      },
+      {
+        "file": "src/analytics/walk_forward_engine.py",
+        "line": 27,
+        "content": "# Window 3 (August 2026 Dataset)"
+      }
+    ],
+    "service_role": [
+      {
+        "file": "tests/test_database_security_and_rls.py",
+        "line": 24,
+        "content": "\"\"\"Test Migration 003 contains explicit RLS enable, force RLS, revoke anon, and service_role grants.\"\"\""
+      },
+      {
+        "file": "tests/test_database_security_and_rls.py",
+        "line": 46,
+        "content": "self.assertIn(\"GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;\", sql_content)"
+      },
+      {
+        "file": "tests/test_database_security_and_rls.py",
+        "line": 61,
+        "content": "self.assertIn(\"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;\", sql_content)"
+      },
+      {
+        "file": "src/security/startup_security_gate.py",
+        "line": 17,
+        "content": "- Acknowledges service_role bypasses RLS in PostgreSQL; isolates service_role strictly to server-side workers."
+      },
+      {
+        "file": "src/security/startup_security_gate.py",
+        "line": 62,
+        "content": "self.service_role_key = os.getenv(\"SUPABASE_SERVICE_ROLE_KEY\", \"\")"
+      }
+    ]
+  }
+}

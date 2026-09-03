@@ -133,6 +133,14 @@ class UniverseManager:
     def get_by_symbol(self, symbol: str) -> Dict[str, Any]:
         return next((item for item in self.universe if item["symbol"] == symbol), None)
 
+    def get_by_ticker(self, ticker: str) -> Dict[str, Any]:
+        """Lookup by t212_ticker, symbol, or yf_ticker."""
+        t = ticker.upper()
+        return next((
+            item for item in self.universe
+            if item["t212_ticker"].upper() == t or item["symbol"].upper() == t or item.get("yf_ticker", "").upper() == t
+        ), None)
+
     def filter_by_sector(self, sector: str) -> List[Dict[str, Any]]:
         return [item for item in self.universe if item["sector"].lower() == sector.lower()]
 

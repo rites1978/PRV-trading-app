@@ -43,7 +43,7 @@ class PRVQuantEngine:
             return
         
         self.is_running: bool = False
-        self.paper_mode: bool = getattr(settings, "DRY_RUN_PAPER_ONLY", False)
+        self.paper_mode: bool = (settings.ACCOUNT_MODE.upper() == "PRACTICE")
         self.scan_interval: int = settings.SCAN_INTERVAL_SECONDS
         self.notifier = TelegramNotifier()
         
@@ -284,152 +284,165 @@ class PRVQuantEngine:
         universe = universe_manager.get_all()
 
         def _evaluate_single_candidate(item):
-            symbol = item["symbol"]
-            yf_ticker = item["yf_ticker"]
-            t212_ticker = item["t212_ticker"]
-            sector = item["sector"]
-            is_foreign = (item["currency"] != "GBP")
-            is_uk = (item["country"] == "UK")
-            is_uk_pence = item.get("is_uk_pence", False)
+            symbol = item.get("symbol", "UNKNOWN")
+            try:
+                yf_ticker = item["yf_ticker"]
+                t212_ticker = item["t212_ticker"]
+                sector = item["sector"]
+                is_foreign = (item["currency"] != "GBP")
+                is_uk = (item["country"] == "UK")
+                is_uk_pence = item.get("is_uk_pence", False)
 
-            # Market Hours Gate: Only scan assets when their domestic exchange is active
-            if not market_hours.is_asset_market_open(item.get("country", "US")):
+                # Market Hours Gate: Only scan assets when their domestic exchange is active
+                if not market_hours.is_asset_market_open(item.get("country", "US")):
+                    return None
+
+                # Event Risk Blackout Gate
+                event_safe, event_reason, event_meta = event_risk_engine.evaluate_event_blackout(symbol, yf_ticker)
+                if not event_safe:
+                    return None
+
+                existing_pos = holding_map.get(t212_ticker)
+                current_holding_val = 0.0
+                if existing_pos and t212_ticker not in closed_trades:
+                    current_holding_val = float(existing_pos.get("quantity", 0)) * float(existing_pos.get("currentPrice", 0))
+
+                snapshot = market_data.get_market_snapshot(yf_ticker, is_uk_pence=is_uk_pence)
+                if not snapshot.get("success"):
+                    return None
+
+                price = snapshot["current_price"]
+                atr = snapshot["indicators"]["atr"]
+                df_asset = snapshot["dataframe"]
+
+                # Multi-Factor Sizing Multiplier (3% - 8%)
+                composite_alpha_score, alpha_breakdown = alpha_engine.compute_institutional_alpha(
+                    symbol=symbol,
+                    yf_ticker=yf_ticker,
+                    sector=sector,
+                    snapshot=snapshot,
+                    market_regime=market_regime,
+                    portfolio_exposure_pct=exposure_pct,
+                    cost_friction_pct=0.10
+                )
+
+                units, nominal_cost, sizing_meta = portfolio_constructor.calculate_optimal_position_size(
+                    symbol=symbol,
+                    price=price,
+                    atr=atr,
+                    df=df_asset,
+                    core_capital=core_capital,
+                    available_cash=available_cash,
+                    remaining_capacity=remaining_allowance,
+                    alpha_score=composite_alpha_score,
+                    current_holding_val=current_holding_val,
+                    active_positions_dfs=active_positions_dfs
+                )
+
+                if units <= 0 or nominal_cost < 50.0:
+                    return None
+
+                stop_loss_price = price * (1.0 - settings.DEFAULT_STOP_LOSS_PCT)
+                target_price = price * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT)
+                
+                # Spread-Aware Cost Model Evaluation
+                cost_eval_ok, cost_eval = cost_model.evaluate_net_edge(
+                    entry_price=price,
+                    target_price=target_price,
+                    stop_loss_price=stop_loss_price,
+                    nominal_value=nominal_cost,
+                    is_foreign=is_foreign,
+                    is_uk=is_uk
+                )
+
+                # Technical Entry Scoring
+                tech_confidence, tech_factors = ai_scoring.compute_composite_confidence(
+                    symbol=symbol,
+                    snapshot=snapshot,
+                    market_regime=market_regime,
+                    portfolio_exposure_pct=exposure_pct,
+                    cost_friction_pct=cost_eval.get("friction_breakdown", {}).get("friction_pct", 0.10)
+                )
+
+                # Exposure-Based Risk Validation
+                risk_approved, risk_reason = risk_engine.validate_exposure_order(
+                    symbol=symbol,
+                    t212_ticker=t212_ticker,
+                    sector=sector,
+                    order_cost=nominal_cost,
+                    core_capital=core_capital,
+                    available_cash=available_cash,
+                    current_positions=open_positions,
+                    remaining_regime_allowance=remaining_allowance
+                )
+
+                # Automated Pre-Trade Compliance & Integrity Guard
+                comp_ok, comp_reason, _ = integrity_guard.validate_pre_flight_compliance(
+                    symbol=symbol,
+                    t212_ticker=t212_ticker,
+                    order_cost_gbp=nominal_cost,
+                    current_nav_gbp=core_capital,
+                    current_drawdown_pct=daily_drawdown * 100.0
+                )
+                if not comp_ok:
+                    risk_approved = False
+                    risk_reason = comp_reason
+
+                # Boardroom Deliberation (Technical Entry Signal)
+                approved_by_boardroom, decision_data = boardroom.convene_boardroom(
+                    symbol=symbol,
+                    factors=tech_factors,
+                    technical_confidence=tech_confidence,
+                    market_regime=market_regime,
+                    risk_approved=risk_approved,
+                    cost_approved=cost_eval_ok
+                )
+
+                # Permanent Evidence Recording for Signal
+                evidence_recorder.record_signal({
+                    "symbol": symbol,
+                    "market_regime": market_regime,
+                    "technical_score": tech_confidence,
+                    "fundamental_score": alpha_breakdown.get("fundamental_score", 50.0),
+                    "sector_score": alpha_breakdown.get("sector_alpha_score", 50.0),
+                    "sentiment_score": alpha_breakdown.get("sentiment_score", 50.0),
+                    "composite_alpha": composite_alpha_score,
+                    "target_position_pct": sizing_meta.get("target_pct", 5.0),
+                    "reward_risk_ratio": cost_eval.get("net_reward_risk", 3.0),
+                    "status": "APPROVED" if approved_by_boardroom else "REJECTED",
+                    "rejection_reason": decision_data.get("reasoning", "") if not approved_by_boardroom else "Quorum Approved",
+                    "boardroom_votes": decision_data
+                })
+
+                return {
+                    "symbol": symbol,
+                    "t212_ticker": t212_ticker,
+                    "sector": sector,
+                    "confidence": tech_confidence,
+                    "alpha_score": composite_alpha_score,
+                    "reward_risk": cost_eval.get("net_reward_risk", 3.0),
+                    "price": price,
+                    "units": units,
+                    "cost": nominal_cost,
+                    "approved": approved_by_boardroom,
+                    "decision_data": decision_data,
+                    "cost_eval": cost_eval,
+                    "risk_approved": risk_approved,
+                    "sizing_meta": sizing_meta,
+                    "alpha_breakdown": alpha_breakdown
+                }
+            except Exception as e:
+                # Candidate Loop Isolation: Log error and safely skip candidate without terminating the scan
+                try:
+                    db.record_audit_event(
+                        event_type="CANDIDATE_SCAN_ISOLATION_ERROR",
+                        symbol=symbol,
+                        reason=f"Candidate isolation caught: {type(e).__name__}: {str(e)}",
+                        details={"error": str(e), "symbol": symbol}
+                    )
+                except Exception:
+                    pass
                 return None
-
-            # Event Risk Blackout Gate
-            event_safe, event_reason, event_meta = event_risk_engine.evaluate_event_blackout(symbol, yf_ticker)
-            if not event_safe:
-                return None
-
-            existing_pos = holding_map.get(t212_ticker)
-            current_holding_val = 0.0
-            if existing_pos and t212_ticker not in closed_trades:
-                current_holding_val = float(existing_pos.get("quantity", 0)) * float(existing_pos.get("currentPrice", 0))
-
-            snapshot = market_data.get_market_snapshot(yf_ticker, is_uk_pence=is_uk_pence)
-            if not snapshot.get("success"):
-                return None
-
-            price = snapshot["current_price"]
-            atr = snapshot["indicators"]["atr"]
-            df_asset = snapshot["dataframe"]
-
-            # Multi-Factor Sizing Multiplier (3% - 8%)
-            composite_alpha_score, alpha_breakdown = alpha_engine.compute_institutional_alpha(
-                symbol=symbol,
-                yf_ticker=yf_ticker,
-                sector=sector,
-                snapshot=snapshot,
-                market_regime=market_regime,
-                portfolio_exposure_pct=exposure_pct,
-                cost_friction_pct=0.10
-            )
-
-            units, nominal_cost, sizing_meta = portfolio_constructor.calculate_optimal_position_size(
-                symbol=symbol,
-                price=price,
-                atr=atr,
-                df=df_asset,
-                core_capital=core_capital,
-                available_cash=available_cash,
-                remaining_capacity=remaining_allowance,
-                alpha_score=composite_alpha_score,
-                current_holding_val=current_holding_val,
-                active_positions_dfs=active_positions_dfs
-            )
-
-            if units <= 0 or nominal_cost < 50.0:
-                return None
-
-            stop_loss_price = price * (1.0 - settings.DEFAULT_STOP_LOSS_PCT)
-            target_price = price * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT)
-            
-            # Spread-Aware Cost Model Evaluation
-            cost_eval_ok, cost_eval = cost_model.evaluate_net_edge(
-                entry_price=price,
-                target_price=target_price,
-                stop_loss_price=stop_loss_price,
-                nominal_value=nominal_cost,
-                is_foreign=is_foreign,
-                is_uk=is_uk
-            )
-
-            # Technical Entry Scoring
-            tech_confidence, tech_factors = ai_scoring.compute_composite_confidence(
-                symbol=symbol,
-                snapshot=snapshot,
-                market_regime=market_regime,
-                portfolio_exposure_pct=exposure_pct,
-                cost_friction_pct=cost_eval.get("friction_breakdown", {}).get("friction_pct", 0.10)
-            )
-
-            # Exposure-Based Risk Validation
-            risk_approved, risk_reason = risk_engine.validate_exposure_order(
-                symbol=symbol,
-                t212_ticker=t212_ticker,
-                sector=sector,
-                order_cost=nominal_cost,
-                core_capital=core_capital,
-                available_cash=available_cash,
-                current_positions=open_positions,
-                remaining_regime_allowance=remaining_allowance
-            )
-
-            # Automated Pre-Trade Compliance & Integrity Guard
-            comp_ok, comp_reason, _ = integrity_guard.validate_pre_flight_compliance(
-                symbol=symbol,
-                t212_ticker=t212_ticker,
-                order_cost_gbp=nominal_cost,
-                current_nav_gbp=core_capital,
-                current_drawdown_pct=daily_drawdown * 100.0
-            )
-            if not comp_ok:
-                risk_approved = False
-                risk_reason = comp_reason
-
-            # Boardroom Deliberation (Technical Entry Signal)
-            approved_by_boardroom, decision_data = boardroom.convene_boardroom(
-                symbol=symbol,
-                factors=tech_factors,
-                technical_confidence=tech_confidence,
-                market_regime=market_regime,
-                risk_approved=risk_approved,
-                cost_approved=cost_eval_ok
-            )
-
-            # Permanent Evidence Recording for Signal
-            evidence_recorder.record_signal({
-                "symbol": symbol,
-                "market_regime": market_regime,
-                "technical_score": tech_confidence,
-                "fundamental_score": alpha_breakdown.get("fundamental_score", 50.0),
-                "sector_score": alpha_breakdown.get("sector_alpha_score", 50.0),
-                "sentiment_score": alpha_breakdown.get("sentiment_score", 50.0),
-                "composite_alpha": composite_alpha_score,
-                "target_position_pct": sizing_meta.get("target_pct", 5.0),
-                "reward_risk_ratio": cost_eval.get("net_reward_risk", 3.0),
-                "status": "APPROVED" if approved_by_boardroom else "REJECTED",
-                "rejection_reason": decision_data.get("reasoning", "") if not approved_by_boardroom else "Quorum Approved",
-                "boardroom_votes": decision_data
-            })
-
-            return {
-                "symbol": symbol,
-                "t212_ticker": t212_ticker,
-                "sector": sector,
-                "confidence": tech_confidence,
-                "alpha_score": composite_alpha_score,
-                "reward_risk": cost_eval.get("net_reward_risk", 3.0),
-                "price": price,
-                "units": units,
-                "cost": nominal_cost,
-                "approved": approved_by_boardroom,
-                "decision_data": decision_data,
-                "cost_eval": cost_eval,
-                "risk_approved": risk_approved,
-                "sizing_meta": sizing_meta,
-                "alpha_breakdown": alpha_breakdown
-            }
 
         import gc
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -445,11 +458,14 @@ class PRVQuantEngine:
         # Check practice vs real-money entry permissions
         entries_allowed = (
             (settings.ACCOUNT_MODE == "PRACTICE" and settings.PRACTICE_TRADING_ENABLED and settings.PRACTICE_NEW_ENTRIES_ALLOWED)
-            or (settings.ACCOUNT_MODE == "LIVE" and settings.REAL_MONEY_TRADING_ENABLED and settings.NORMAL_LIVE_ENTRIES_ALLOWED)
+            or (settings.ACCOUNT_MODE == "LIVE" and settings.REAL_MONEY_TRADING_ENABLED and settings.REAL_MONEY_NEW_ENTRIES_ALLOWED)
         )
+        min_cash_floor = settings.STARTING_CAPITAL * (settings.REQUIRED_CASH_RESERVE_PCT / 100.0)
+        min_deployment_chunk = settings.STARTING_CAPITAL * (settings.MIN_POSITION_SIZE_PCT / 100.0)
+
         if entries_allowed:
             for cand in candidates:
-                if remaining_allowance <= 500.0 or available_cash <= 2500.0:
+                if remaining_allowance < min_deployment_chunk or (available_cash - cand["cost"]) < min_cash_floor:
                     break
 
                 if cand["approved"] and cand["units"] > 0:

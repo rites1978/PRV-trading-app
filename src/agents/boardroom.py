@@ -21,29 +21,38 @@ class BoardroomDeliberation:
         risk_approved: bool,
         cost_approved: bool
     ) -> Tuple[bool, Dict[str, Any]]:
-        # 1. Trend Agent Vote
-        trend_vote = "BUY" if factors.get("trend_strength", 50.0) >= 60.0 else ("SELL" if factors.get("trend_strength", 50.0) <= 35.0 else "HOLD")
-        
-        # 2. Momentum Agent Vote
-        momentum_vote = "BUY" if factors.get("momentum", 50.0) >= 55.0 or factors.get("relative_strength", 50.0) >= 55.0 else ("SELL" if factors.get("momentum", 50.0) <= 35.0 else "HOLD")
-        
-        # 3. Volatility Agent Vote
-        volatility_vote = "BUY" if factors.get("volatility_condition", 50.0) >= 50.0 else "HOLD"
-        
-        # 4. Liquidity & Cost Agent Vote
-        liquidity_vote = "BUY" if cost_approved else "HOLD"
-        
-        # 5. Risk Director Agent Vote (Holds Veto Power)
-        risk_vote = "BUY" if risk_approved else "VETO"
+        try:
+            # 1. Trend Agent Vote
+            trend_vote = "BUY" if factors.get("trend_strength", 50.0) >= 60.0 else ("SELL" if factors.get("trend_strength", 50.0) <= 35.0 else "HOLD")
+            
+            # 2. Momentum Agent Vote
+            momentum_vote = "BUY" if factors.get("momentum", 50.0) >= 55.0 or factors.get("relative_strength", 50.0) >= 55.0 else ("SELL" if factors.get("momentum", 50.0) <= 35.0 else "HOLD")
+            
+            # 3. Volatility Agent Vote
+            volatility_vote = "BUY" if factors.get("volatility_condition", 50.0) >= 50.0 else "HOLD"
+            
+            # 4. Liquidity & Cost Agent Vote
+            liquidity_vote = "BUY" if cost_approved else "HOLD"
+            
+            # 5. Risk Director Agent Vote (Holds Veto Power)
+            risk_vote = "BUY" if risk_approved else "VETO"
 
-        # Technical Entry Quorum (Preserves 100% of positive technical edge)
-        approved = bool(
-            technical_confidence >= settings.MIN_CONFIDENCE_THRESHOLD and
-            risk_approved and
-            cost_approved and
-            risk_vote == "BUY" and
-            (trend_vote == "BUY" or momentum_vote == "BUY" or volatility_vote == "BUY")
-        )
+            # Technical Entry Quorum (Preserves 100% of positive technical edge)
+            approved = bool(
+                technical_confidence >= settings.MIN_CONFIDENCE_THRESHOLD and
+                risk_approved and
+                cost_approved and
+                risk_vote == "BUY" and
+                (trend_vote == "BUY" or momentum_vote == "BUY" or volatility_vote == "BUY")
+            )
+        except Exception as e:
+            # Phase 16: Malformed inputs must fail closed -> HOLD CASH
+            return False, {
+                "symbol": symbol,
+                "approved": False,
+                "reasoning": f"FAIL_SAFE_HOLD_CASH: Deliberation error: {type(e).__name__}: {str(e)}",
+                "risk_agent_vote": "VETO"
+            }
 
         reasoning = (
             f"Boardroom Consensus: {'APPROVED' if approved else 'REJECTED'}. "

@@ -81,29 +81,31 @@ class Trading212Broker:
 
     def _request_with_retry(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        max_retries = 1
-        backoff = 0.5
+        max_retries = 3
+        base_backoff = 1.0
 
         for attempt in range(max_retries):
             self._rate_limit()
             try:
                 if method.upper() == "GET":
-                    res = requests.get(url, auth=self.auth, timeout=2.0, **kwargs)
+                    res = requests.get(url, auth=self.auth, timeout=3.0, **kwargs)
                 elif method.upper() == "POST":
-                    res = requests.post(url, auth=self.auth, timeout=2.0, **kwargs)
+                    res = requests.post(url, auth=self.auth, timeout=3.0, **kwargs)
                 elif method.upper() == "DELETE":
-                    res = requests.delete(url, auth=self.auth, timeout=2.0, **kwargs)
+                    res = requests.delete(url, auth=self.auth, timeout=3.0, **kwargs)
                 else:
                     raise ValueError(f"Unsupported HTTP method {method}")
 
                 if res.status_code == 429:
-                    time.sleep(backoff)
+                    retry_after = res.headers.get("Retry-After")
+                    sleep_time = float(retry_after) if retry_after else (base_backoff * (attempt + 1))
+                    time.sleep(sleep_time)
                     continue
                 return res
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise e
-                time.sleep(backoff)
+                time.sleep(base_backoff * (attempt + 1))
         return res
 
     def get_account_summary(self, force_refresh: bool = False) -> Dict[str, Any]:
@@ -118,6 +120,40 @@ class Trading212Broker:
                 return dict(self._cached_summary)
 
             try:
+                res = self._request_with_retry("GET", "equity/account/cash")
+                if res.status_code == 200:
+                    data = res.json()
+                    tot_val = float(data.get("total", 0.0))
+                    avail_cash = float(data.get("free", 0.0))
+                    free_cash = avail_cash
+                    invested = float(data.get("invested", 0.0))
+                    ppl = float(data.get("ppl", 0.0))
+                    result = float(data.get("result", 0.0))
+                    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+                    summary = {
+                        "success": True,
+                        "available_cash": avail_cash,
+                        "total_value": tot_val,
+                        "free_cash": free_cash,
+                        "invested": invested,
+                        "ppl": ppl,
+                        "result": result,
+                        "currency": "GBP",
+                        "raw": data,
+                        "sync_timestamp": now_str,
+                        "from_cache": False
+                    }
+
+                    self._cached_summary = summary
+                    self._cached_summary_time = now
+                    self._last_verified_nav = tot_val
+                    self._last_verified_cash = avail_cash
+                    self._last_verified_invested = invested
+                    self._last_sync_timestamp = now_str
+                    return dict(summary)
+
+                # Secondary try: equity/account/summary
                 res = self._request_with_retry("GET", "equity/account/summary")
                 if res.status_code == 200:
                     data = res.json()
@@ -133,41 +169,27 @@ class Trading212Broker:
                         "total_value": tot_val,
                         "free_cash": free_cash,
                         "invested": invested,
+                        "ppl": float(data.get("investments", {}).get("unrealizedProfitLoss", 0.0)),
+                        "result": float(data.get("investments", {}).get("realizedProfitLoss", 0.0)),
                         "currency": data.get("currency", "GBP"),
                         "raw": data,
                         "sync_timestamp": now_str,
                         "from_cache": False
                     }
 
-                    # Update internal tracking
                     self._cached_summary = summary
                     self._cached_summary_time = now
                     self._last_verified_nav = tot_val
                     self._last_verified_cash = avail_cash
                     self._last_verified_invested = invested
                     self._last_sync_timestamp = now_str
-
-                    # Record to persistent SQLite audit ledger
-                    try:
-                        db.record_portfolio_snapshot({
-                            "nav": tot_val,
-                            "cash": avail_cash,
-                            "invested": invested,
-                            "unrealized_pnl": float(data.get("investments", {}).get("unrealizedProfitLoss", 0.0)),
-                            "realized_pnl": float(data.get("investments", {}).get("realizedProfitLoss", 0.0)),
-                            "timestamp": now_str
-                        })
-                    except Exception:
-                        pass
-
                     return dict(summary)
 
-                # If rate limited (429) or non-200, use last verified snapshot fallback
                 if self._cached_summary:
                     cached = dict(self._cached_summary)
                     cached["from_cache"] = True
                     return cached
-                    
+
                 return {
                     "success": False,
                     "error": f"HTTP {res.status_code}: {res.text}",

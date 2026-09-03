@@ -17,17 +17,18 @@ class TradingSettings(BaseModel):
     # Environment, Account Mode & Practice Trading Controls
     ACCOUNT_MODE: str = "PRACTICE"
     PRACTICE_TRADING_ENABLED: bool = True
-    REAL_MONEY_TRADING_ENABLED: bool = False
-    
     PRACTICE_NEW_ENTRIES_ALLOWED: bool = True
-    PRACTICE_RISK_SCALING_ALLOWED: bool = True
-    
+    REAL_MONEY_TRADING_ENABLED: bool = False
     REAL_MONEY_NEW_ENTRIES_ALLOWED: bool = False
+    
+    # AUDIT GOVERNANCE ENFORCEMENT
+    PRACTICE_RISK_SCALING_ALLOWED: bool = False
     REAL_MONEY_RISK_SCALING_ALLOWED: bool = False
     NORMAL_PRACTICE_POSITION_SIZING_ACTIVE: bool = True
 
-    # 30-Day Practice Performance Challenge Metadata (FROZEN)
-    CHALLENGE_ACTIVE: bool = True
+    # Challenge Metadata - Archived as PRE_AUDIT_DIAGNOSTIC_PERIOD
+    CHALLENGE_STATUS: str = "PRE_AUDIT_DIAGNOSTIC_PERIOD"
+    CHALLENGE_ACTIVE: bool = False
     CHALLENGE_START_TIMESTAMP: str = "2026-09-02 00:27:00 UTC"
     CHALLENGE_END_TIMESTAMP: str = "2026-10-02 00:27:00 UTC"
     CHALLENGE_START_NAV: float = 50000.00
@@ -58,6 +59,7 @@ class TradingSettings(BaseModel):
     POSITION_HARD_TRIM_CAP_PCT: float = 15.0       # Mandatory hard trim ceiling for single position
     
     # Sector & Portfolio Risk
+    MAX_CONCURRENT_POSITIONS: int = 15      # Maximum simultaneous active positions in portfolio
     MAX_SECTOR_EXPOSURE_PCT: float = 0.30   # Max 30% exposure per sector
     MAX_DAILY_DRAWDOWN_PCT: float = 0.05    # 5% hard daily circuit breaker
     MAX_PORTFOLIO_VAR_BUDGET_PCT: float = 0.05 # Max 5% of Core Capital simultaneously at risk
