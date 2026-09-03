@@ -1,9 +1,12 @@
 import time
 import threading
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import pandas as pd
+
+logger = logging.getLogger("quant_engine")
 
 from src.config.settings import settings
 from src.database.db import db
@@ -61,6 +64,11 @@ class PRVQuantEngine:
     def start(self):
         if self.is_running:
             return
+        from src.core.single_instance_lock import single_instance_lock
+        if not single_instance_lock.acquire():
+            err_msg = "CRITICAL: Single-instance violation! Another PRV trading engine process is already running."
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
         self.is_running = True
         self._stop_event.clear()
         self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
@@ -107,6 +115,8 @@ class PRVQuantEngine:
             return
         self.is_running = False
         self._stop_event.set()
+        from src.core.single_instance_lock import single_instance_lock
+        single_instance_lock.release()
         self.notifier.notify_alert("PRV QUANT ENGINE STOPPED", "Autonomous trading halted.")
 
     def run_cycle(self) -> Dict[str, Any]:

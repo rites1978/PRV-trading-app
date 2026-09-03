@@ -1,0 +1,28 @@
+{
+  "classification": "PRE_CHALLENGE_OPERATIONAL_CONTAMINATION",
+  "incident_id": "INC-20260903-STALE-DAEMON",
+  "timestamp_utc": "2026-09-03T09:35:50Z",
+  "timestamp_bst": "2026-09-03T10:35:50+01:00",
+  "root_cause": {
+    "description": "A stale background uvicorn daemon (PID 67896) started prior to audit hardening remained active in memory. Upon the 10:35 BST London Stock Exchange market open, it scanned the portfolio, observed £50,000 unallocated cash, and initiated 4 UK equity entries before process termination.",
+    "affected_instruments": ["HSBAl_EQ", "AALl_EQ", "ULVRl_EQ", "VODl_EQ"],
+    "gross_trade_value_gbp": 11166.63,
+    "frictional_loss_gbp": 58.11,
+    "breakdown": {
+      "uk_stamp_duty_reserve_tax_gbp": 43.56,
+      "bid_ask_spread_friction_gbp": 14.55
+    }
+  },
+  "containment_actions": [
+    "Identified and forcefully terminated stale uvicorn PID 67896.",
+    "Liquidated all 4 unintended holdings back to 100% cash.",
+    "Verified 0 open positions and 0 open orders remaining.",
+    "Implemented OS-level POSIX flock SingleInstanceLock preventing concurrent engine processes.",
+    "Gated engine background execution in API routes behind explicit PRV_AUTORUN_ENGINE flag.",
+    "Disabled PRACTICE_NEW_ENTRIES_ALLOWED in settings until official baseline freeze."
+  ],
+  "accounting_ruling": {
+    "status": "EXCLUDED_FROM_OFFICIAL_CHALLENGE",
+    "rationale": "Event occurred during pre-certification staging prior to the official challenge baseline freeze. The official 30-day challenge commences strictly at £50,000.00 reference base."
+  }
+}

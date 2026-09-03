@@ -160,8 +160,8 @@ class OrderRouter:
                 reason = "HOLD: PRACTICE_TRADING_ENABLED is False."
                 self._log_audit("HOLD_PRACTICE_DISABLED", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "PRACTICE_DISABLED")
                 return False, reason, {"approved": False, "rejection_reasons": ["PRACTICE_TRADING_DISABLED"]}
-            if not settings.PRACTICE_NEW_ENTRIES_ALLOWED and not bypass_market_hours:
-                reason = "HOLD AUDIT FREEZE: Practice new entries are disabled."
+            if not settings.PRACTICE_NEW_ENTRIES_ALLOWED and not bypass_audit_freeze:
+                reason = "HOLD: PRACTICE_NEW_ENTRIES_ALLOWED is False. New entries blocked pending baseline certification."
                 self._log_audit("HOLD_AUDIT_FREEZE", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "PRACTICE_ENTRIES_DISABLED")
                 return False, reason, {"approved": False, "rejection_reasons": ["PRACTICE_NEW_ENTRIES_DISABLED"]}
         else:

@@ -20,6 +20,8 @@ backups/
 bot_logs.json
 bot_state.json
 trade_history.json
+*.lock
+data/*.lock
 
 # Test artifacts & reports
 .pytest_cache/

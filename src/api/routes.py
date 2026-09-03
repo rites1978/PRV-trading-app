@@ -28,9 +28,10 @@ app = FastAPI(
 
 @app.on_event("startup")
 def on_startup():
-    """Start background 60s broker snapshot refresh worker & autonomous quant engine on API boot."""
+    """Start background 60s broker snapshot refresh worker on API boot."""
     broker.start_background_sync(interval_seconds=60)
-    quant_engine.start()
+    if os.getenv("PRV_AUTORUN_ENGINE", "false").lower() == "true":
+        quant_engine.start()
 
 # Enable CORS for web and mobile clients
 app.add_middleware(
