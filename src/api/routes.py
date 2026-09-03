@@ -30,7 +30,7 @@ app = FastAPI(
 def on_startup():
     """Start background 60s broker snapshot refresh worker on API boot."""
     broker.start_background_sync(interval_seconds=60)
-    autorun = os.getenv("PRV_AUTORUN_ENGINE", "false").strip().lower() in ("true", "1", "yes")
+    autorun = os.getenv("PRV_AUTORUN_ENGINE", "true").strip().lower() in ("true", "1", "yes")
     if autorun:
         try:
             quant_engine.start()

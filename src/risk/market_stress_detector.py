@@ -69,13 +69,15 @@ class MarketStressDetector:
             spy = yf.Ticker("SPY").history(period="2d")
             if len(spy) >= 2:
                 last_ts = spy.index[-1]
-                # If US is open, check freshness (should not be older than 90 mins)
+                # If US is open, check freshness (must have today's bar)
+                from datetime import timedelta
                 now_utc = datetime.now(timezone.utc)
-                if is_us_open and hasattr(last_ts, "tz_convert"):
-                    age_mins = (now_utc - last_ts.tz_convert(timezone.utc)).total_seconds() / 60.0
-                    if age_mins > 90.0:
+                if is_us_open:
+                    bar_date = last_ts.date() if hasattr(last_ts, "date") else None
+                    today_ny = now_utc.astimezone(timezone(timedelta(hours=-4))).date()
+                    if bar_date and bar_date < today_ny:
                         metrics["data_fresh"] = False
-                        stress_reasons.append(f"STRESS_CAUTION: S&P benchmark feed is stale ({age_mins:.0f} mins old) during active US session.")
+                        stress_reasons.append(f"STRESS_CAUTION: S&P benchmark feed is stale (last bar {bar_date}) during active US session.")
 
                 prev_close = float(spy["Close"].iloc[-2])
                 curr_price = float(spy["Close"].iloc[-1])
