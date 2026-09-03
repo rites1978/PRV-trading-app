@@ -30,8 +30,13 @@ app = FastAPI(
 def on_startup():
     """Start background 60s broker snapshot refresh worker on API boot."""
     broker.start_background_sync(interval_seconds=60)
-    if os.getenv("PRV_AUTORUN_ENGINE", "false").lower() == "true":
-        quant_engine.start()
+    autorun = os.getenv("PRV_AUTORUN_ENGINE", "false").strip().lower() in ("true", "1", "yes")
+    is_render = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID") or os.getenv("RENDER_INSTANCE_ID"))
+    if autorun or is_render:
+        try:
+            quant_engine.start()
+        except Exception as e:
+            print(f"[Startup Engine Start Error] {e}")
 
 # Enable CORS for web and mobile clients
 app.add_middleware(

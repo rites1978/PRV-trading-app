@@ -899,11 +899,11 @@
                             Last Execution Decision
                         </div>
                         <div id="execDecisionBadge" class="exec-decision-badge no-trade">
-                            NO TRADE — SCAN COMPLETED SUCCESSFULLY
+                            AWAITING FIRST SCAN
                         </div>
                     </div>
                     <div id="execDecisionReason" style="font-size: 12px; color: #cbd5e1; margin-bottom: 8px; line-height: 1.4;">
-                        Awaiting scan cycle execution...
+                        Engine initialized; awaiting first scheduled scan cycle.
                     </div>
                     <!-- Rejection Category Badges -->
                     <div id="execRejectionBadges" style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
@@ -1733,6 +1733,9 @@
                         if (em.last_execution_error) {
                             decBadge.className = 'exec-decision-badge error';
                             decBadge.innerText = 'EXECUTION FAILURE';
+                        } else if (!em.scan_cycles_today || em.scan_cycles_today === 0) {
+                            decBadge.className = 'exec-decision-badge no-trade';
+                            decBadge.innerText = 'AWAITING FIRST SCAN';
                         } else if (em.final_approvals_last_cycle > 0) {
                             decBadge.className = 'exec-decision-badge executed';
                             decBadge.innerText = em.last_decision || 'TRADES EXECUTED';
@@ -1742,7 +1745,11 @@
                         }
                     }
                     if (decReason) {
-                        decReason.innerText = em.last_no_trade_reason || 'Scan cycle complete; no qualifying trade.';
+                        if (!em.scan_cycles_today || em.scan_cycles_today === 0) {
+                            decReason.innerText = em.last_no_trade_reason || 'Engine initialized; awaiting first scheduled scan cycle.';
+                        } else {
+                            decReason.innerText = em.last_no_trade_reason || 'Scan cycle complete; no qualifying trade.';
+                        }
                     }
 
                     // Rejection breakdown pills
