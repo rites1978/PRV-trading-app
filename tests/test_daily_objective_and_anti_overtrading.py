@@ -235,7 +235,8 @@ class TestDailyObjectiveAndAntiOvertrading(unittest.TestCase):
                 agent_votes={"agent": "BUY"},
                 risk_approved=True,
                 is_paper=True,
-                bypass_market_hours=True
+                bypass_market_hours=True,
+                bypass_audit_freeze=True
             )
             self.assertFalse(success)
             self.assertIn("PROFIT LOCK", router_msg)
@@ -288,7 +289,8 @@ class TestDailyObjectiveAndAntiOvertrading(unittest.TestCase):
                 agent_votes={"agent": "BUY"},
                 risk_approved=True,
                 is_paper=True,
-                bypass_market_hours=True
+                bypass_market_hours=True,
+                bypass_audit_freeze=True
             )
             self.assertFalse(success)
             self.assertIn("DAILY DOWNSIDE HALT", router_msg)
