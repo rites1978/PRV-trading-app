@@ -248,6 +248,126 @@
             }
         }
 
+        /* ⚙️ Autonomous Execution Monitor Panel */
+        .execution-monitor-panel {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 20px;
+            width: 100%;
+            display: block !important;
+            visibility: visible !important;
+            box-sizing: border-box;
+            transition: border-color 0.3s ease;
+        }
+        .execution-monitor-panel.status-green { border-color: rgba(16, 185, 129, 0.4); }
+        .execution-monitor-panel.status-amber { border-color: rgba(245, 158, 11, 0.5); }
+        .execution-monitor-panel.status-red   { border-color: rgba(244, 63, 94, 0.6); }
+
+        .status-badge-exec {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .status-badge-exec.green { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .status-badge-exec.amber { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+        .status-badge-exec.red   { background: rgba(244, 63, 94, 0.2); color: #f43f5e; }
+
+        .pulse-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: currentColor;
+            animation: pulse-dot-anim 2s infinite ease-in-out;
+        }
+        @keyframes pulse-dot-anim {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.35; transform: scale(0.85); }
+        }
+
+        .exec-metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+            width: 100%;
+        }
+        @media (min-width: 640px) {
+            .exec-metrics-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+        @media (min-width: 1024px) {
+            .exec-metrics-grid {
+                grid-template-columns: repeat(8, 1fr);
+            }
+        }
+
+        .exec-metric-tile {
+            background: #1e293b;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        .exec-tile-label {
+            color: var(--text-muted);
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+        .exec-tile-val {
+            font-weight: 700;
+            font-size: 15px;
+            margin-top: 2px;
+        }
+        .exec-tile-val-small {
+            font-weight: 600;
+            font-size: 11px;
+            color: #cbd5e1;
+            margin-top: 4px;
+            word-break: break-all;
+        }
+
+        .exec-decision-box {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 12px;
+        }
+        .exec-decision-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .exec-decision-badge.no-trade {
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+        }
+        .exec-decision-badge.executed {
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        .exec-decision-badge.error {
+            background: rgba(244, 63, 94, 0.15);
+            color: #f43f5e;
+            border: 1px solid rgba(244, 63, 94, 0.3);
+        }
+
+        .rejection-pill {
+            background: #1e293b;
+            color: var(--text-secondary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+
         /* Middle Section Layout */
         .middle-row-grid {
             display: grid;
@@ -711,6 +831,92 @@
                 <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); border-top: 1px solid var(--card-border); padding-top: 8px; flex-wrap: wrap; gap: 6px; line-height: 1.4;">
                     <div>Total Banked: <strong id="objVaultTotal" style="color: #eab308;">£0.00</strong> | Transfers: <strong id="objTransfersTotal" style="color: #38bdf8;">£0.00</strong> | Net Strategy: <strong id="objStrategyNet" style="color: #10b981;">£0.00</strong></div>
                     <div>Costs Today: <strong id="objTradingCosts" style="color: #f43f5e;">£0.00</strong> | Profit/Cost: <strong id="objProfitPerCost" style="color: var(--text-secondary);">0.00x</strong> | Anti-Gambling: <strong style="color: #10b981;">ENFORCED</strong></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ⚙️ Autonomous Execution Monitor & Engine Health Panel -->
+        <div id="executionMonitorPanel" class="execution-monitor-panel status-green">
+            <div>
+                <!-- Top Status Bar -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span style="font-size: 14px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+                            <span>⚙️ Autonomous Execution Monitor</span>
+                        </span>
+                        <span id="execStatusBadge" class="status-badge-exec green">
+                            <span class="pulse-dot"></span>
+                            <span id="execStatusText">ENGINE HEALTHY</span>
+                        </span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap;">
+                        <span>Heartbeat: <strong id="execHeartbeatAge" style="color: #10b981;">0s ago</strong></span>
+                        <span>•</span>
+                        <span>Next Scan: <strong id="execNextScanEta" style="color: #38bdf8;">Due Imminent</strong></span>
+                    </div>
+                </div>
+
+                <!-- 8-Metric Telemetry Grid -->
+                <div class="exec-metrics-grid">
+                    <div class="exec-metric-tile">
+                        <div class="exec-tile-label">Engine State</div>
+                        <div id="execEngineState" class="exec-tile-val" style="color: #10b981;">RUNNING</div>
+                    </div>
+                    <div class="exec-metric-tile">
+                        <div class="exec-tile-label">Scans Today</div>
+                        <div id="execScansToday" class="exec-tile-val" style="color: #fff;">0</div>
+                    </div>
+                    <div class="exec-metric-tile">
+                        <div class="exec-tile-label">Securities Scanned</div>
+                        <div id="execSecuritiesScanned" class="exec-tile-val" style="color: #38bdf8;">0</div>
+                    </div>
+                    <div class="exec-metric-tile">
+                        <div class="exec-tile-label">Raw Candidates</div>
+                        <div id="execRawCandidates" class="exec-tile-val" style="color: #f59e0b;">0</div>
+                    </div>
+                    <div class="exec-metric-tile">
+                        <div class="exec-tile-label">Final Approvals</div>
+                        <div id="execFinalApprovals" class="exec-tile-val" style="color: #10b981;">0</div>
+                    </div>
+                    <div class="exec-metric-tile">
+                        <div class="exec-tile-label">Orders Submitted</div>
+                        <div id="execOrdersSubmitted" class="exec-tile-val" style="color: #fff;">0</div>
+                    </div>
+                    <div class="exec-metric-tile">
+                        <div class="exec-tile-label">Last Scan Started</div>
+                        <div id="execLastScanStarted" class="exec-tile-val-small">--</div>
+                    </div>
+                    <div class="exec-metric-tile">
+                        <div class="exec-tile-label">Last Scan Completed</div>
+                        <div id="execLastScanCompleted" class="exec-tile-val-small">--</div>
+                    </div>
+                </div>
+
+                <!-- Last Decision & Rejection Breakdown Box -->
+                <div id="execDecisionContainer" class="exec-decision-box">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                        <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">
+                            Last Execution Decision
+                        </div>
+                        <div id="execDecisionBadge" class="exec-decision-badge no-trade">
+                            NO TRADE — SCAN COMPLETED SUCCESSFULLY
+                        </div>
+                    </div>
+                    <div id="execDecisionReason" style="font-size: 12px; color: #cbd5e1; margin-bottom: 8px; line-height: 1.4;">
+                        Awaiting scan cycle execution...
+                    </div>
+                    <!-- Rejection Category Badges -->
+                    <div id="execRejectionBadges" style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
+                        <span class="rejection-pill" id="pillNetRr">0 Failed Net R:R</span>
+                        <span class="rejection-pill" id="pillTech">0 Failed Technical Gate</span>
+                        <span class="rejection-pill" id="pillCost">0 Failed Cost Gate</span>
+                        <span class="rejection-pill" id="pillRisk">0 Failed Risk Gate</span>
+                    </div>
+                    <!-- Top 5 Rejected Candidates Preview -->
+                    <div id="execTopRejectedContainer" style="display: none; border-top: 1px solid var(--card-border); padding-top: 8px; margin-top: 6px;">
+                        <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px;">Top Candidates & Rejection Rationales:</div>
+                        <div id="execTopRejectedList" style="display: flex; flex-direction: column; gap: 4px; font-size: 11px;"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1462,6 +1668,112 @@
                     if (mReasonBadge && mReasonText) {
                         mReasonBadge.style.display = 'inline-flex';
                         mReasonText.innerHTML = '<span style="color: #f59e0b">Session status feed temporarily unreachable</span>';
+                    }
+                }
+
+                // 5. ⚙️ Execution Monitor & Engine Health Hydration
+                if (fastData.execution_monitor) {
+                    const em = fastData.execution_monitor;
+                    const panel = document.getElementById('executionMonitorPanel');
+                    const badge = document.getElementById('execStatusBadge');
+                    const statusText = document.getElementById('execStatusText');
+                    const hbAge = document.getElementById('execHeartbeatAge');
+                    const nextScanEta = document.getElementById('execNextScanEta');
+                    const stateEl = document.getElementById('execEngineState');
+                    const scansTodayEl = document.getElementById('execScansToday');
+                    const secScannedEl = document.getElementById('execSecuritiesScanned');
+                    const rawCandEl = document.getElementById('execRawCandidates');
+                    const finalAppEl = document.getElementById('execFinalApprovals');
+                    const ordSubEl = document.getElementById('execOrdersSubmitted');
+                    const scanStartEl = document.getElementById('execLastScanStarted');
+                    const scanCompEl = document.getElementById('execLastScanCompleted');
+                    const decBadge = document.getElementById('execDecisionBadge');
+                    const decReason = document.getElementById('execDecisionReason');
+
+                    // Status border & badge
+                    if (panel) {
+                        panel.className = 'execution-monitor-panel status-' + (em.status_color || 'green').toLowerCase();
+                    }
+                    if (badge && statusText) {
+                        badge.className = 'status-badge-exec ' + (em.status_color || 'green').toLowerCase();
+                        statusText.innerText = em.status_text || 'ENGINE HEALTHY';
+                    }
+
+                    // Heartbeat Age & Color
+                    if (hbAge) {
+                        const age = em.heartbeat_age_sec !== undefined ? em.heartbeat_age_sec : 0;
+                        hbAge.innerText = age + 's ago';
+                        if (age > 180 || !em.engine_running) {
+                            hbAge.style.color = '#f43f5e';
+                        } else if (age > 60) {
+                            hbAge.style.color = '#f59e0b';
+                        } else {
+                            hbAge.style.color = '#10b981';
+                        }
+                    }
+
+                    if (nextScanEta) nextScanEta.innerText = em.next_scan_eta || '--';
+                    if (stateEl) {
+                        stateEl.innerText = em.engine_running ? 'RUNNING' : 'STOPPED';
+                        stateEl.style.color = em.engine_running ? '#10b981' : '#f43f5e';
+                    }
+                    if (scansTodayEl) scansTodayEl.innerText = em.scan_cycles_today !== undefined ? em.scan_cycles_today : 0;
+                    if (secScannedEl) secScannedEl.innerText = em.securities_scanned_last_cycle !== undefined ? em.securities_scanned_last_cycle : 0;
+                    if (rawCandEl) rawCandEl.innerText = em.raw_candidates_last_cycle !== undefined ? em.raw_candidates_last_cycle : 0;
+                    if (finalAppEl) {
+                        finalAppEl.innerText = em.final_approvals_last_cycle !== undefined ? em.final_approvals_last_cycle : 0;
+                        finalAppEl.style.color = (em.final_approvals_last_cycle > 0) ? '#10b981' : '#cbd5e1';
+                    }
+                    if (ordSubEl) ordSubEl.innerText = em.orders_submitted_today !== undefined ? em.orders_submitted_today : 0;
+                    if (scanStartEl) scanStartEl.innerText = em.last_scan_started || '--';
+                    if (scanCompEl) scanCompEl.innerText = em.last_scan_completed || '--';
+
+                    // Decision Box & Rejections
+                    if (decBadge) {
+                        if (em.last_execution_error) {
+                            decBadge.className = 'exec-decision-badge error';
+                            decBadge.innerText = 'EXECUTION FAILURE';
+                        } else if (em.final_approvals_last_cycle > 0) {
+                            decBadge.className = 'exec-decision-badge executed';
+                            decBadge.innerText = em.last_decision || 'TRADES EXECUTED';
+                        } else {
+                            decBadge.className = 'exec-decision-badge no-trade';
+                            decBadge.innerText = 'NO TRADE — SCAN COMPLETED SUCCESSFULLY';
+                        }
+                    }
+                    if (decReason) {
+                        decReason.innerText = em.last_no_trade_reason || 'Scan cycle complete; no qualifying trade.';
+                    }
+
+                    // Rejection breakdown pills
+                    const rb = em.rejection_breakdown || {};
+                    const pNetRr = document.getElementById('pillNetRr');
+                    const pTech = document.getElementById('pillTech');
+                    const pCost = document.getElementById('pillCost');
+                    const pRisk = document.getElementById('pillRisk');
+
+                    if (pNetRr) pNetRr.innerText = `${rb.failed_net_rr || 0} Failed Net R:R`;
+                    if (pTech) pTech.innerText = `${rb.failed_technical_gate || 0} Failed Technical Gate`;
+                    if (pCost) pCost.innerText = `${rb.failed_cost_gate || 0} Failed Cost Gate`;
+                    if (pRisk) pRisk.innerText = `${rb.failed_risk_gate || 0} Failed Risk Gate`;
+
+                    // Top rejected candidates preview list
+                    const topCont = document.getElementById('execTopRejectedContainer');
+                    const topList = document.getElementById('execTopRejectedList');
+                    if (topCont && topList && Array.isArray(em.top_rejected_candidates) && em.top_rejected_candidates.length > 0) {
+                        topCont.style.display = 'block';
+                        topList.innerHTML = em.top_rejected_candidates.map(c => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6); padding: 4px 8px; border-radius: 4px; gap: 8px;">
+                                <div style="display: flex; gap: 6px; align-items: center;">
+                                    <strong style="color: #38bdf8;">${c.symbol}</strong>
+                                    <span style="color: var(--text-muted); font-size: 10px;">Conviction: ${c.confidence}%</span>
+                                    <span style="color: var(--text-muted); font-size: 10px;">Net R:R: ${c.net_rr}x</span>
+                                </div>
+                                <div style="color: #f59e0b; font-size: 10px; text-align: right;">${c.reason}</div>
+                            </div>
+                        `).join('');
+                    } else if (topCont) {
+                        topCont.style.display = 'none';
                     }
                 }
 

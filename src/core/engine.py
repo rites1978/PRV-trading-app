@@ -56,9 +56,34 @@ class PRVQuantEngine:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self.last_heartbeat_timestamp: str = datetime.now(timezone.utc).isoformat()
+        self.last_heartbeat_time: float = time.time()
         self.last_cycle_time: float = time.time()
         self.missed_cycle_count: int = 0
         self.execution_health: str = "HEALTHY"
+
+        # ⚙️ Execution Monitor Observability Telemetry
+        self.last_scan_started_timestamp: Optional[str] = None
+        self.last_scan_completed_timestamp: Optional[str] = None
+        self.next_scan_timestamp: Optional[str] = None
+        self.next_scan_time: Optional[float] = None
+        self.scan_cycles_today: int = 0
+        self.current_scan_date: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self.securities_scanned_last_cycle: int = 0
+        self.raw_candidates_last_cycle: int = 0
+        self.final_approvals_last_cycle: int = 0
+        self.orders_submitted_today: int = 0
+        self.last_decision: str = "AWAITING_FIRST_SCAN"
+        self.last_no_trade_reason: str = "Engine initialized; awaiting first scheduled scan cycle."
+        self.rejection_breakdown: Dict[str, int] = {
+            "failed_net_rr": 0,
+            "failed_technical_gate": 0,
+            "failed_cost_gate": 0,
+            "failed_risk_gate": 0,
+            "failed_compliance": 0
+        }
+        self.top_rejected_candidates: List[Dict[str, Any]] = []
+        self.last_execution_error: Optional[str] = None
+        self._stale_heartbeat_alerted: bool = False
         self._initialized = True
 
     def start(self):
@@ -71,9 +96,11 @@ class PRVQuantEngine:
             raise RuntimeError(err_msg)
         self.is_running = True
         self._stop_event.clear()
+        self.last_heartbeat_time = time.time()
         self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
         self.last_cycle_time = time.time()
         self.execution_health = "HEALTHY"
+        self.last_execution_error = None
         self._recover_positions_on_restart()
         self.notifier.notify_alert(
             "PRV QUANT ENGINE STARTED",
@@ -95,6 +122,83 @@ class PRVQuantEngine:
         except Exception:
             pass
 
+    def get_execution_monitor_telemetry(self) -> Dict[str, Any]:
+        """Produce comprehensive live telemetry for dashboard Execution Monitor panel."""
+        now_time = time.time()
+        now_dt = datetime.now(timezone.utc)
+        today_str = now_dt.strftime("%Y-%m-%d")
+        if self.current_scan_date != today_str:
+            self.scan_cycles_today = 0
+            self.orders_submitted_today = 0
+            self.current_scan_date = today_str
+
+        heartbeat_age_sec = round(max(0.0, now_time - self.last_heartbeat_time), 1) if self.last_heartbeat_time > 0 else 999.0
+
+        if self.is_running:
+            if self.next_scan_time and self.next_scan_time > now_time:
+                remaining_sec = int(self.next_scan_time - now_time)
+                mins = remaining_sec // 60
+                secs = remaining_sec % 60
+                next_scan_eta = f"in {mins}m {secs:02d}s"
+            else:
+                next_scan_eta = "Due imminent"
+        else:
+            next_scan_eta = "Engine Stopped"
+
+        # Check for watchdog heartbeat alert
+        if self.is_running and heartbeat_age_sec > (self.scan_interval * 2) and not self._stale_heartbeat_alerted:
+            self._stale_heartbeat_alerted = True
+            try:
+                self.notifier.notify_alert("PRV HEARTBEAT STALE", f"Heartbeat age is {heartbeat_age_sec:.0f}s (> {self.scan_interval * 2}s threshold)")
+            except Exception:
+                pass
+        elif heartbeat_age_sec <= 60.0:
+            self._stale_heartbeat_alerted = False
+
+        if not self.is_running:
+            status_color = "RED"
+            status_text = "ENGINE STOPPED"
+            status_message = "Autonomous execution engine is stopped. Background scanning loop inactive."
+        elif self.last_execution_error:
+            status_color = "RED"
+            status_text = "EXECUTION PIPELINE FAILURE"
+            status_message = f"Loop Exception: {self.last_execution_error}"
+        elif heartbeat_age_sec > 180.0:
+            status_color = "RED"
+            status_text = "HEARTBEAT DEAD"
+            status_message = f"Heartbeat expired ({heartbeat_age_sec:.0f}s old). Execution thread stalled."
+        elif heartbeat_age_sec > 60.0:
+            status_color = "AMBER"
+            status_text = "HEARTBEAT / SCAN OVERDUE"
+            status_message = f"Heartbeat delayed ({heartbeat_age_sec:.0f}s old). Awaiting loop cycle completion."
+        else:
+            status_color = "GREEN"
+            status_text = "ENGINE HEALTHY"
+            status_message = "Autonomous scanning daemon active and responsive."
+
+        return {
+            "engine_running": self.is_running,
+            "status_color": status_color,
+            "status_text": status_text,
+            "status_message": status_message,
+            "engine_heartbeat": self.last_heartbeat_timestamp,
+            "heartbeat_age_sec": heartbeat_age_sec,
+            "last_scan_started": self.last_scan_started_timestamp or "N/A",
+            "last_scan_completed": self.last_scan_completed_timestamp or "N/A",
+            "next_scan": self.next_scan_timestamp or "N/A",
+            "next_scan_eta": next_scan_eta,
+            "scan_cycles_today": self.scan_cycles_today,
+            "securities_scanned_last_cycle": self.securities_scanned_last_cycle,
+            "raw_candidates_last_cycle": self.raw_candidates_last_cycle,
+            "final_approvals_last_cycle": self.final_approvals_last_cycle,
+            "orders_submitted_today": self.orders_submitted_today,
+            "last_decision": self.last_decision,
+            "last_no_trade_reason": self.last_no_trade_reason,
+            "rejection_breakdown": self.rejection_breakdown,
+            "top_rejected_candidates": self.top_rejected_candidates[:5],
+            "last_execution_error": self.last_execution_error
+        }
+
     def get_watchdog_status(self) -> Dict[str, Any]:
         """Watchdog health, heartbeat, and restart recovery status."""
         elapsed = time.time() - getattr(self, "last_cycle_time", time.time())
@@ -115,9 +219,14 @@ class PRVQuantEngine:
             return
         self.is_running = False
         self._stop_event.set()
+        self.last_heartbeat_time = time.time()
+        self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
         from src.core.single_instance_lock import single_instance_lock
         single_instance_lock.release()
-        self.notifier.notify_alert("PRV QUANT ENGINE STOPPED", "Autonomous trading halted.")
+        try:
+            self.notifier.notify_alert("PRV QUANT ENGINE STOPPED", "Autonomous trading halted.")
+        except Exception:
+            pass
 
     def run_cycle(self) -> Dict[str, Any]:
         """
@@ -128,8 +237,11 @@ class PRVQuantEngine:
         4. Progressive De-Risking Controls (Tier 1 @ 3%, Tier 2 @ 5%).
         """
         self.last_cycle_time = time.time()
+        self.last_heartbeat_time = time.time()
         self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
+        self.last_scan_started_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         self.execution_health = "HEALTHY"
+        self.last_execution_error = None
 
         # 1. Fetch Live Account Summary
         account = broker.get_account_summary()
@@ -521,6 +633,78 @@ class PRVQuantEngine:
             rejected_candidates=candidates
         )
 
+        # ⚙️ Execution Monitor Telemetry Aggregation
+        self.securities_scanned_last_cycle = len(universe)
+        self.raw_candidates_last_cycle = len(candidates)
+        
+        rejections = {
+            "failed_net_rr": 0,
+            "failed_technical_gate": 0,
+            "failed_cost_gate": 0,
+            "failed_risk_gate": 0,
+            "failed_compliance": 0
+        }
+        top_rejected = []
+        approved_candidates = []
+
+        for cand in candidates:
+            if cand.get("approved") and cand.get("units", 0) > 0 and cand.get("risk_approved", True):
+                approved_candidates.append(cand)
+            else:
+                reason = ""
+                c_eval = cand.get("cost_eval", {})
+                if not c_eval.get("approved", True):
+                    rejections["failed_cost_gate"] += 1
+                    reason = c_eval.get("rejection_reason", "Excess friction / low reward-risk")
+                elif cand.get("reward_risk", 3.0) < 2.0:
+                    rejections["failed_net_rr"] += 1
+                    reason = f"Net R:R {cand.get('reward_risk', 0.0):.1f}x < 2.0x threshold"
+                elif not cand.get("risk_approved", True):
+                    rejections["failed_risk_gate"] += 1
+                    reason = "Exposure limit or risk circuit veto"
+                elif cand.get("confidence", 0.0) < 65.0:
+                    rejections["failed_technical_gate"] += 1
+                    reason = f"Technical confidence {cand.get('confidence', 0.0):.1f}% < 65%"
+                else:
+                    dec_data = cand.get("decision_data", {})
+                    reason = dec_data.get("reasoning", "Boardroom quorum consensus rejected entry")
+                    rejections["failed_technical_gate"] += 1
+
+                top_rejected.append({
+                    "symbol": cand.get("symbol", "N/A"),
+                    "confidence": round(cand.get("confidence", 0.0), 1),
+                    "net_rr": round(cand.get("reward_risk", 0.0), 2),
+                    "price": cand.get("price", 0.0),
+                    "reason": reason
+                })
+
+        self.rejection_breakdown = rejections
+        self.top_rejected_candidates = top_rejected[:5]
+        self.final_approvals_last_cycle = len(approved_candidates)
+
+        if len(executed_trades) == 0:
+            self.last_decision = "NO TRADE — SCAN COMPLETED SUCCESSFULLY"
+            reasons_summary = []
+            if rejections["failed_net_rr"] > 0:
+                reasons_summary.append(f"{rejections['failed_net_rr']} failed net R:R")
+            if rejections["failed_technical_gate"] > 0:
+                reasons_summary.append(f"{rejections['failed_technical_gate']} failed technical gate")
+            if rejections["failed_cost_gate"] > 0:
+                reasons_summary.append(f"{rejections['failed_cost_gate']} failed cost gate")
+            if rejections["failed_risk_gate"] > 0:
+                reasons_summary.append(f"{rejections['failed_risk_gate']} failed risk gate")
+            summary_text = ", ".join(reasons_summary) if reasons_summary else "all candidates below edge thresholds"
+            self.last_no_trade_reason = f"{len(candidates)} candidates evaluated: {summary_text}."
+        else:
+            self.last_decision = f"TRADES EXECUTED: {', '.join(executed_trades)}"
+            self.last_no_trade_reason = f"{len(executed_trades)} orders dispatched to broker."
+            self.orders_submitted_today += len(executed_trades)
+
+        self.last_scan_completed_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        self.scan_cycles_today += 1
+        self.next_scan_time = time.time() + self.scan_interval
+        self.next_scan_timestamp = datetime.fromtimestamp(self.next_scan_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
         return {
             "success": True,
             "capital_state": capital_state,
@@ -530,6 +714,7 @@ class PRVQuantEngine:
             "executed_trades": executed_trades,
             "candidates_count": len(candidates),
             "idle_cash_audit": idle_cash_audit,
+            "execution_monitor": self.get_execution_monitor_telemetry(),
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
@@ -537,6 +722,8 @@ class PRVQuantEngine:
         last_open_state = None
         while not self._stop_event.is_set():
             try:
+                self.last_heartbeat_time = time.time()
+                self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
                 m_status = market_hours.get_market_status()
                 is_open = m_status.get("any_market_open", False)
                 
@@ -555,9 +742,16 @@ class PRVQuantEngine:
                 if is_open:
                     self.run_cycle()
                 else:
-                    pass
+                    self.next_scan_time = time.time() + self.scan_interval
+                    self.next_scan_timestamp = datetime.fromtimestamp(self.next_scan_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             except Exception as e:
+                err_msg = f"{type(e).__name__}: {str(e)}"
+                self.last_execution_error = err_msg
                 print(f"[QuantEngine Loop Error] {e}")
+                try:
+                    self.notifier.notify_alert("PRV SCAN LOOP FAILURE", err_msg)
+                except Exception:
+                    pass
             finally:
                 import gc
                 gc.collect()
@@ -565,6 +759,8 @@ class PRVQuantEngine:
             for _ in range(self.scan_interval):
                 if self._stop_event.is_set():
                     break
+                self.last_heartbeat_time = time.time()
+                self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
                 time.sleep(1)
 
 quant_engine = PRVQuantEngine()

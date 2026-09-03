@@ -99,6 +99,11 @@ def execute_cycle():
     result = quant_engine.run_cycle()
     return result
 
+@app.get("/api/engine/execution_monitor")
+def get_engine_execution_monitor():
+    """Retrieve comprehensive real-time execution monitor telemetry."""
+    return quant_engine.get_execution_monitor_telemetry()
+
 @app.get("/api/portfolio/summary_fast")
 def get_portfolio_summary_fast():
     """
@@ -206,6 +211,7 @@ def get_portfolio_summary_fast():
         "active_cycle_name": active_cycle.get("cycle_name") if active_cycle else "Active Cycle",
         "last_broker_sync": getattr(broker, "_last_sync_timestamp", "") or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "market_status": market_hours.get_market_status(),
+        "execution_monitor": quant_engine.get_execution_monitor_telemetry(),
         "calibration_config": {
             "min_confidence_threshold": settings.MIN_CONFIDENCE_THRESHOLD,
             "min_net_reward_risk_ratio": settings.MIN_NET_REWARD_RISK_RATIO,

@@ -233,6 +233,36 @@ class TelegramNotifier:
         )
         return self._dispatch(msg)
 
+    # 6. 🚨 Engine Stopped Alert
+    def notify_engine_stopped(self, reason: str = "Engine stopped") -> bool:
+        msg = (
+            f"🔴 *CRITICAL ALERT: TRADING ENGINE STOPPED*\n\n"
+            f"• *Status:* ENGINE HALTED\n"
+            f"• *Reason:* {reason}\n"
+            f"• *Action:* Autonomous scans suspended; manual restart required"
+        )
+        return self._dispatch(msg)
+
+    # 7. 🟠 Engine Heartbeat Stale Alert
+    def notify_engine_stale_heartbeat(self, details: str) -> bool:
+        msg = (
+            f"🟠 *WARNING: ENGINE HEARTBEAT OVERDUE*\n\n"
+            f"• *Status:* WATCHDOG ALERT\n"
+            f"• *Diagnostic:* {details}\n"
+            f"• *Action:* Verifying background loop connectivity"
+        )
+        return self._dispatch(msg)
+
+    # 8. 🚨 Scan Loop Failure
+    def notify_scan_loop_failure(self, error_details: str) -> bool:
+        msg = (
+            f"🚨 *CRITICAL ALERT: SCAN LOOP FAILURE*\n\n"
+            f"• *Status:* LOOP EXCEPTION\n"
+            f"• *Error:* {error_details}\n"
+            f"• *Action:* Scanning pipeline interrupted"
+        )
+        return self._dispatch(msg)
+
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # PROHIBITED ROUTINE NOTIFICATIONS (Permanently Muted)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -249,15 +279,22 @@ class TelegramNotifier:
         return False
 
     def notify_alert(self, title: str, details: str):
-        """Route only genuine critical alerts."""
-        if "DRAWDOWN" in title.upper() or "CIRCUIT" in title.upper():
+        """Route genuine critical alerts."""
+        title_upper = title.upper()
+        if "DRAWDOWN" in title_upper or "CIRCUIT" in title_upper:
             return self.notify_drawdown_breach(5.10, 5.00)
-        elif "PARITY" in title.upper() or "DESYNC" in title.upper():
+        elif "PARITY" in title_upper or "DESYNC" in title_upper:
             return self.notify_broker_parity_failure(100.0, 49821.67, 49721.67)
-        elif "AUTH" in title.upper() or "AUTHENTICATION" in title.upper():
+        elif "AUTH" in title_upper or "AUTHENTICATION" in title_upper:
             return self.notify_trading212_auth_failure(details)
-        elif "GATE" in title.upper() or "READINESS" in title.upper():
+        elif "GATE" in title_upper or "READINESS" in title_upper:
             return self.notify_readiness_gate_failure([details])
+        elif "STOP" in title_upper:
+            return self.notify_engine_stopped(details)
+        elif "STALE" in title_upper or "HEARTBEAT" in title_upper:
+            return self.notify_engine_stale_heartbeat(details)
+        elif "LOOP" in title_upper or "FAILURE" in title_upper or "SCAN" in title_upper:
+            return self.notify_scan_loop_failure(details)
         return False
 
 telegram_notifier = TelegramNotifier()

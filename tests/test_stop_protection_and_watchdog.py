@@ -30,11 +30,17 @@ class TestStopProtectionAndWatchdog(unittest.TestCase):
 
     def test_restart_recovery_hydrates_positions(self):
         """Verify position recovery re-arms trailing stop peaks for all active holdings."""
-        quant_engine._recover_positions_on_restart()
-        self.assertEqual(len(quant_engine.position_peaks), 11)
-        for sym in ["HSBAl_EQ", "V_US_EQ", "WFC_US_EQ", "JNJ_US_EQ", "ULVRl_EQ", "MRK_US_EQ", "NOW_US_EQ", "SLB_US_EQ", "GLENl_EQ", "TSLA_US_EQ", "AALl_EQ"]:
-            self.assertIn(sym, quant_engine.position_peaks)
-            self.assertGreater(quant_engine.position_peaks[sym], 0.0)
+        from unittest.mock import patch
+        mock_holdings = [
+            {"ticker": sym, "averagePrice": 100.0, "currentPrice": 105.0}
+            for sym in ["HSBAl_EQ", "V_US_EQ", "WFC_US_EQ", "JNJ_US_EQ", "ULVRl_EQ", "MRK_US_EQ", "NOW_US_EQ", "SLB_US_EQ", "GLENl_EQ", "TSLA_US_EQ", "AALl_EQ"]
+        ]
+        with patch.object(broker, "get_open_positions", return_value=mock_holdings):
+            quant_engine._recover_positions_on_restart()
+            self.assertEqual(len(quant_engine.position_peaks), 11)
+            for sym in ["HSBAl_EQ", "V_US_EQ", "WFC_US_EQ", "JNJ_US_EQ", "ULVRl_EQ", "MRK_US_EQ", "NOW_US_EQ", "SLB_US_EQ", "GLENl_EQ", "TSLA_US_EQ", "AALl_EQ"]:
+                self.assertIn(sym, quant_engine.position_peaks)
+                self.assertGreater(quant_engine.position_peaks[sym], 0.0)
 
     def test_broker_has_native_stop_order_methods(self):
         """Verify broker client implements place_stop_order, place_stop_limit_order, and cancel_order."""
