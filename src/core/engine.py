@@ -105,7 +105,7 @@ class PRVQuantEngine:
 
         # 1. Check open broker positions
         try:
-            open_pos = broker.get_open_positions() or []
+            open_pos = broker.get_open_positions(force_refresh=False) or []
             for p in open_pos:
                 p_tick = str(p.get("ticker", "")).upper()
                 p_sym = str(p.get("symbol", "")).upper()
@@ -116,7 +116,7 @@ class PRVQuantEngine:
 
         # 2. Check pending broker orders
         try:
-            open_ord = broker.get_open_orders() or []
+            open_ord = broker.get_open_orders(force_refresh=False) or []
             for o in open_ord:
                 o_tick = str(o.get("ticker", "")).upper()
                 o_sym = str(o.get("symbol", "")).upper()

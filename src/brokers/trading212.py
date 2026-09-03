@@ -32,6 +32,8 @@ class Trading212Broker:
         self._cached_cash: Dict[str, Any] = {"total": 50000.0, "free": 27444.33, "invested": 22499.05, "ppl": 0.0}
         self._cached_positions: List[Dict[str, Any]] = []
         self._cached_positions_time: float = 0.0
+        self._cached_orders: List[Dict[str, Any]] = []
+        self._cached_orders_time: float = 0.0
         self._cache_ttl_seconds: float = 2.0
         
         # Last verified live state
@@ -262,16 +264,21 @@ class Trading212Broker:
             except Exception:
                 return None
 
-    def get_open_orders(self) -> List[Dict[str, Any]]:
-        """Fetch all pending/open orders from Trading212."""
+    def get_open_orders(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """Fetch all pending/open orders from Trading212 with non-blocking cache."""
         with self._lock:
+            now = time.time()
+            if not force_refresh and self._cached_orders is not None and (now - self._cached_orders_time) < 15.0:
+                return list(self._cached_orders)
             try:
                 res = self._request_with_retry("GET", "equity/orders")
                 if res.status_code == 200:
-                    return res.json()
-                return []
+                    self._cached_orders = res.json()
+                    self._cached_orders_time = now
+                    return list(self._cached_orders)
+                return list(self._cached_orders or [])
             except Exception:
-                return []
+                return list(self._cached_orders or [])
 
     def verify_clean_reset_status(self) -> Dict[str, Any]:
         """
@@ -326,8 +333,10 @@ class Trading212Broker:
                 if res.status_code in [200, 201]:
                     self._cached_positions = None
                     self._cached_positions_time = 0.0
-                    self._cached_account = None
-                    self._cached_account_time = 0.0
+                    self._cached_summary = None
+                    self._cached_summary_time = 0.0
+                    self._cached_orders = None
+                    self._cached_orders_time = 0.0
                     return {"success": True, "data": res.json()}
                 return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
             except Exception as e:
