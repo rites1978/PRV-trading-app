@@ -49,7 +49,7 @@ class DailyObjectiveService:
         self.daily_hard_loss_limit_gbp: float = self.daily_emergency_loss_gbp
         self._cached_daily_status: Optional[Dict[str, Any]] = None
         self._cached_status_time: float = 0.0
-        self._cache_ttl_seconds: float = 3.0
+        self._cache_ttl_seconds: float = 30.0
 
         self._ensure_table_exists()
 

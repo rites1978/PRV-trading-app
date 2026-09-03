@@ -44,7 +44,7 @@ class PortfolioSnapshotService:
     def __init__(self):
         self._last_snapshot: Optional[Dict[str, Any]] = None
         self._last_snapshot_time: float = 0.0
-        self._snapshot_ttl_seconds: float = 5.0
+        self._snapshot_ttl_seconds: float = 30.0
         self._cached_gbp_usd: float = 1.3500
         self._cached_gbp_usd_time: float = 0.0
         self._gbp_usd_ttl_seconds: float = 300.0

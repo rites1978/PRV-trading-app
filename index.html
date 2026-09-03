@@ -1144,8 +1144,8 @@
             return Number(val).toFixed(decimals);
         };
 
-        // 🛡️ Safe Fetch with AbortController Timeout (8s limit)
-        async function safeFetch(url, options = {}, timeoutMs = 8000) {
+        // 🛡️ Safe Fetch with AbortController Timeout (15s limit)
+        async function safeFetch(url, options = {}, timeoutMs = 15000) {
             const controller = new AbortController();
             const id = setTimeout(() => controller.abort(), timeoutMs);
             try {
