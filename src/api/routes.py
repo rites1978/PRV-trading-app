@@ -178,7 +178,21 @@ def get_portfolio_summary_fast():
             "force_trade_to_reach_daily_target": obj_summary["force_trade_to_reach_daily_target"],
             "daily_target_achieved": obj_summary["daily_target_achieved"],
             "daily_downside_breached": obj_summary["daily_downside_breached"],
-            "gate_reason": obj_summary["gate_reason"]
+            "gate_reason": obj_summary["gate_reason"],
+            # Capital State Machine additions
+            "reference_base_capital_gbp": obj_summary.get("reference_base_capital_gbp", 50000.0),
+            "active_trading_equity_gbp": obj_summary.get("active_trading_equity_gbp", 50000.0),
+            "base_capital_deficit_gbp": obj_summary.get("base_capital_deficit_gbp", 0.0),
+            "in_recovery_mode": obj_summary.get("in_recovery_mode", False),
+            "current_capital_state": obj_summary.get("current_capital_state", "NORMAL"),
+            "banked_profit_reserve_gbp": obj_summary.get("banked_profit_reserve_gbp", 0.0),
+            "total_capital_transfers_gbp": obj_summary.get("total_capital_transfers_gbp", 0.0),
+            "net_strategy_profit_gbp": obj_summary.get("net_strategy_profit_gbp", 0.0),
+            "topup_permission_required": obj_summary.get("topup_permission_required", False),
+            "proposed_topup_amount_gbp": obj_summary.get("proposed_topup_amount_gbp", 0.0),
+            "sizing_multiplier": obj_summary.get("sizing_multiplier", 1.0),
+            "daily_net_unrealized_pnl_gbp": obj_summary.get("daily_net_unrealized_pnl_gbp", 0.0),
+            "daily_total_net_pnl_gbp": obj_summary.get("daily_total_net_pnl_gbp", 0.0)
         },
         "active_cycle_id": cycle_id,
         "active_cycle_name": active_cycle.get("cycle_name") if active_cycle else "Active Cycle",
@@ -725,6 +739,56 @@ def get_30day_challenge_evaluation():
     Computes 12 institutional performance metrics across the challenge.
     """
     return daily_objective_service.compute_30day_challenge_evaluation()
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# CAPITAL PRESERVATION, DAILY BANKING & RECOVERY STATE MACHINE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+from src.portfolio.capital_state_machine import capital_state_machine
+
+@app.get("/api/capital/state")
+def get_capital_state():
+    """
+    Returns authoritative three-ledger capital state machine telemetry:
+    - REFERENCE_BASE_CAPITAL (£50,000)
+    - ACTIVE_TRADING_EQUITY (Current deployable base)
+    - BANKED_PROFIT_RESERVE (Non-deployable gains)
+    - CAPITAL_TRANSFERS (Isolated from trading P&L)
+    - Current State (NORMAL, RECOVERY, TARGET_ACHIEVED, DAILY_LOSS_LOCK, MARKET_STRESS, USER_TOPUP_PENDING)
+    """
+    return capital_state_machine.get_current_active_state()
+
+@app.get("/api/capital/topup/status")
+def get_topup_status():
+    """Returns top-up permission prompt payload when capital deficit and banked reserve exist."""
+    state = capital_state_machine.get_current_active_state()
+    return {
+        "active_trading_equity_gbp": state["active_trading_equity_gbp"],
+        "base_capital_deficit_gbp": state["base_capital_deficit_gbp"],
+        "banked_profit_reserve_gbp": state["banked_profit_reserve_gbp"],
+        "proposed_topup_amount_gbp": state["proposed_topup_amount_gbp"],
+        "topup_permission_required": state["topup_permission_required"],
+        "current_state": state["current_state"]
+    }
+
+@app.post("/api/capital/topup/approve")
+def approve_topup():
+    """Explicit user approval to transfer funds from Banked Reserve to Active Trading Equity. NEVER counted as P&L."""
+    return capital_state_machine.approve_topup(user_name="PORTFOLIO_MANAGER")
+
+@app.post("/api/capital/topup/decline")
+def decline_topup():
+    """Explicit user decline to transfer funds. System remains in RECOVERY trading remaining active equity."""
+    return capital_state_machine.decline_topup(user_name="PORTFOLIO_MANAGER")
+
+@app.get("/api/capital/transfers")
+def get_capital_transfers():
+    """Returns historical ledger of approved capital transfers (isolated from trading P&L)."""
+    return {"transfers": db.get_capital_transfers(limit=100)}
+
+@app.get("/api/capital/transitions")
+def get_capital_state_transitions():
+    """Returns historical log of capital state machine transitions."""
+    return {"transitions": db.get_state_transitions(limit=100)}
 
 @app.get("/api/trade/journeys")
 def get_trade_journeys():

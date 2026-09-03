@@ -15,6 +15,32 @@ CREATE TABLE IF NOT EXISTS profit_vault (
     notes TEXT
 );
 
+CREATE TABLE IF NOT EXISTS capital_transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    transfer_id TEXT UNIQUE NOT NULL,
+    source TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    amount REAL NOT NULL,
+    approved_by TEXT NOT NULL,
+    active_equity_before REAL NOT NULL,
+    active_equity_after REAL NOT NULL,
+    vault_before REAL NOT NULL,
+    vault_after REAL NOT NULL,
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS capital_state_transitions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    previous_state TEXT NOT NULL,
+    new_state TEXT NOT NULL,
+    active_equity REAL NOT NULL,
+    deficit REAL NOT NULL,
+    vault_balance REAL NOT NULL,
+    trigger_reason TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trade_id TEXT UNIQUE,
@@ -926,6 +952,102 @@ class Database:
             cur.execute("SELECT cumulative_vault_total FROM profit_vault ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
             return float(row["cumulative_vault_total"]) if row else 0.0
+
+    def withdraw_profit_vault(self, amount: float, notes: str = "") -> float:
+        """Deducts an approved amount from the profit vault (e.g. for user-approved base top-up)."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT cumulative_vault_total FROM profit_vault ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            prev_total = row["cumulative_vault_total"] if row else 0.0
+            new_total = max(0.0, prev_total - amount)
+            cur.execute("""
+                INSERT INTO profit_vault (trade_id, symbol, realized_profit, cumulative_vault_total, notes)
+                VALUES (?, ?, ?, ?, ?)
+            """, ("CAPITAL_TRANSFER_WITHDRAWAL", "N/A", -amount, new_total, notes))
+            conn.commit()
+            return new_total
+
+    # --- Capital Transfers (Separated from Trading P&L) ---
+    def record_capital_transfer(
+        self,
+        transfer_id: str,
+        source: str,
+        destination: str,
+        amount: float,
+        approved_by: str,
+        active_equity_before: float,
+        active_equity_after: float,
+        vault_before: float,
+        vault_after: float,
+        notes: str = ""
+    ):
+        """Records an approved capital transfer. Crucially isolated from trading P&L."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO capital_transfers (
+                    transfer_id, source, destination, amount, approved_by,
+                    active_equity_before, active_equity_after, vault_before, vault_after, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                transfer_id, source, destination, amount, approved_by,
+                active_equity_before, active_equity_after, vault_before, vault_after, notes
+            ))
+            conn.commit()
+
+    def get_capital_transfers(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM capital_transfers ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_total_capital_transfers(self) -> float:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COALESCE(SUM(amount), 0.0) as total FROM capital_transfers WHERE destination = 'ACTIVE_TRADING_EQUITY'")
+            row = cur.fetchone()
+            return float(row["total"]) if row else 0.0
+
+    # --- Capital State Transitions ---
+    def record_state_transition(
+        self,
+        previous_state: str,
+        new_state: str,
+        active_equity: float,
+        deficit: float,
+        vault_balance: float,
+        trigger_reason: str
+    ):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO capital_state_transitions (
+                    previous_state, new_state, active_equity, deficit, vault_balance, trigger_reason
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (previous_state, new_state, active_equity, deficit, vault_balance, trigger_reason))
+            conn.commit()
+
+    def get_latest_state_transition(self) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM capital_state_transitions ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_state_transitions(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM capital_state_transitions ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_net_strategy_profit(self) -> float:
+        """Computes true net trading profit strictly from closed trades, never contaminated by capital transfers."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COALESCE(SUM(realized_pnl), 0.0) as net_pnl FROM trades WHERE action = 'SELL'")
+            row = cur.fetchone()
+            return round(float(row["net_pnl"]), 2) if row else 0.0
 
     # --- Trades ---
     def record_trade(self, trade: Dict[str, Any]):

@@ -41,6 +41,8 @@ class DailyObjectiveService:
         self.force_trade_to_reach_daily_target: bool = settings.FORCE_TRADE_TO_REACH_DAILY_TARGET
         self.daily_max_net_loss_pct: float = settings.DAILY_MAX_NET_LOSS_PCT
         self.daily_max_net_loss_gbp: float = settings.DAILY_MAX_NET_LOSS_GBP
+        self.daily_soft_loss_limit_gbp: float = getattr(settings, "DAILY_SOFT_LOSS_LIMIT_GBP", 250.0)
+        self.daily_hard_loss_limit_gbp: float = getattr(settings, "DAILY_HARD_LOSS_LIMIT_GBP", 500.0)
 
         self._ensure_table_exists()
 
@@ -122,67 +124,88 @@ class DailyObjectiveService:
         daily_net_realized = round(daily_net_realized, 2)
         turnover = round(turnover, 2)
 
-        # 2. Query cumulative banked profit
-        cumulative_vault_total = db.get_vault_balance()
-        bankable_today = max(0.0, daily_net_realized)
+        # 2. Query cumulative banked profit and capital state
+        from src.portfolio.capital_state_machine import capital_state_machine
+        from src.portfolio.portfolio_snapshot import portfolio_snapshot
+        
+        snap = portfolio_snapshot.get_authoritative_snapshot()
+        nav = snap["account_summary"]["total_nav"]
+        unrealized = snap["account_summary"].get("total_unrealized_pnl_gbp", 0.0)
 
-        # 3. Target progress
+        # Check market stress conditions
+        from src.risk.market_stress_detector import market_stress_detector
+        stress_active, stress_reason, _ = market_stress_detector.evaluate_market_stress()
+
+        c_state = capital_state_machine.evaluate_capital_state(
+            current_broker_nav=nav,
+            daily_realized_pnl=daily_net_realized,
+            daily_unrealized_pnl=unrealized,
+            market_stress_active=stress_active,
+            market_stress_reason=stress_reason
+        )
+
         target_progress_pct = round((daily_net_realized / max(0.01, self.daily_net_profit_target)) * 100.0, 2)
-        target_achieved = (daily_net_realized >= self.daily_net_profit_target)
+        target_achieved = c_state["daily_target_achieved"]
+        downside_breached = c_state["hard_loss_limit_breached"]
+        new_entries_allowed = c_state["new_discretionary_entries_allowed"]
+        gate_reason = c_state["state_reason"]
 
-        # 4. Downside Circuit Breaker
-        downside_breached = (daily_net_realized <= -self.daily_max_net_loss_gbp)
-
-        # 5. Permission Gate for New Discretionary Entries
-        # Anti-overtrading / profit lock: Once £250 is reached, NO NEW RISK
-        # Downside control: Once -£500 is reached, NO NEW RISK
-        if target_achieved:
-            new_entries_allowed = False
-            gate_reason = f"PROFIT LOCK: Daily target (£{self.daily_net_profit_target:,.2f}) achieved (+£{daily_net_realized:,.2f} net). No unnecessary risk permitted."
-        elif downside_breached:
-            new_entries_allowed = False
-            gate_reason = f"DAILY DOWNSIDE HALT: Daily net loss limit reached (-£{abs(daily_net_realized):,.2f} / £{self.daily_max_net_loss_gbp:,.2f}). New entries paused."
-        else:
-            new_entries_allowed = True
-            gate_reason = f"OPEN: Daily net progress: £{daily_net_realized:,.2f} / £{self.daily_net_profit_target:,.2f} ({target_progress_pct:.1f}%)."
-
-        # 6. Active Trading Bankroll Invariant (Strictly Capped at £50,000)
-        # Banked profit is NEVER added to deployable bankroll
-        deployable_bankroll = min(self.max_deployable_capital, self.base_trading_capital)
+        # In recovery mode: Bankable profit is £0 until £50k base restored
+        bankable_today = 0.0 if c_state["in_recovery_mode"] else max(0.0, daily_net_realized)
 
         # Net Profit per £1 Trading Cost
         profit_per_pound_cost = round(daily_net_realized / max(0.01, daily_total_costs), 2) if daily_total_costs > 0 else (daily_net_realized if daily_net_realized > 0 else 0.0)
 
         return {
             "date": today_str,
-            "daily_net_profit_objective_gbp": self.daily_net_profit_target,
-            "daily_net_return_objective_pct": self.daily_net_return_target_pct,
+            "reference_base_capital_gbp": c_state["reference_base_capital_gbp"],
             "base_trading_capital_gbp": self.base_trading_capital,
             "max_deployable_trading_capital_gbp": self.max_deployable_capital,
-            "deployable_bankroll_gbp": deployable_bankroll,
+            "max_normal_deployable_gbp": c_state["max_normal_deployable_gbp"],
+            "active_trading_equity_gbp": c_state["active_trading_equity_gbp"],
+            "deployable_bankroll_gbp": c_state["active_trading_equity_gbp"],
+            "base_capital_deficit_gbp": c_state["base_capital_deficit_gbp"],
+            "in_recovery_mode": c_state["in_recovery_mode"],
+            "current_capital_state": c_state["current_state"],
+            "banked_profit_reserve_gbp": c_state["banked_profit_reserve_gbp"],
+            "cumulative_banked_profit_gbp": c_state["banked_profit_reserve_gbp"],
+            "total_capital_transfers_gbp": c_state["total_capital_transfers_gbp"],
+            "net_strategy_profit_gbp": c_state["net_strategy_profit_gbp"],
             "banked_profit_is_non_deployable": self.banked_profit_is_non_deployable,
+            "automatic_bank_reserve_redeployment": False,
+            "topup_permission_required": c_state["topup_permission_required"],
+            "proposed_topup_amount_gbp": c_state["proposed_topup_amount_gbp"],
+            "daily_net_profit_objective_gbp": self.daily_net_profit_target,
+            "daily_net_return_objective_pct": self.daily_net_return_target_pct,
             "force_trade_to_reach_daily_target": self.force_trade_to_reach_daily_target,
             "daily_gross_realized_pnl_gbp": daily_gross_realized,
             "daily_total_costs_gbp": daily_total_costs,
             "daily_net_realized_pnl_gbp": daily_net_realized,
+            "daily_net_unrealized_pnl_gbp": c_state["daily_net_unrealized_pnl_gbp"],
+            "daily_total_net_pnl_gbp": c_state["daily_total_net_pnl_gbp"],
             "daily_target_progress_pct": target_progress_pct,
             "daily_target_achieved": target_achieved,
             "bankable_profit_today_gbp": bankable_today,
-            "cumulative_banked_profit_gbp": round(cumulative_vault_total, 2),
+            "daily_soft_loss_limit_gbp": self.daily_soft_loss_limit_gbp,
+            "daily_hard_loss_limit_gbp": self.daily_hard_loss_limit_gbp,
             "daily_max_net_loss_gbp": self.daily_max_net_loss_gbp,
             "daily_max_net_loss_pct": self.daily_max_net_loss_pct,
+            "soft_loss_limit_breached": c_state["soft_loss_limit_breached"],
+            "hard_loss_limit_breached": downside_breached,
             "daily_downside_breached": downside_breached,
             "new_discretionary_entries_allowed": new_entries_allowed,
+            "sizing_multiplier": c_state["sizing_multiplier"],
             "gate_reason": gate_reason,
             "turnover_gbp": turnover,
             "entries_today": entries_today,
             "exits_today": exits_today,
-            "net_profit_per_pound_cost": profit_per_pound_cost
+            "net_profit_per_pound_cost": profit_per_pound_cost,
+            "anti_gambling_safeguards": c_state["anti_gambling_safeguards"]
         }
 
     def are_new_discretionary_entries_allowed(self) -> Tuple[bool, str]:
         """
-        Check if new discretionary buying is permitted under daily target lock and downside limit.
+        Check if new discretionary buying is permitted under daily target lock, downside limit, or market stress.
         Risk exits, stop loss triggers, and capital preservation exits are ALWAYS permitted.
         """
         status = self.get_daily_status()
@@ -197,29 +220,35 @@ class DailyObjectiveService:
         total_costs: float = 0.0
     ) -> Dict[str, Any]:
         """
-        Processes a trade close:
-        If net realized profit > 0, records to banked profit vault.
-        Ensures banked profit is non-deployable and updates daily status.
+        Processes a trade close through CapitalStateMachine:
+        - In RECOVERY: BANKABLE_PROFIT = £0. Gains reduce deficit inside active equity.
+        - In NORMAL: Profit above £50,000 reference base is banked to reserve.
         """
-        vaulted = False
-        new_vault_total = db.get_vault_balance()
+        from src.portfolio.capital_state_machine import capital_state_machine
+        from src.portfolio.portfolio_snapshot import portfolio_snapshot
+        
+        snap = portfolio_snapshot.get_authoritative_snapshot()
+        nav = snap["account_summary"]["total_nav"]
+        banked_before = db.get_vault_balance()
+        current_active = max(0.0, nav - banked_before)
 
-        if net_realized_pnl > 0:
-            new_vault_total = db.deposit_profit_vault(
-                trade_id=trade_id,
-                symbol=symbol,
-                realized_profit=net_realized_pnl,
-                notes=f"PRV Capital Banked Net Profit (£{net_realized_pnl:+.2f}). Non-deployable."
-            )
-            vaulted = True
-
+        c_res = capital_state_machine.process_trade_close(
+            trade_id=trade_id,
+            symbol=symbol,
+            net_realized_pnl=net_realized_pnl,
+            current_active_equity=current_active
+        )
+        
         status = self.get_daily_status()
         return {
-            "vaulted": vaulted,
-            "banked_amount_gbp": net_realized_pnl if vaulted else 0.0,
-            "cumulative_banked_profit_gbp": new_vault_total,
+            "vaulted": (c_res["banked_amount_gbp"] > 0),
+            "banked_amount_gbp": c_res["banked_amount_gbp"],
+            "cumulative_banked_profit_gbp": c_res["banked_profit_reserve_gbp"],
+            "active_trading_equity_gbp": c_res["active_trading_equity_gbp"],
             "daily_net_realized_pnl_gbp": status["daily_net_realized_pnl_gbp"],
             "daily_target_achieved": status["daily_target_achieved"],
+            "current_capital_state": status["current_capital_state"],
+            "in_recovery_mode": status["in_recovery_mode"],
             "new_discretionary_entries_allowed": status["new_discretionary_entries_allowed"]
         }
 

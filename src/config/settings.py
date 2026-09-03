@@ -48,14 +48,23 @@ class TradingSettings(BaseModel):
 
     # 🏛️ Daily Net Profit Objective & Anti-Overtrading Mandate
     BASE_TRADING_CAPITAL: float = 50000.0
+    REFERENCE_BASE_CAPITAL: float = 50000.0
     MAX_DEPLOYABLE_TRADING_CAPITAL: float = 50000.0
+    MAX_NORMAL_DEPLOYABLE_CAPITAL: float = 50000.0
     DAILY_NET_PROFIT_OBJECTIVE: float = 250.0       # £250 net realized profit per day after all friction
     DAILY_NET_RETURN_OBJECTIVE_PCT: float = 0.50    # 0.50% daily net return objective
     BANKED_PROFIT_IS_NON_DEPLOYABLE: bool = True    # Banked profit ring-fenced, non-deployable
+    AUTOMATIC_BANK_RESERVE_REDEPLOYMENT: bool = False # Never auto-transfer banked profit without user permission
     FORCE_TRADE_TO_REACH_DAILY_TARGET: bool = False # Never force trades to hit quota
     PREFERRED_COST_TO_EXPECTED_GROSS_PROFIT_PCT: float = 25.0 # <= 25% preferred friction ceiling
-    DAILY_MAX_NET_LOSS_PCT: float = 1.0             # 1.0% daily circuit breaker
-    DAILY_MAX_NET_LOSS_GBP: float = 500.0           # £500 daily net loss limit (submitted for PM approval)
+    DAILY_SOFT_LOSS_LIMIT_PCT: float = 0.50         # 0.50% (£250) soft loss limit (halves sizing, raises bar)
+    DAILY_SOFT_LOSS_LIMIT_GBP: float = 250.0        # £250 daily soft loss limit
+    DAILY_HARD_LOSS_LIMIT_PCT: float = 1.00         # 1.00% (£500) hard circuit breaker (halts new entries)
+    DAILY_HARD_LOSS_LIMIT_GBP: float = 500.0        # £500 daily hard loss limit
+    DAILY_MAX_NET_LOSS_PCT: float = 1.0             # Compatibility alias for DAILY_HARD_LOSS_LIMIT_PCT
+    DAILY_MAX_NET_LOSS_GBP: float = 500.0           # Compatibility alias for DAILY_HARD_LOSS_LIMIT_GBP
+    MARKET_STRESS_INDEX_DRAWDOWN_PCT: float = 2.0   # 2.0% intraday benchmark drop triggers stress mode
+    MARKET_STRESS_SPREAD_THRESHOLD_BPS: float = 35.0 # 35 bps average spread triggers stress mode
     
     # Position Sizing & Weight Governance Hierarchy
     # 1. Entry Sizing: Max 8.0% initial allocation at execution
@@ -218,12 +227,16 @@ class TradingSettings(BaseModel):
             "finra_taf_per_share": self.FINRA_TAF_PER_SHARE,
             "finra_taf_max_fee": self.FINRA_TAF_MAX_FEE,
             "base_trading_capital_gbp": self.BASE_TRADING_CAPITAL,
+            "reference_base_capital_gbp": self.REFERENCE_BASE_CAPITAL,
             "max_deployable_trading_capital_gbp": self.MAX_DEPLOYABLE_TRADING_CAPITAL,
             "daily_net_profit_objective_gbp": self.DAILY_NET_PROFIT_OBJECTIVE,
             "daily_net_return_objective_pct": self.DAILY_NET_RETURN_OBJECTIVE_PCT,
             "banked_profit_is_non_deployable": self.BANKED_PROFIT_IS_NON_DEPLOYABLE,
+            "automatic_bank_reserve_redeployment": self.AUTOMATIC_BANK_RESERVE_REDEPLOYMENT,
             "force_trade_to_reach_daily_target": self.FORCE_TRADE_TO_REACH_DAILY_TARGET,
             "preferred_cost_to_expected_gross_profit_pct": self.PREFERRED_COST_TO_EXPECTED_GROSS_PROFIT_PCT,
+            "daily_soft_loss_limit_pct": self.DAILY_SOFT_LOSS_LIMIT_PCT,
+            "daily_hard_loss_limit_pct": self.DAILY_HARD_LOSS_LIMIT_PCT,
             "daily_max_net_loss_pct": self.DAILY_MAX_NET_LOSS_PCT,
             "daily_max_net_loss_gbp": self.DAILY_MAX_NET_LOSS_GBP
         }

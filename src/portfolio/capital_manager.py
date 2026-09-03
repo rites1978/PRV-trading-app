@@ -27,18 +27,34 @@ class CapitalManager:
         idle_core_cash = max(0.0, min(available_cash, core_capital - active_capital))
         
         utilization_pct = (active_capital / core_capital * 100.0) if core_capital > 0 else 0.0
+        base_deficit = max(0.0, round(settings.REFERENCE_BASE_CAPITAL - core_capital, 2))
+        in_recovery = (core_capital < settings.REFERENCE_BASE_CAPITAL)
+        total_transfers = db.get_total_capital_transfers()
+        net_strat_profit = db.get_net_strategy_profit()
+        topup_needed = (in_recovery and vault_balance > 0)
+        proposed_topup = round(min(base_deficit, vault_balance), 2) if topup_needed else 0.0
         
         return {
             "starting_capital": self.starting_capital,
+            "reference_base_capital": settings.REFERENCE_BASE_CAPITAL,
             "max_deployable_trading_capital": settings.MAX_DEPLOYABLE_TRADING_CAPITAL,
+            "max_normal_deployable_capital": settings.MAX_NORMAL_DEPLOYABLE_CAPITAL,
             "total_broker_nav": round(total_broker_nav, 2),
             "core_capital": round(core_capital, 2),
+            "active_trading_equity": round(core_capital, 2),
             "active_trading_bankroll": round(core_capital, 2),
+            "base_capital_deficit": base_deficit,
+            "in_recovery_mode": in_recovery,
             "active_capital": round(active_capital, 2),
             "idle_core_cash": round(idle_core_cash, 2),
             "profit_vault_balance": round(vault_balance, 2),
             "banked_profit": round(vault_balance, 2),
+            "banked_profit_reserve": round(vault_balance, 2),
+            "total_capital_transfers": round(total_transfers, 2),
+            "net_strategy_profit": net_strat_profit,
             "banked_profit_is_non_deployable": settings.BANKED_PROFIT_IS_NON_DEPLOYABLE,
+            "topup_permission_required": topup_needed,
+            "proposed_topup_amount": proposed_topup,
             "capital_utilization_pct": round(utilization_pct, 2)
         }
 

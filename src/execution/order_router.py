@@ -170,12 +170,28 @@ class OrderRouter:
                 self._log_audit("VETO_REAL_MONEY", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "REAL_MONEY_DISABLED")
                 return False, reason, {"approved": False, "rejection_reasons": ["REAL_MONEY_TRADING_DISABLED"]}
 
-        # 2b. Daily Profit Lock & Downside Limit Gate (Anti-Overtrading Protocol)
+        # 2b. Capital State Machine & Anti-Overtrading Gate
         from src.portfolio.daily_objective_service import daily_objective_service
-        entries_allowed, objective_reason = daily_objective_service.are_new_discretionary_entries_allowed()
+        daily_status = daily_objective_service.get_daily_status()
+        entries_allowed = daily_status["new_discretionary_entries_allowed"]
+        objective_reason = daily_status["gate_reason"]
+
         if not entries_allowed:
-            self._log_audit("HOLD_DAILY_OBJECTIVE_GATE", symbol, market_regime, agent_votes, confidence_score, objective_reason, risk_approved, quantity, "DAILY_GATE_HALT")
+            self._log_audit("HOLD_CAPITAL_STATE_GATE", symbol, market_regime, agent_votes, confidence_score, objective_reason, risk_approved, quantity, "CAPITAL_STATE_HALT")
             return False, f"HOLD: {objective_reason}", {"approved": False, "rejection_reasons": [objective_reason]}
+
+        # Anti-gambling and soft loss limit sizing adjustments
+        sizing_mult = daily_status.get("sizing_multiplier", 1.0)
+        if sizing_mult < 1.0:
+            quantity = max(1, int(quantity * sizing_mult))
+            nominal_value = quantity * price
+
+        # Soft loss limit conviction requirements (raise bar to 85+ confidence)
+        if daily_status.get("soft_loss_limit_breached", False):
+            if confidence_score < 85.0:
+                reason = f"HOLD: Daily soft loss threshold reached. Setup confidence ({confidence_score:.1f}) below required 85.0 threshold."
+                self._log_audit("HOLD_SOFT_LOSS_GATE", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "SOFT_LOSS_QUALITY_REJECT")
+                return False, reason, {"approved": False, "rejection_reasons": [reason]}
 
         # Compute spread
         bid = bid_price or (price * 0.9997)
