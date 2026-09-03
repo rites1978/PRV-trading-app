@@ -45,6 +45,17 @@ class TradingSettings(BaseModel):
     MAX_DEPLOYMENT_BEAR: float = 0.25       # 15%-30% (Target 25%) in bear markets
     MAX_DEPLOYMENT_NEUTRAL: float = 0.45    # 30%-50% (Target 45%) in neutral markets
     MAX_DEPLOYMENT_BULL: float = 0.55       # 45%-55% (Target 55%) in bull markets (capped by 45% cash floor)
+
+    # 🏛️ Daily Net Profit Objective & Anti-Overtrading Mandate
+    BASE_TRADING_CAPITAL: float = 50000.0
+    MAX_DEPLOYABLE_TRADING_CAPITAL: float = 50000.0
+    DAILY_NET_PROFIT_OBJECTIVE: float = 250.0       # £250 net realized profit per day after all friction
+    DAILY_NET_RETURN_OBJECTIVE_PCT: float = 0.50    # 0.50% daily net return objective
+    BANKED_PROFIT_IS_NON_DEPLOYABLE: bool = True    # Banked profit ring-fenced, non-deployable
+    FORCE_TRADE_TO_REACH_DAILY_TARGET: bool = False # Never force trades to hit quota
+    PREFERRED_COST_TO_EXPECTED_GROSS_PROFIT_PCT: float = 25.0 # <= 25% preferred friction ceiling
+    DAILY_MAX_NET_LOSS_PCT: float = 1.0             # 1.0% daily circuit breaker
+    DAILY_MAX_NET_LOSS_GBP: float = 500.0           # £500 daily net loss limit (submitted for PM approval)
     
     # Position Sizing & Weight Governance Hierarchy
     # 1. Entry Sizing: Max 8.0% initial allocation at execution
@@ -205,7 +216,16 @@ class TradingSettings(BaseModel):
             "ptm_levy_amount_gbp": self.PTM_LEVY_AMOUNT_GBP,
             "sec_section_31_rate": self.SEC_SECTION_31_RATE,
             "finra_taf_per_share": self.FINRA_TAF_PER_SHARE,
-            "finra_taf_max_fee": self.FINRA_TAF_MAX_FEE
+            "finra_taf_max_fee": self.FINRA_TAF_MAX_FEE,
+            "base_trading_capital_gbp": self.BASE_TRADING_CAPITAL,
+            "max_deployable_trading_capital_gbp": self.MAX_DEPLOYABLE_TRADING_CAPITAL,
+            "daily_net_profit_objective_gbp": self.DAILY_NET_PROFIT_OBJECTIVE,
+            "daily_net_return_objective_pct": self.DAILY_NET_RETURN_OBJECTIVE_PCT,
+            "banked_profit_is_non_deployable": self.BANKED_PROFIT_IS_NON_DEPLOYABLE,
+            "force_trade_to_reach_daily_target": self.FORCE_TRADE_TO_REACH_DAILY_TARGET,
+            "preferred_cost_to_expected_gross_profit_pct": self.PREFERRED_COST_TO_EXPECTED_GROSS_PROFIT_PCT,
+            "daily_max_net_loss_pct": self.DAILY_MAX_NET_LOSS_PCT,
+            "daily_max_net_loss_gbp": self.DAILY_MAX_NET_LOSS_GBP
         }
 
     def get_parameter_manifest_hash(self) -> str:

@@ -109,53 +109,72 @@ class NetEdgeGate:
         # G1: Net Expected Return must be positive
         if predicted_net_return_pct <= 0 or expected_net_profit <= 0:
             rejection_reasons.append(
-                f"Net expected return is negative/zero ({predicted_net_return_pct*100:.2f}%) after transaction costs of £{total_round_trip_cost:.2f}."
+                f"REJECT: Net expected return is negative/zero ({predicted_net_return_pct*100:.2f}%) after round-trip transaction costs of £{total_round_trip_cost:.2f}."
             )
 
         # G2: Net Reward-to-Risk >= 2.0x
         if net_reward_risk < self.min_net_reward_risk:
             rejection_reasons.append(
-                f"Net Reward-to-Risk ({net_reward_risk:.2f}x) is below minimum institutional threshold of {self.min_net_reward_risk:.1f}x."
+                f"REJECT: Net Reward-to-Risk ({net_reward_risk:.2f}x) is below minimum institutional threshold of {self.min_net_reward_risk:.1f}x."
             )
 
         # G3: Cost-to-Expected-Profit Ratio <= 30%
         if cost_to_profit_ratio > self.max_cost_to_profit_ratio:
             rejection_reasons.append(
-                f"Cost-to-Expected-Profit ratio ({cost_to_profit_ratio*100:.1f}%) exceeds maximum allowable ceiling of {self.max_cost_to_profit_ratio*100:.0f}%."
+                f"REJECT: Cost-to-Expected-Profit ratio ({cost_to_profit_ratio*100:.1f}%) exceeds maximum allowable ceiling of {self.max_cost_to_profit_ratio*100:.0f}%."
             )
 
         # G4: Contextual Spread Friction Ratio <= 15% of Expected Target Profit
         if spread_to_profit_ratio > self.max_spread_to_profit_ratio:
             rejection_reasons.append(
-                f"Bid-ask spread friction ({round_trip_spread_cost:.2f} / {spread_to_profit_ratio*100:.1f}% of profit) exceeds 15% profit consumption threshold on a {gross_return_pct*100:.2f}% target move."
+                f"REJECT: Bid-ask spread friction (£{round_trip_spread_cost:.2f} / {spread_to_profit_ratio*100:.1f}% of profit) exceeds 15% profit consumption threshold on a {gross_return_pct*100:.2f}% target move."
             )
 
         # G5: Emergency Liquidity Circuit Breaker (Max Spread 50 bps)
         if current_spread_pct > self.max_emergency_spread_pct:
             rejection_reasons.append(
-                f"Bid-ask spread ({current_spread_pct*10000:.1f} bps) exceeds emergency liquidity circuit breaker of {self.max_emergency_spread_pct*10000:.0f} bps."
+                f"REJECT: Bid-ask spread ({current_spread_pct*10000:.1f} bps) exceeds emergency liquidity circuit breaker of {self.max_emergency_spread_pct*10000:.0f} bps."
             )
 
         # G6: Fundamental Outlook >= Neutral
         if fundamental_score < 50.0:
             rejection_reasons.append(
-                f"Fundamental outlook score ({fundamental_score:.1f}/100) is below neutral threshold of 50.0."
+                f"REJECT: Fundamental outlook score ({fundamental_score:.1f}/100) is below neutral threshold of 50.0."
             )
 
         # G7: Technical Trend supportive
         if technical_score < 50.0:
             rejection_reasons.append(
-                f"Technical trend score ({technical_score:.1f}/100) is unsupportive (< 50.0)."
+                f"REJECT: Technical trend score ({technical_score:.1f}/100) is unsupportive (< 50.0)."
             )
 
         # G8: Sufficient Liquidity
         if avg_daily_volume_gbp < 500000.0:
             rejection_reasons.append(
-                f"Average daily liquidity (£{avg_daily_volume_gbp:,.0f}) is below minimum institutional requirement of £500,000."
+                f"REJECT: Average daily liquidity (£{avg_daily_volume_gbp:,.0f}) is below minimum institutional requirement of £500,000."
             )
 
         approved = (len(rejection_reasons) == 0)
         action = "BUY" if approved else "HOLD CASH"
+
+        entry_fric = friction_data.get("entry_friction", {})
+        exit_fric = friction_data.get("exit_friction", {})
+        expected_buy_cost = round(entry_fric.get("total_friction", 0.0), 2)
+        expected_sell_cost = round(exit_fric.get("total_friction", 0.0), 2)
+        expected_spread = round(friction_data["breakdown"]["spread_cost"], 2)
+        expected_slippage = round(friction_data["breakdown"]["slippage_cost"], 2)
+        expected_sdrt = round(entry_fric.get("stamp_duty", 0.0), 2)
+        expected_fx = round(friction_data["breakdown"]["fx_conversion_fees"], 2)
+        expected_regulatory = round(
+            friction_data["breakdown"]["us_regulatory_fees"] +
+            entry_fric.get("ptm_levy", 0.0) +
+            exit_fric.get("ptm_levy", 0.0),
+            2
+        )
+        other_friction = round(friction_data["breakdown"]["broker_fees"], 2)
+
+        preferred_ceiling_pct = settings.PREFERRED_COST_TO_EXPECTED_GROSS_PROFIT_PCT
+        preferred_cost_ok = (cost_to_profit_ratio <= (preferred_ceiling_pct / 100.0))
 
         return {
             "approved": approved,
@@ -173,10 +192,24 @@ class NetEdgeGate:
             "expected_net_downside_gbp": round(expected_net_downside, 2),
             "gross_reward_risk": round(gross_reward_risk, 2),
             "net_reward_risk": round(net_reward_risk, 2),
+            "min_net_reward_to_risk": self.min_net_reward_risk,
             "total_round_trip_cost_gbp": round(total_round_trip_cost, 2),
+            "expected_round_trip_cost_gbp": round(total_round_trip_cost, 2),
             "cost_to_profit_pct": round(cost_to_profit_ratio * 100.0, 1),
+            "max_cost_to_expected_gross_profit_pct": self.max_cost_to_profit_ratio * 100.0,
+            "preferred_cost_to_expected_gross_profit_pct": preferred_ceiling_pct,
+            "preferred_cost_satisfied": preferred_cost_ok,
             "spread_to_profit_pct": round(spread_to_profit_ratio * 100.0, 1),
             "current_spread_bps": round(current_spread_pct * 10000.0, 1),
+            # Mandatory Institutional Round-Trip Cost Breakdown
+            "expected_buy_cost": expected_buy_cost,
+            "expected_sell_cost": expected_sell_cost,
+            "expected_spread": expected_spread,
+            "expected_slippage": expected_slippage,
+            "expected_sdrt": expected_sdrt,
+            "expected_fx": expected_fx,
+            "expected_regulatory_fees": expected_regulatory,
+            "other_applicable_friction": other_friction,
             "friction_breakdown": friction_data["breakdown"],
             "decision": "EXECUTE TRADE" if approved else "DO NOTHING / HOLD CAPITAL PRESERVATION CASH"
         }

@@ -572,6 +572,60 @@
             </div>
         </div>
 
+        <!-- 🏛️ PRV Capital Daily Net Profit Objective & Anti-Overtrading Monitor -->
+        <div class="integrity-card" style="margin-bottom: 24px; border-color: rgba(245, 158, 11, 0.4);">
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <div style="font-size: 14px; font-weight: 700; color: #f59e0b; display: flex; align-items: center; gap: 6px;">
+                        <span>🏛️ PRV Capital Daily Net Profit Objective (£250) & Anti-Overtrading Telemetry</span>
+                    </div>
+                    <span id="objTargetStatusBadge" class="status-badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; font-weight: 700; font-size: 11px;">
+                        IN PROGRESS
+                    </span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px;">
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Daily Net Target</div>
+                        <div style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">£250.00</div>
+                    </div>
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Net Realized Today</div>
+                        <div id="objNetRealized" style="font-weight: 700; font-size: 15px; color: #10b981; margin-top:2px;">£0.00</div>
+                    </div>
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Target Progress</div>
+                        <div id="objTargetProgress" style="font-weight: 700; font-size: 15px; color: #38bdf8; margin-top:2px;">0.0%</div>
+                    </div>
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Trading Costs Today</div>
+                        <div id="objTradingCosts" style="font-weight: 700; font-size: 15px; color: #f43f5e; margin-top:2px;">£0.00</div>
+                    </div>
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Banked Today</div>
+                        <div id="objBankedToday" style="font-weight: 700; font-size: 15px; color: #10b981; margin-top:2px;">£0.00</div>
+                    </div>
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Total Banked Profit</div>
+                        <div id="objTotalBanked" style="font-weight: 700; font-size: 15px; color: #eab308; margin-top:2px;">£0.00</div>
+                    </div>
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Deployable Bankroll</div>
+                        <div id="objDeployableBankroll" style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">£50,000.00</div>
+                    </div>
+                    <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
+                        <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">New Entries Allowed</div>
+                        <div id="objEntriesAllowed" style="font-weight: 700; font-size: 15px; color: #10b981; margin-top:2px;">TRUE</div>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--card-border); padding-top: 8px; flex-wrap: wrap; gap: 8px;">
+                    <span>Turnover: <strong id="objTurnover" style="color: var(--text-secondary);">£0.00</strong> | Entries: <strong id="objEntries" style="color: var(--text-secondary);">0</strong> | Exits: <strong id="objExits" style="color: var(--text-secondary);">0</strong></span>
+                    <span>Net Profit / £1 Cost: <strong id="objProfitPerCost" style="color: var(--text-secondary);">0.00x</strong> | Force Trade: <strong style="color: #10b981;">FALSE</strong> | Non-Deployable Banking: <strong style="color: #10b981;">ENFORCED</strong></span>
+                </div>
+            </div>
+        </div>
+
         <!-- Middle Section: Chart Panel & Active Positions -->
         <div class="middle-row-grid">
             <!-- Clean Curve Chart Panel -->
@@ -1127,6 +1181,56 @@
                 fmtCard('cardWeeklyGbp', 'cardWeeklyPct', fastData.weekly_return);
                 fmtCard('cardMonthlyGbp', 'cardMonthlyPct', fastData.monthly_return);
                 fmtCard('cardTotalGbp', 'cardTotalPct', fastData.all_time_return);
+
+                // 2b. Daily Net Profit Objective & Banking Telemetry
+                if (fastData.daily_objective) {
+                    const obj = fastData.daily_objective;
+                    const netEl = document.getElementById('objNetRealized');
+                    const progEl = document.getElementById('objTargetProgress');
+                    const costEl = document.getElementById('objTradingCosts');
+                    const bankTodayEl = document.getElementById('objBankedToday');
+                    const totBankEl = document.getElementById('objTotalBanked');
+                    const bankrollEl = document.getElementById('objDeployableBankroll');
+                    const allowEl = document.getElementById('objEntriesAllowed');
+                    const badgeEl = document.getElementById('objTargetStatusBadge');
+                    const turnEl = document.getElementById('objTurnover');
+                    const entEl = document.getElementById('objEntries');
+                    const exEl = document.getElementById('objExits');
+                    const ppcEl = document.getElementById('objProfitPerCost');
+
+                    if (netEl) {
+                        netEl.innerText = (obj.net_realized_today_gbp >= 0 ? '+' : '') + '£' + Number(obj.net_realized_today_gbp).toFixed(2);
+                        netEl.style.color = obj.net_realized_today_gbp >= 0 ? '#10b981' : '#f43f5e';
+                    }
+                    if (progEl) progEl.innerText = obj.target_progress_pct + '%';
+                    if (costEl) costEl.innerText = '£' + Number(obj.trading_costs_today_gbp).toFixed(2);
+                    if (bankTodayEl) bankTodayEl.innerText = '£' + Number(obj.banked_today_gbp).toFixed(2);
+                    if (totBankEl) totBankEl.innerText = '£' + Number(obj.total_banked_profit_gbp).toFixed(2);
+                    if (bankrollEl) bankrollEl.innerText = '£' + Number(obj.deployable_bankroll_gbp).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    if (allowEl) {
+                        allowEl.innerText = obj.new_entries_allowed ? 'TRUE' : 'FALSE (LOCKED)';
+                        allowEl.style.color = obj.new_entries_allowed ? '#10b981' : '#eab308';
+                    }
+                    if (badgeEl) {
+                        if (obj.daily_target_achieved) {
+                            badgeEl.innerText = '🎯 TARGET BANKED';
+                            badgeEl.style.background = 'rgba(16, 185, 129, 0.2)';
+                            badgeEl.style.color = '#10b981';
+                        } else if (obj.daily_downside_breached) {
+                            badgeEl.innerText = '🛑 DOWNSIDE HALT';
+                            badgeEl.style.background = 'rgba(244, 63, 94, 0.2)';
+                            badgeEl.style.color = '#f43f5e';
+                        } else {
+                            badgeEl.innerText = 'IN PROGRESS';
+                            badgeEl.style.background = 'rgba(245, 158, 11, 0.2)';
+                            badgeEl.style.color = '#f59e0b';
+                        }
+                    }
+                    if (turnEl) turnEl.innerText = '£' + Number(obj.turnover_gbp).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    if (entEl) entEl.innerText = obj.entries_today;
+                    if (exEl) exEl.innerText = obj.exits_today;
+                    if (ppcEl) ppcEl.innerText = Number(obj.net_profit_per_pound_cost).toFixed(2) + 'x';
+                }
 
                 // 3. Telemetry: Last Broker Sync
                 if (fastData.last_broker_sync) {

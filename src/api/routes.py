@@ -149,6 +149,9 @@ def get_portfolio_summary_fast():
     all_time_pnl = round(total_nav - starting_cap, 2)
     all_time_pct = round((all_time_pnl / max(1.0, starting_cap)) * 100.0, 2) if starting_cap > 0 else 0.0
 
+    from src.portfolio.daily_objective_service import daily_objective_service
+    obj_summary = daily_objective_service.get_daily_status()
+
     return {
         "portfolio_value": round(total_nav, 2),
         "cash": round(cash, 2),
@@ -159,6 +162,24 @@ def get_portfolio_summary_fast():
         "weekly_return": { "gbp": weekly_pnl, "pct": weekly_pct },
         "monthly_return": { "gbp": monthly_pnl, "pct": monthly_pct },
         "all_time_return": { "gbp": all_time_pnl, "pct": all_time_pct },
+        "daily_objective": {
+            "daily_net_target_gbp": obj_summary["daily_net_profit_objective_gbp"],
+            "net_realized_today_gbp": obj_summary["daily_net_realized_pnl_gbp"],
+            "target_progress_pct": obj_summary["daily_target_progress_pct"],
+            "trading_costs_today_gbp": obj_summary["daily_total_costs_gbp"],
+            "banked_today_gbp": obj_summary["bankable_profit_today_gbp"],
+            "total_banked_profit_gbp": obj_summary["cumulative_banked_profit_gbp"],
+            "deployable_bankroll_gbp": obj_summary["deployable_bankroll_gbp"],
+            "new_entries_allowed": obj_summary["new_discretionary_entries_allowed"],
+            "net_profit_per_pound_cost": obj_summary["net_profit_per_pound_cost"],
+            "turnover_gbp": obj_summary["turnover_gbp"],
+            "entries_today": obj_summary["entries_today"],
+            "exits_today": obj_summary["exits_today"],
+            "force_trade_to_reach_daily_target": obj_summary["force_trade_to_reach_daily_target"],
+            "daily_target_achieved": obj_summary["daily_target_achieved"],
+            "daily_downside_breached": obj_summary["daily_downside_breached"],
+            "gate_reason": obj_summary["gate_reason"]
+        },
         "active_cycle_id": cycle_id,
         "active_cycle_name": active_cycle.get("cycle_name") if active_cycle else "Active Cycle",
         "last_broker_sync": getattr(broker, "_last_sync_timestamp", ""),
@@ -687,6 +708,23 @@ from src.analytics.phase5_portfolio_operating_system import (
     benchmark_dominance_engine,
     institutional_scorecard_engine
 )
+from src.portfolio.daily_objective_service import daily_objective_service
+
+@app.get("/api/objective/daily_summary")
+def get_daily_objective_summary(date: Optional[str] = None):
+    """
+    PRV Capital Daily Net Profit Objective & Anti-Overtrading Mandate Telemetry.
+    Returns £250 target progress, banked profit, deployable bankroll, and new entry permission.
+    """
+    return daily_objective_service.get_daily_status(target_date=date)
+
+@app.get("/api/objective/challenge_evaluation")
+def get_30day_challenge_evaluation():
+    """
+    PRV Capital 30-Day Practice Challenge Performance Evaluation.
+    Computes 12 institutional performance metrics across the challenge.
+    """
+    return daily_objective_service.compute_30day_challenge_evaluation()
 
 @app.get("/api/trade/journeys")
 def get_trade_journeys():

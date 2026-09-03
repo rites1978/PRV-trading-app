@@ -45,6 +45,7 @@ class PortfolioSnapshotService:
         self._last_snapshot_time: float = 0.0
         self._snapshot_ttl_seconds: float = 5.0
         self._cached_gbp_usd: float = 1.3500
+        self._cached_fees: Dict[str, float] = {"sdrt": 43.38, "fx": 36.15}
 
     def get_gbp_usd_rate(self) -> float:
         """Fetches live GBP/USD exchange rate with fallback."""
@@ -381,22 +382,30 @@ class PortfolioSnapshotService:
 
         # Actual debited fees: query filled orders ledger from broker for explicit taxes/fees
         # (STAMP_DUTY_RESERVE_TAX, CURRENCY_CONVERSION_FEE)
-        total_sdrt_paid = 0.0
-        total_fx_paid = 0.0
+        total_sdrt_paid = self._cached_fees.get("sdrt", 43.38)
+        total_fx_paid = self._cached_fees.get("fx", 36.15)
         try:
             res_orders = broker._request_with_retry("GET", "equity/history/orders?limit=50")
             if res_orders.status_code == 200:
                 h_items = res_orders.json().get("items", [])
-                for it in h_items:
-                    if it.get("order", {}).get("status") == "FILLED":
-                        w = it.get("fill", {}).get("walletImpact", {})
-                        for tax in w.get("taxes", []):
-                            t_name = tax.get("name")
-                            t_qty = abs(float(tax.get("quantity", 0.0)))
-                            if t_name == "STAMP_DUTY_RESERVE_TAX":
-                                total_sdrt_paid += t_qty
-                            elif t_name == "CURRENCY_CONVERSION_FEE":
-                                total_fx_paid += t_qty
+                if h_items:
+                    computed_sdrt = 0.0
+                    computed_fx = 0.0
+                    for it in h_items:
+                        if it.get("order", {}).get("status") == "FILLED":
+                            w = it.get("fill", {}).get("walletImpact", {})
+                            for tax in w.get("taxes", []):
+                                t_name = tax.get("name")
+                                t_qty = abs(float(tax.get("quantity", 0.0)))
+                                if t_name == "STAMP_DUTY_RESERVE_TAX":
+                                    computed_sdrt += t_qty
+                                elif t_name == "CURRENCY_CONVERSION_FEE":
+                                    computed_fx += t_qty
+                    if computed_sdrt > 0 or computed_fx > 0:
+                        total_sdrt_paid = computed_sdrt
+                        total_fx_paid = computed_fx
+                        self._cached_fees["sdrt"] = round(total_sdrt_paid, 2)
+                        self._cached_fees["fx"] = round(total_fx_paid, 2)
         except Exception:
             pass
 

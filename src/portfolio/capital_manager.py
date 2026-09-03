@@ -19,20 +19,26 @@ class CapitalManager:
     def get_capital_state(self, total_broker_nav: float, total_invested: float, available_cash: float) -> Dict[str, Any]:
         """Calculate three-tier capital states."""
         vault_balance = db.get_vault_balance()
-        
-        core_capital = max(0.0, total_broker_nav - vault_balance)
+        # Mandate Invariant: Active Trading Bankroll <= £50,000
+        # Banked profit is non-deployable and ring-fenced outside the active strategy bankroll
+        unvaulted_nav = max(0.0, total_broker_nav - vault_balance)
+        core_capital = min(settings.MAX_DEPLOYABLE_TRADING_CAPITAL, unvaulted_nav)
         active_capital = total_invested
-        idle_core_cash = max(0.0, available_cash - vault_balance)
+        idle_core_cash = max(0.0, min(available_cash, core_capital - active_capital))
         
         utilization_pct = (active_capital / core_capital * 100.0) if core_capital > 0 else 0.0
         
         return {
             "starting_capital": self.starting_capital,
+            "max_deployable_trading_capital": settings.MAX_DEPLOYABLE_TRADING_CAPITAL,
             "total_broker_nav": round(total_broker_nav, 2),
             "core_capital": round(core_capital, 2),
+            "active_trading_bankroll": round(core_capital, 2),
             "active_capital": round(active_capital, 2),
             "idle_core_cash": round(idle_core_cash, 2),
             "profit_vault_balance": round(vault_balance, 2),
+            "banked_profit": round(vault_balance, 2),
+            "banked_profit_is_non_deployable": settings.BANKED_PROFIT_IS_NON_DEPLOYABLE,
             "capital_utilization_pct": round(utilization_pct, 2)
         }
 

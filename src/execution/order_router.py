@@ -170,6 +170,13 @@ class OrderRouter:
                 self._log_audit("VETO_REAL_MONEY", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "REAL_MONEY_DISABLED")
                 return False, reason, {"approved": False, "rejection_reasons": ["REAL_MONEY_TRADING_DISABLED"]}
 
+        # 2b. Daily Profit Lock & Downside Limit Gate (Anti-Overtrading Protocol)
+        from src.portfolio.daily_objective_service import daily_objective_service
+        entries_allowed, objective_reason = daily_objective_service.are_new_discretionary_entries_allowed()
+        if not entries_allowed:
+            self._log_audit("HOLD_DAILY_OBJECTIVE_GATE", symbol, market_regime, agent_votes, confidence_score, objective_reason, risk_approved, quantity, "DAILY_GATE_HALT")
+            return False, f"HOLD: {objective_reason}", {"approved": False, "rejection_reasons": [objective_reason]}
+
         # Compute spread
         bid = bid_price or (price * 0.9997)
         ask = ask_price or (price * 1.0003)
@@ -400,7 +407,8 @@ class OrderRouter:
         instrument_type: str = "EQUITY"
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
-        Executes position close, decomposes all transaction friction, and computes True NET Realized P&L.
+        Executes position close, decomposes all transaction friction, enforces discretionary vs risk exit logic,
+        and sweeps banked profit into the non-deployable vault.
         """
         nominal_entry = quantity * entry_price
         nominal_exit = quantity * current_price
@@ -417,8 +425,29 @@ class OrderRouter:
             instrument_type=instrument_type
         )
 
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # SELL DECISION LOGIC: DISCRETIONARY VS RISK EXITS
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        upper_reason = exit_reason.upper()
+        is_risk_exit = any(k in upper_reason for k in [
+            "STOP", "STOP_LOSS", "THESIS_INVALIDATED", "INVALIDATED",
+            "RISK_LIMIT", "CIRCUIT_BREAKER", "EMERGENCY", "DERISKING", "TIER"
+        ])
+
+        # For discretionary exits: compare economic benefit of selling now vs sell cost + expected remaining upside
+        if not is_risk_exit:
+            sell_costs = net_calc.get("total_transaction_costs", 0.0)
+            gross_pnl = net_calc.get("gross_profit_loss", 0.0)
+            # If selling now provides insufficient net benefit after sell-side friction
+            if gross_pnl > 0 and (gross_pnl - sell_costs) <= 0:
+                reason = f"HOLD: Discretionary exit rejected. Gross benefit (£{gross_pnl:.2f}) does not overcome sell transaction friction (£{sell_costs:.2f})."
+                self._log_audit("HOLD_DISCRETIONARY_EXIT", symbol, "N/A", {}, 100.0, reason, False, quantity, "HOLD_INSUFFICIENT_NET_BENEFIT")
+                return False, reason, net_calc
+
         trade_id = f"PRV_EXIT_{int(datetime.now().timestamp())}_{symbol}"
         thesis_outcome = "PROFIT_TARGET_HIT" if net_calc["net_realized_pnl"] > 0 else ("STOP_LOSS_TRIGGERED" if "STOP" in exit_reason.upper() else "REBALANCED")
+
+        from src.portfolio.daily_objective_service import daily_objective_service
 
         if not is_paper:
             res = broker.place_market_order(t212_ticker, -quantity)
@@ -437,11 +466,42 @@ class OrderRouter:
                     "mode": "LIVE"
                 })
 
+                # Daily Profit Banking: Sweep net profit to non-deployable vault
+                daily_objective_service.process_trade_close(
+                    trade_id=trade_id,
+                    symbol=symbol,
+                    net_realized_pnl=net_calc["net_realized_pnl"],
+                    gross_realized_pnl=net_calc["gross_profit_loss"],
+                    total_costs=net_calc["total_transaction_costs"]
+                )
+
                 self._log_audit("SELL_EXECUTION", symbol, "N/A", {}, 100.0, exit_reason, True, quantity, f"NET_PNL_{net_calc['net_realized_pnl']:+.2f}")
                 return True, f"✅ Live Exit Executed for {symbol}: Gross P&L £{net_calc['gross_profit_loss']:+.2f}, Costs £{net_calc['total_transaction_costs']:.2f}, NET P&L £{net_calc['net_realized_pnl']:+.2f}", net_calc
             else:
                 return False, f"❌ Failed to exit {symbol}: {res.get('error')}", net_calc
         else:
+            db.record_trade({
+                "trade_id": trade_id,
+                "symbol": symbol,
+                "action": "SELL",
+                "quantity": quantity,
+                "price": current_price,
+                "total_cost": nominal_exit,
+                "realized_pnl": net_calc["net_realized_pnl"],
+                "confidence_score": 100.0,
+                "reward_risk_ratio": 0.0,
+                "trade_reason": exit_reason,
+                "mode": "PAPER"
+            })
+
+            daily_objective_service.process_trade_close(
+                trade_id=trade_id,
+                symbol=symbol,
+                net_realized_pnl=net_calc["net_realized_pnl"],
+                gross_realized_pnl=net_calc["gross_profit_loss"],
+                total_costs=net_calc["total_transaction_costs"]
+            )
+
             self._log_audit("SELL_EXECUTION", symbol, "N/A", {}, 100.0, exit_reason, True, quantity, f"PAPER_NET_PNL_{net_calc['net_realized_pnl']:+.2f}")
             return True, f"🧪 [PAPER EXIT] Simulated Exit for {symbol}: NET P&L £{net_calc['net_realized_pnl']:+.2f}", net_calc
 
