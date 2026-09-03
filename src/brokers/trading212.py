@@ -307,6 +307,10 @@ class Trading212Broker:
                 payload = {"ticker": ticker, "quantity": quantity}
                 res = self._request_with_retry("POST", "equity/orders/market", json=payload)
                 if res.status_code in [200, 201]:
+                    self._cached_positions = None
+                    self._cached_positions_time = 0.0
+                    self._cached_account = None
+                    self._cached_account_time = 0.0
                     return {"success": True, "data": res.json()}
                 return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
             except Exception as e:

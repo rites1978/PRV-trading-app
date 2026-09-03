@@ -41,6 +41,11 @@ class TestPracticeMarketHoursGate(unittest.TestCase):
             "agent_votes": {"Trend": "BUY"},
             "risk_approved": True
         }
+        self.daily_patch = patch("src.portfolio.daily_objective_service.daily_objective_service.get_daily_status", return_value={"new_discretionary_entries_allowed": True, "gate_reason": "CLEAR", "sizing_multiplier": 1.0, "emergency_risk_mode": False})
+        self.daily_patch.start()
+
+    def tearDown(self):
+        self.daily_patch.stop()
 
     @patch("src.data.market_hours.market_hours.is_asset_market_open")
     def test_practice_uk_closed_entry_denied(self, mock_is_open):

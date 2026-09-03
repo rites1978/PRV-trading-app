@@ -46,7 +46,8 @@ class PRVQuantEngine:
             return
         
         self.is_running: bool = False
-        self.paper_mode: bool = (settings.ACCOUNT_MODE.upper() == "PRACTICE")
+        self.is_simulation: bool = (settings.ACCOUNT_MODE.upper() in ("SIMULATION", "INTERNAL_SIMULATION"))
+        self.paper_mode: bool = self.is_simulation
         self.scan_interval: int = settings.SCAN_INTERVAL_SECONDS
         self.notifier = TelegramNotifier()
         
@@ -72,6 +73,14 @@ class PRVQuantEngine:
         self.raw_candidates_last_cycle: int = 0
         self.final_approvals_last_cycle: int = 0
         self.orders_submitted_today: int = 0
+
+        # Granular Order Lifecycle Counters
+        self.signals_approved_today: int = 0
+        self.dispatch_attempts_today: int = 0
+        self.broker_orders_accepted_today: int = 0
+        self.broker_fills_today: int = 0
+        self.broker_rejections_today: int = 0
+
         self.last_decision: str = "AWAITING_FIRST_SCAN"
         self.last_no_trade_reason: str = "Engine initialized; awaiting first scheduled scan cycle."
         self.rejection_breakdown: Dict[str, int] = {
@@ -85,6 +94,48 @@ class PRVQuantEngine:
         self.last_execution_error: Optional[str] = None
         self._stale_heartbeat_alerted: bool = False
         self._initialized = True
+
+    def _is_symbol_active_or_pending(self, t212_ticker: str) -> bool:
+        """
+        Prevents duplicate entries across scan cycles.
+        Checks if symbol already exists as an open position, pending broker order, or in-flight reservation.
+        """
+        sym = t212_ticker.replace("_US_EQ", "").replace("_EQ", "").replace("l", ".L").upper()
+        ticker_clean = t212_ticker.upper()
+
+        # 1. Check open broker positions
+        try:
+            open_pos = broker.get_open_positions() or []
+            for p in open_pos:
+                p_tick = str(p.get("ticker", "")).upper()
+                p_sym = str(p.get("symbol", "")).upper()
+                if p_tick == ticker_clean or p_sym == sym:
+                    return True
+        except Exception:
+            pass
+
+        # 2. Check pending broker orders
+        try:
+            open_ord = broker.get_open_orders() or []
+            for o in open_ord:
+                o_tick = str(o.get("ticker", "")).upper()
+                o_sym = str(o.get("symbol", "")).upper()
+                if o_tick == ticker_clean or o_sym == sym:
+                    return True
+        except Exception:
+            pass
+
+        # 3. Check in-flight portfolio reservations
+        try:
+            from src.execution.order_state_machine import PortfolioReservationManager
+            reservations = PortfolioReservationManager()._reservations
+            for res in reservations.values():
+                if res.get("symbol", "").upper() == sym:
+                    return True
+        except Exception:
+            pass
+
+        return False
 
     def start(self):
         if self.is_running:
@@ -191,7 +242,12 @@ class PRVQuantEngine:
             "securities_scanned_last_cycle": self.securities_scanned_last_cycle,
             "raw_candidates_last_cycle": self.raw_candidates_last_cycle,
             "final_approvals_last_cycle": self.final_approvals_last_cycle,
-            "orders_submitted_today": self.orders_submitted_today,
+            "orders_submitted_today": self.broker_orders_accepted_today,
+            "signals_approved_today": self.signals_approved_today,
+            "dispatch_attempts_today": self.dispatch_attempts_today,
+            "broker_orders_accepted_today": self.broker_orders_accepted_today,
+            "broker_fills_today": self.broker_fills_today,
+            "broker_rejections_today": self.broker_rejections_today,
             "last_decision": self.last_decision,
             "last_no_trade_reason": self.last_no_trade_reason,
             "rejection_breakdown": self.rejection_breakdown,
@@ -426,6 +482,10 @@ class PRVQuantEngine:
                 if not event_safe:
                     return None
 
+                # Deduplication Gate: Exclude already held, ordered, or reserved symbols
+                if self._is_symbol_active_or_pending(t212_ticker):
+                    return None
+
                 existing_pos = holding_map.get(t212_ticker)
                 current_holding_val = 0.0
                 if existing_pos and t212_ticker not in closed_trades:
@@ -587,6 +647,10 @@ class PRVQuantEngine:
         min_cash_floor = settings.STARTING_CAPITAL * (settings.REQUIRED_CASH_RESERVE_PCT / 100.0)
         min_deployment_chunk = settings.STARTING_CAPITAL * (settings.MIN_POSITION_SIZE_PCT / 100.0)
 
+        executed_trades = []
+        accepted_orders = []
+        rejected_orders = []
+
         if entries_allowed:
             for cand in candidates:
                 if remaining_allowance < min_deployment_chunk or (available_cash - cand["cost"]) < min_cash_floor:
@@ -604,6 +668,7 @@ class PRVQuantEngine:
                     target_price = round(cand["price"] * (1.0 + settings.DEFAULT_TAKE_PROFIT_PCT), 4)
                     stop_loss_price = round(cand["price"] * (1.0 - settings.DEFAULT_STOP_LOSS_PCT), 4)
 
+                    self.dispatch_attempts_today += 1
                     success, route_msg, trade_res = order_router.route_entry_order(
                         symbol=cand["symbol"],
                         t212_ticker=cand["t212_ticker"],
@@ -616,15 +681,28 @@ class PRVQuantEngine:
                         market_regime=market_regime,
                         agent_votes=agent_votes,
                         risk_approved=cand["risk_approved"],
-                        is_paper=self.paper_mode
+                        is_simulation=self.is_simulation
                     )
                     
                     if success:
-                        executed_trades.append(cand["symbol"])
+                        self.broker_orders_accepted_today += 1
+                        order_status = str(trade_res.get("status", "")).upper()
+                        if order_status == "FILLED":
+                            self.broker_fills_today += 1
+                            executed_trades.append(cand["symbol"])
+                        else:
+                            accepted_orders.append(cand["symbol"])
+
                         self.position_peaks[cand["t212_ticker"]] = cand["price"]
-                        self.notifier.notify_trade("BUY", cand["symbol"], cand["units"], cand["price"], route_msg, is_paper=self.paper_mode)
+                        self.notifier.notify_trade(
+                            "BUY", cand["symbol"], cand["units"], cand["price"],
+                            route_msg, is_paper=self.is_simulation
+                        )
                         available_cash -= cand["cost"]
                         remaining_allowance -= cand["cost"]
+                    else:
+                        self.broker_rejections_today += 1
+                        rejected_orders.append(cand["symbol"])
 
         # Generate Idle Cash Breakdown
         idle_cash_audit = capital_manager.generate_idle_cash_audit(
@@ -683,8 +761,21 @@ class PRVQuantEngine:
         self.rejection_breakdown = rejections
         self.top_rejected_candidates = top_rejected[:5]
         self.final_approvals_last_cycle = len(approved_candidates)
+        self.signals_approved_today += len(approved_candidates)
 
-        if len(executed_trades) == 0:
+        if len(executed_trades) > 0:
+            self.last_decision = f"TRADES EXECUTED: {', '.join(executed_trades)}"
+            self.last_no_trade_reason = f"{len(executed_trades)} broker fills confirmed."
+        elif len(accepted_orders) > 0:
+            self.last_decision = f"ORDERS ACCEPTED: {', '.join(accepted_orders)} (PENDING FILL)"
+            self.last_no_trade_reason = f"{len(accepted_orders)} orders accepted by broker gateway."
+        elif len(rejected_orders) > 0:
+            self.last_decision = f"ORDERS REJECTED BY BROKER: {', '.join(rejected_orders)}"
+            self.last_no_trade_reason = f"{len(rejected_orders)} order dispatches rejected by broker."
+        elif len(candidates) == 0:
+            self.last_decision = "NO CANDIDATES DETECTED"
+            self.last_no_trade_reason = "Zero raw candidates passed initial universe screening."
+        else:
             self.last_decision = "NO TRADE — SCAN COMPLETED SUCCESSFULLY"
             reasons_summary = []
             if rejections["failed_net_rr"] > 0:
@@ -697,10 +788,6 @@ class PRVQuantEngine:
                 reasons_summary.append(f"{rejections['failed_risk_gate']} failed risk gate")
             summary_text = ", ".join(reasons_summary) if reasons_summary else "all candidates below edge thresholds"
             self.last_no_trade_reason = f"{len(candidates)} candidates evaluated: {summary_text}."
-        else:
-            self.last_decision = f"TRADES EXECUTED: {', '.join(executed_trades)}"
-            self.last_no_trade_reason = f"{len(executed_trades)} orders dispatched to broker."
-            self.orders_submitted_today += len(executed_trades)
 
         self.last_scan_completed_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         self.scan_cycles_today += 1

@@ -124,7 +124,8 @@ class OrderRouter:
         market_regime: str,
         agent_votes: Dict[str, str],
         risk_approved: bool,
-        is_paper: bool = False,
+        is_paper: Optional[bool] = None,
+        is_simulation: bool = False,
         bid_price: Optional[float] = None,
         ask_price: Optional[float] = None,
         instrument_type: str = "EQUITY",
@@ -137,6 +138,9 @@ class OrderRouter:
         """
         signal_time = datetime.now(timezone.utc).isoformat()
         t0 = time.time()
+
+        # Determine explicit simulation mode (never triggered merely by ACCOUNT_MODE=PRACTICE)
+        is_internal_sim = is_simulation or (is_paper is True) or (settings.ACCOUNT_MODE.upper() in ("SIMULATION", "INTERNAL_SIMULATION"))
         
         is_uk = t212_ticker.endswith("l_EQ") or t212_ticker.endswith(".L") or symbol.endswith(".L")
         is_foreign = not is_uk
@@ -155,12 +159,12 @@ class OrderRouter:
                 return False, reason, {"approved": False, "rejection_reasons": [f"{exchange}_MARKET_CLOSED"]}
 
         # 2. Permission Gates
-        if settings.ACCOUNT_MODE == "PRACTICE":
-            if not settings.PRACTICE_TRADING_ENABLED:
+        if settings.ACCOUNT_MODE in ("PRACTICE", "SIMULATION", "INTERNAL_SIMULATION"):
+            if not settings.PRACTICE_TRADING_ENABLED and settings.ACCOUNT_MODE == "PRACTICE":
                 reason = "HOLD: PRACTICE_TRADING_ENABLED is False."
                 self._log_audit("HOLD_PRACTICE_DISABLED", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "PRACTICE_DISABLED")
                 return False, reason, {"approved": False, "rejection_reasons": ["PRACTICE_TRADING_DISABLED"]}
-            if not settings.PRACTICE_NEW_ENTRIES_ALLOWED and not bypass_audit_freeze:
+            if not settings.PRACTICE_NEW_ENTRIES_ALLOWED and not bypass_audit_freeze and settings.ACCOUNT_MODE == "PRACTICE":
                 reason = "HOLD: PRACTICE_NEW_ENTRIES_ALLOWED is False. New entries blocked pending baseline certification."
                 self._log_audit("HOLD_AUDIT_FREEZE", symbol, market_regime, agent_votes, confidence_score, reason, risk_approved, quantity, "PRACTICE_ENTRIES_DISABLED")
                 return False, reason, {"approved": False, "rejection_reasons": ["PRACTICE_NEW_ENTRIES_DISABLED"]}
@@ -253,15 +257,19 @@ class OrderRouter:
         managed_order.transition_to(OrderState.SIGNAL_APPROVED, "Cleared Net Edge and Risk Gates")
 
         snap = portfolio_snapshot.hydrate_once()
-        avail_cash = 50000.0 if is_paper else snap["account_summary"]["free_cash"]
-        total_nav = 50000.0 if is_paper else snap["account_summary"]["total_nav"]
-        pos_list = [] if is_paper else snap["positions"]
+        avail_cash = 50000.0 if is_internal_sim else snap["account_summary"]["free_cash"]
+        total_nav = 50000.0 if is_internal_sim else snap["account_summary"]["total_nav"]
+        pos_list = [] if is_internal_sim else snap["positions"]
+        open_orders = [] if is_internal_sim else (broker.get_open_orders() or [])
+        held_and_pending_tickers = [p.get("ticker", "").upper() for p in (pos_list or [])] + [o.get("ticker", "").upper() for o in (open_orders or [])]
+
         res_ok, res_err = portfolio_reservations.reserve(
             order=managed_order,
             free_cash=avail_cash,
             total_nav=total_nav,
             sector=sector,
-            positions=pos_list
+            positions=pos_list,
+            existing_held_tickers=held_and_pending_tickers
         )
         if not res_ok:
             managed_order.transition_to(OrderState.SIGNAL_REJECTED, res_err)
@@ -270,17 +278,22 @@ class OrderRouter:
             return False, reason, {"approved": False, "rejection_reasons": [res_err]}
 
         managed_order.transition_to(OrderState.ORDER_READY, "Portfolio reservation committed")
-        managed_order.transition_to(OrderState.ORDER_SUBMITTED, f"Routing to {'Paper Simulator' if is_paper else 'Trading212'}")
+        managed_order.transition_to(OrderState.ORDER_SUBMITTED, f"Routing to {'Internal Simulator' if is_internal_sim else 'Trading212 (' + settings.ACCOUNT_MODE + ')'}")
 
-        if not is_paper:
-            # Live Order Execution
+        if not is_internal_sim:
+            # Live / Practice Broker Execution on Trading212 API
             res = broker.place_market_order(t212_ticker, quantity)
             latency_ms = round((time.time() - t0) * 1000.0, 2)
             
             if res.get("success"):
-                managed_order.transition_to(OrderState.FILLED, "Broker executed fill")
-                fill_price = price
-                broker_order_id = res["data"].get("id", trade_id)
+                broker_order_data = res.get("data", {})
+                broker_order_id = broker_order_data.get("id", trade_id)
+                broker_status = str(broker_order_data.get("status", "SUBMITTED")).upper()
+                if broker_status == "FILLED":
+                    managed_order.transition_to(OrderState.FILLED, f"Broker executed fill {broker_order_id}")
+                else:
+                    managed_order.transition_to(OrderState.ACKNOWLEDGED, f"Broker accepted order {broker_order_id}")
+                fill_price = float(broker_order_data.get("fillPrice") or price)
                 slippage_bps = round(((fill_price - price) / max(0.001, price)) * 10000.0, 1)
 
                 # Compute Implementation Shortfall
@@ -345,18 +358,19 @@ class OrderRouter:
                     "confidence_score": confidence_score,
                     "reward_risk_ratio": gate_result["net_reward_risk"],
                     "trade_reason": trade_reason,
-                    "mode": "LIVE"
+                    "mode": settings.ACCOUNT_MODE
                 })
 
                 portfolio_reservations.release(managed_order.client_order_id)
-                self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, "FILLED_LIVE")
-                return True, f"✅ Live Order Executed: {quantity} shares of {symbol} at £{fill_price:.2f} (Friction: £{gate_result['total_round_trip_cost_gbp']:.2f})", res["data"]
+                audit_tag = "FILLED_BROKER" if broker_status == "FILLED" else "BROKER_ACCEPTED"
+                self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, audit_tag)
+                return True, f"✅ Order Executed ({settings.ACCOUNT_MODE}): {quantity} shares of {symbol} at £{fill_price:.2f} (Broker ID: {broker_order_id})", res["data"]
             else:
                 managed_order.transition_to(OrderState.FAILED, res.get("error", "Broker order rejected"))
                 portfolio_reservations.release(managed_order.client_order_id)
                 err_msg = res.get("error", "Unknown broker error")
-                self._log_audit("EXECUTION_FAILED", symbol, market_regime, agent_votes, confidence_score, err_msg, True, quantity, "BROKER_ERROR")
-                return False, f"❌ Broker order rejected: {err_msg}", {}
+                self._log_audit("EXECUTION_FAILED", symbol, market_regime, agent_votes, confidence_score, err_msg, True, quantity, "BROKER_REJECTED")
+                return False, f"❌ Broker order rejected: {err_msg}", res
         else:
             # Paper execution with implementation shortfall simulation
             managed_order.transition_to(OrderState.FILLED, "Simulated fill")
@@ -405,7 +419,7 @@ class OrderRouter:
             })
             portfolio_reservations.release(managed_order.client_order_id)
             self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, "SIMULATED_FILL")
-            return True, f"🧪 [PAPER BUY] Simulated {quantity} shares of {symbol} at £{price:.2f}", {"id": trade_id}
+            return True, f"🧪 [SIMULATED / PAPER BUY] Simulated {quantity} shares of {symbol} at £{price:.2f}", {"id": trade_id, "status": "SIMULATED_FILL"}
 
     def route_exit_order(
         self,
@@ -419,6 +433,7 @@ class OrderRouter:
         mfe_pct: float = 0.0,
         mae_pct: float = 0.0,
         is_paper: bool = False,
+        is_simulation: bool = False,
         instrument_type: str = "EQUITY"
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
@@ -464,7 +479,8 @@ class OrderRouter:
 
         from src.portfolio.daily_objective_service import daily_objective_service
 
-        if not is_paper:
+        is_internal_sim = is_simulation or (is_paper is True) or (settings.ACCOUNT_MODE.upper() in ("SIMULATION", "INTERNAL_SIMULATION"))
+        if not is_internal_sim:
             res = broker.place_market_order(t212_ticker, -quantity)
             if res.get("success"):
                 db.record_trade({
@@ -478,7 +494,7 @@ class OrderRouter:
                     "confidence_score": 100.0,
                     "reward_risk_ratio": 0.0,
                     "trade_reason": exit_reason,
-                    "mode": "LIVE"
+                    "mode": settings.ACCOUNT_MODE
                 })
 
                 # Daily Profit Banking: Sweep net profit to non-deployable vault

@@ -31,8 +31,7 @@ def on_startup():
     """Start background 60s broker snapshot refresh worker on API boot."""
     broker.start_background_sync(interval_seconds=60)
     autorun = os.getenv("PRV_AUTORUN_ENGINE", "false").strip().lower() in ("true", "1", "yes")
-    is_render = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID") or os.getenv("RENDER_INSTANCE_ID"))
-    if autorun or is_render:
+    if autorun:
         try:
             quant_engine.start()
         except Exception as e:

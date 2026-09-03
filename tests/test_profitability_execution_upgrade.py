@@ -244,22 +244,24 @@ class TestProfitabilityExecutionUpgrade(unittest.TestCase):
 
     def test_order_telemetry_and_marketable_limits(self):
         """Test order routing records full execution telemetry and price controls."""
-        success, msg, data = order_router.route_entry_order(
-            symbol="CRM",
-            t212_ticker="CRM_US_EQ",
-            quantity=10.0,
-            price=280.0,
-            target_price=305.0,
-            stop_loss_price=272.0,
-            sector="Technology",
-            confidence_score=85.0,
-            market_regime="STRONG_BULL",
-            agent_votes={"Trend": "BUY", "Momentum": "BUY"},
-            risk_approved=True,
-            is_paper=True,
-            bypass_market_hours=True
-        )
-        self.assertTrue(success)
+        from unittest.mock import patch
+        with patch("src.portfolio.daily_objective_service.daily_objective_service.get_daily_status", return_value={"new_discretionary_entries_allowed": True, "gate_reason": "CLEAR", "sizing_multiplier": 1.0, "emergency_risk_mode": False}):
+            success, msg, data = order_router.route_entry_order(
+                symbol="CRM",
+                t212_ticker="CRM_US_EQ",
+                quantity=10.0,
+                price=280.0,
+                target_price=305.0,
+                stop_loss_price=272.0,
+                sector="Technology",
+                confidence_score=85.0,
+                market_regime="STRONG_BULL",
+                agent_votes={"Trend": "BUY", "Momentum": "BUY"},
+                risk_approved=True,
+                is_paper=True,
+                bypass_market_hours=True
+            )
+            self.assertTrue(success)
         telemetry = db.get_order_telemetry_entries(limit=5)
         self.assertGreater(len(telemetry), 0)
         latest = telemetry[0]
