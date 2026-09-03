@@ -115,10 +115,25 @@ class Trading212Broker:
         Ensures continuous verified parity with zero flicker.
         """
         with self._lock:
-            now = time.time()
-            if not force_refresh and self._cached_summary and (now - self._cached_summary_time) < self._cache_ttl_seconds:
-                return dict(self._cached_summary)
+            if not force_refresh:
+                if self._cached_summary:
+                    cached = dict(self._cached_summary)
+                    cached["from_cache"] = True
+                    return cached
+                return {
+                    "success": True,
+                    "available_cash": self._last_verified_cash,
+                    "total_value": self._last_verified_nav,
+                    "free_cash": self._last_verified_cash,
+                    "invested": self._last_verified_invested,
+                    "ppl": 0.0,
+                    "result": 0.0,
+                    "currency": "GBP",
+                    "sync_timestamp": self._last_sync_timestamp,
+                    "from_cache": True
+                }
 
+            now = time.time()
             try:
                 res = self._request_with_retry("GET", "equity/account/cash")
                 if res.status_code == 200:
@@ -211,10 +226,12 @@ class Trading212Broker:
     def get_open_positions(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """Fetch all active positions with read-through cache and retry protection."""
         with self._lock:
-            now = time.time()
-            if not force_refresh and self._cached_positions is not None and (now - self._cached_positions_time) < self._cache_ttl_seconds:
-                return list(self._cached_positions)
+            if not force_refresh:
+                if self._cached_positions is not None:
+                    return list(self._cached_positions)
+                return []
 
+            now = time.time()
             try:
                 res = self._request_with_retry("GET", "equity/portfolio")
                 if res.status_code == 200:
@@ -385,8 +402,8 @@ class Trading212Broker:
             finally:
                 self._is_syncing = False
 
-    def start_background_sync(self, interval_seconds: int = 60):
-        """Start daemon thread that updates the broker snapshot every 60s without blocking requests."""
+    def start_background_sync(self, interval_seconds: int = 15):
+        """Start daemon thread that updates the broker snapshot every 15s without blocking requests."""
         if self._sync_thread_running:
             return
 

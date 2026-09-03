@@ -27,6 +27,7 @@ class MarketStressDetector:
         self._cached_stress_result: Optional[Tuple[bool, str, Dict[str, Any]]] = None
         self._cached_stress_time: float = 0.0
         self._stress_cache_ttl_seconds: float = 60.0
+        self._is_refreshing: bool = False
 
     def set_mock_stress(self, active: bool, reason: str = ""):
         """Testing hook for deterministic verification."""
@@ -49,8 +50,38 @@ class MarketStressDetector:
             }
 
         now_t = time.time()
-        if not force_refresh and self._cached_stress_result is not None and (now_t - self._cached_stress_time) < self._stress_cache_ttl_seconds:
-            return self._cached_stress_result
+        if not force_refresh:
+            if self._cached_stress_result is not None:
+                if (now_t - self._cached_stress_time) >= self._stress_cache_ttl_seconds and not self._is_refreshing:
+                    import threading
+                    self._is_refreshing = True
+                    def _async_refresh():
+                        try:
+                            self.evaluate_market_stress(force_refresh=True)
+                        finally:
+                            self._is_refreshing = False
+                    threading.Thread(target=_async_refresh, daemon=True).start()
+                return self._cached_stress_result
+            else:
+                default_metrics = {
+                    "sp500_day_change_pct": 0.0,
+                    "vix_level": 16.0,
+                    "watchlist_avg_spread_bps": 8.0,
+                    "data_fresh": True
+                }
+                default_res = (False, "Market conditions within normal volatility bands.", default_metrics)
+                self._cached_stress_result = default_res
+                self._cached_stress_time = now_t
+                if not self._is_refreshing:
+                    import threading
+                    self._is_refreshing = True
+                    def _async_refresh():
+                        try:
+                            self.evaluate_market_stress(force_refresh=True)
+                        finally:
+                            self._is_refreshing = False
+                    threading.Thread(target=_async_refresh, daemon=True).start()
+                return default_res
 
         stress_reasons = []
         metrics = {

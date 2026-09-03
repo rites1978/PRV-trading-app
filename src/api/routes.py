@@ -331,8 +331,8 @@ def test_set_nav(nav: float):
 @app.get("/api/portfolio/positions")
 def get_portfolio_positions():
     """Fetch live positions enriched with weights, sector allocations, trailing stops, and returns."""
-    positions = broker.get_open_positions()
-    account = broker.get_account_summary()
+    positions = broker.get_open_positions(force_refresh=False)
+    account = broker.get_account_summary(force_refresh=False)
     total_nav = float(account.get("total_value", getattr(broker, "_last_verified_nav", 50000.0)))
     
     enriched_positions = []

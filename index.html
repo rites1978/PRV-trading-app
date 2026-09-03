@@ -714,27 +714,27 @@
                         <div style="font-size: 14px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
                             <span>🛡️ Data Integrity & Broker Parity Monitor</span>
                         </div>
-                        <span id="parityStatusBadge" class="status-badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 700; font-size: 11px;">
-                            ✅ VERIFIED
+                        <span id="parityStatusBadge" class="status-badge" style="background: rgba(100, 116, 139, 0.2); color: #94a3b8; font-weight: 700; font-size: 11px;">
+                            SYNCING...
                         </span>
                     </div>
                     
                     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px;">
                         <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
                             <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Broker NAV (T212)</div>
-                            <div id="parityBrokerNav" style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">£50,000.00</div>
+                            <div id="parityBrokerNav" style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">--</div>
                         </div>
                         <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
                             <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">API NAV</div>
-                            <div id="parityApiNav" style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">£50,000.00</div>
+                            <div id="parityApiNav" style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">--</div>
                         </div>
                         <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
                             <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Dashboard NAV</div>
-                            <div id="parityDashboardNav" style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">£50,000.00</div>
+                            <div id="parityDashboardNav" style="font-weight: 700; font-size: 15px; color: #fff; margin-top:2px;">--</div>
                         </div>
                         <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
                             <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Variance</div>
-                            <div id="parityVariance" style="font-weight: 700; font-size: 15px; color: #10b981; margin-top:2px;">£0.00</div>
+                            <div id="parityVariance" style="font-weight: 700; font-size: 15px; color: #10b981; margin-top:2px;">--</div>
                         </div>
                     </div>
                     
@@ -799,7 +799,7 @@
                     </div>
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
                         <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Active Equity</div>
-                        <div id="objActiveEquity" style="font-weight: 700; font-size: 15px; color: #38bdf8; margin-top:2px;">£50,000.00</div>
+                        <div id="objActiveEquity" style="font-weight: 700; font-size: 15px; color: #38bdf8; margin-top:2px;">--</div>
                     </div>
                     <div style="background: #1e293b; padding: 10px; border-radius: 8px;">
                         <div style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">Base Deficit</div>
@@ -1795,7 +1795,7 @@
                 }
                 const topSync = document.getElementById('topBrokerSyncTime');
                 if (topSync && topSync.innerText === '--') {
-                    topSync.innerText = 'RECONNECTING...';
+                    topSync.innerText = 'SYNCING...';
                 }
                 const heroLbl = document.getElementById('heroPeriodLabel');
                 if (heroLbl && heroLbl.innerText === 'Loading...') {

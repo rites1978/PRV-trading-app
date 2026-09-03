@@ -51,21 +51,21 @@ class PortfolioSnapshotService:
         self._cached_fees: Dict[str, float] = {"sdrt": 0.0, "fx": 0.0}
 
     def get_gbp_usd_rate(self) -> float:
-        """Fetches live GBP/USD exchange rate with fallback and TTL caching."""
+        """Fetches live GBP/USD exchange rate with fallback and non-blocking background TTL refresh."""
         now_t = time.time()
-        if (now_t - self._cached_gbp_usd_time) < self._gbp_usd_ttl_seconds:
-            return self._cached_gbp_usd
-        try:
-            fx = yf.Ticker("GBPUSD=X").history(period="1d")
-            if not fx.empty:
-                rate = float(fx["Close"].iloc[-1])
-                if rate > 0.5:
-                    self._cached_gbp_usd = rate
-                    self._cached_gbp_usd_time = now_t
-                    return rate
-        except Exception:
-            pass
-        self._cached_gbp_usd_time = now_t
+        if (now_t - self._cached_gbp_usd_time) >= self._gbp_usd_ttl_seconds:
+            self._cached_gbp_usd_time = now_t
+            def _async_fx():
+                try:
+                    fx = yf.Ticker("GBPUSD=X").history(period="1d")
+                    if not fx.empty:
+                        rate = float(fx["Close"].iloc[-1])
+                        if rate > 0.5:
+                            self._cached_gbp_usd = rate
+                except Exception:
+                    pass
+            import threading
+            threading.Thread(target=_async_fx, daemon=True).start()
         return self._cached_gbp_usd
 
     def _normalize_ticker(self, raw_ticker: str) -> Tuple[str, str, bool, str]:
