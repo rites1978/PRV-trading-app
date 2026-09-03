@@ -189,7 +189,31 @@ class PortfolioSnapshotService:
         total_unrealized_pnl = 0.0
         position_ages: List[float] = []
 
+        broker_invested = float(summary.get("invested", 0.0)) if summary.get("invested") is not None else 0.0
+        
+        # Pre-compute raw cost bases for proportional allocation
+        raw_costs = []
         for p in raw_positions:
+            raw_ticker = p.get("ticker", p.get("symbol", ""))
+            _, _, is_uk_temp, _ = self._normalize_ticker(raw_ticker)
+            q = float(p.get("quantity", 0.0))
+            avg_p = float(p.get("averagePrice", 0.0))
+            if is_uk_temp:
+                c = q * (avg_p / 100.0)
+            else:
+                c = q * avg_p * usd_gbp_rate
+            raw_costs.append(c)
+
+        tot_raw_cost = sum(raw_costs)
+        scale_factor = (broker_invested / tot_raw_cost) if (broker_invested > 0 and tot_raw_cost > 0) else 1.0
+
+        allocated_costs = []
+        for c in raw_costs:
+            allocated_costs.append(round(c * scale_factor, 2) if (broker_invested > 0 and tot_raw_cost > 0) else round(c, 2))
+        if allocated_costs and broker_invested > 0 and tot_raw_cost > 0:
+            allocated_costs[-1] = round(allocated_costs[-1] + (broker_invested - sum(allocated_costs)), 2)
+
+        for idx, p in enumerate(raw_positions):
             raw_ticker = p.get("ticker", p.get("symbol", ""))
             clean_sym, exchange, is_uk, inst_curr = self._normalize_ticker(raw_ticker)
             
@@ -213,16 +237,27 @@ class PortfolioSnapshotService:
                 avg_price_gbp = native_avg_price.to_gbp(usd_gbp_rate).amount
                 fx_rate_applied = usd_gbp_rate
 
-            cur_market_val = round(qty * cur_price_gbp, 2)
-            cost_basis = round(qty * avg_price_gbp, 2)
-            pos_unrealized_gbp = round(cur_market_val - cost_basis, 2)
+            cost_basis = allocated_costs[idx] if idx < len(allocated_costs) else round(qty * avg_price_gbp, 2)
+
+            if p.get("ppl") is not None:
+                pos_unrealized_gbp = round(float(p.get("ppl")), 2)
+            else:
+                pos_unrealized_gbp = round((qty * cur_price_gbp) - cost_basis, 2)
+
+            cur_market_val = round(cost_basis + pos_unrealized_gbp, 2)
+            cur_price_gbp = round(cur_market_val / max(0.0001, qty), 4)
 
             if is_uk:
                 asset_pnl_gbp = pos_unrealized_gbp
                 fx_trans_pnl_gbp = 0.0
             else:
-                asset_pnl_gbp = round(qty * (cur_price_raw - avg_price_raw) * usd_gbp_rate, 2)
-                fx_trans_pnl_gbp = round(pos_unrealized_gbp - asset_pnl_gbp, 2)
+                raw_fx_ppl = p.get("fxPpl")
+                if raw_fx_ppl is not None:
+                    fx_trans_pnl_gbp = round(float(raw_fx_ppl), 2)
+                    asset_pnl_gbp = round(pos_unrealized_gbp - fx_trans_pnl_gbp, 2)
+                else:
+                    asset_pnl_gbp = round(qty * (cur_price_raw - avg_price_raw) * usd_gbp_rate, 2)
+                    fx_trans_pnl_gbp = round(pos_unrealized_gbp - asset_pnl_gbp, 2)
 
             positions_market_sum += cur_market_val
             positions_cost_sum += cost_basis
@@ -277,8 +312,8 @@ class PortfolioSnapshotService:
             })
 
         invested_capital = round(positions_market_sum, 2)
-        positions_cost_sum = round(positions_cost_sum, 2)
-        total_unrealized_pnl = round(invested_capital - positions_cost_sum, 2)
+        total_unrealized_pnl = round(sum(p.get("unrealized_pnl_gbp", 0.0) for p in positions), 2)
+        positions_cost_sum = round(invested_capital - total_unrealized_pnl, 2)
         total_asset_price_pnl = round(sum(p.get("asset_price_pnl_gbp", 0.0) for p in positions), 2)
         total_fx_translation_pnl = round(sum(p.get("fx_translation_pnl_gbp", 0.0) for p in positions), 2)
         
@@ -337,54 +372,42 @@ class PortfolioSnapshotService:
         net_external_flows = 0.0
         nav_delta = round(total_nav - starting_capital - net_external_flows, 2)
 
-        # Realized P&L strictly during active challenge from DB trades table or authoritative broker ledger
-        challenge_realized_pnl = 0.0
-        closed_trades_fx = 0.0
-        try:
-            with db.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("""
-                    SELECT 
-                        COALESCE(SUM(realized_pnl), 0.0) as tot_realized,
-                        COALESCE(SUM(fx_cost), 0.0) as tot_fx
-                    FROM trades
-                    WHERE action = 'SELL' AND timestamp >= :challenge_start
-                """, {"challenge_start": settings.CHALLENGE_START_TIMESTAMP})
-                row = cur.fetchone()
-                if row:
-                    challenge_realized_pnl = float(row["tot_realized"])
-                    closed_trades_fx = float(row["tot_fx"])
-        except Exception:
-            challenge_realized_pnl = 0.0
-            closed_trades_fx = 0.0
-
-        # When available, reconcile with authoritative broker ledger totals
+        # Realized P&L directly from broker account summary result or closed trades ledger
         broker_result = summary.get("result")
-        broker_ppl = summary.get("ppl")
-        realized_trading_pnl = float(broker_result) if broker_result is not None else challenge_realized_pnl
-        unrealized_trading_pnl = float(broker_ppl) if broker_ppl is not None else total_unrealized_pnl
+        realized_trading_pnl = round(float(broker_result), 2) if broker_result is not None else 0.0
+        
+        # Unrealized P&L: Mark-to-market position gain over authoritative cost basis
+        unrealized_trading_pnl = round(total_unrealized_pnl, 2)
 
-        # Cost classification:
-        # 1. BROKER_DEBITED: SDRT, FX fee, PTM, SEC/FINRA.
-        # Exactly equals difference between gross trading P&L and NAV delta.
-        gross_trading_pnl = round(realized_trading_pnl + unrealized_trading_pnl, 2)
-        total_broker_debited_fees = max(0.0, round(gross_trading_pnl - nav_delta, 2))
+        # Actual debited fees: query filled orders ledger from broker for explicit taxes/fees
+        # (STAMP_DUTY_RESERVE_TAX, CURRENCY_CONVERSION_FEE)
+        total_sdrt_paid = 0.0
+        total_fx_paid = 0.0
+        try:
+            res_orders = broker._request_with_retry("GET", "equity/history/orders?limit=50")
+            if res_orders.status_code == 200:
+                h_items = res_orders.json().get("items", [])
+                for it in h_items:
+                    if it.get("order", {}).get("status") == "FILLED":
+                        w = it.get("fill", {}).get("walletImpact", {})
+                        for tax in w.get("taxes", []):
+                            t_name = tax.get("name")
+                            t_qty = abs(float(tax.get("quantity", 0.0)))
+                            if t_name == "STAMP_DUTY_RESERVE_TAX":
+                                total_sdrt_paid += t_qty
+                            elif t_name == "CURRENCY_CONVERSION_FEE":
+                                total_fx_paid += t_qty
+        except Exception:
+            pass
 
-        computed_sdrt = 0.0
-        for p in positions:
-            if p.get("is_uk") and p.get("instrument_type", "EQUITY").upper() == "EQUITY":
-                clean_sym = p.get("symbol", "").upper()
-                if clean_sym not in ["GLEN", "ISF", "CSPX"]:
-                    computed_sdrt += round(p.get("cost_basis_gbp", 0.0) * 0.005, 2)
-
-        total_sdrt_paid = round(computed_sdrt, 2)
-        total_fx_paid = max(0.0, round(total_broker_debited_fees - total_sdrt_paid, 2))
+        total_sdrt_paid = round(total_sdrt_paid, 2)
+        total_fx_paid = round(total_fx_paid, 2)
+        total_broker_debited_fees = round(total_sdrt_paid + total_fx_paid, 2)
         dividends_received = 0.0
         cash_interest_received = 0.0
         ptm_levy = 0.0
         sec_finra_fees = 0.0
 
-        # 2. EMBEDDED_IN_FILL: Spread and market slippage are already reflected in the fill price.
         # Ledger-Driven Bridge:
         # NAV Delta = Realized P&L + Unrealized P&L + Dividends + Interest - Broker Debited Fees
         pnl_bridge_rhs = round(
@@ -470,10 +493,10 @@ class PortfolioSnapshotService:
                 "current_nav_gbp": round(total_nav, 2),
                 "net_external_flows_gbp": net_external_flows,
                 "nav_delta_lhs_gbp": nav_delta,
-                "realized_trading_pnl_gbp": round(challenge_realized_pnl, 2),
-                "realized_gross_pnl_gbp": round(challenge_realized_pnl, 2),
-                "realized_pnl_gbp": round(challenge_realized_pnl, 2),
-                "unrealized_pnl_gbp": round(total_unrealized_pnl, 2),
+                "realized_trading_pnl_gbp": round(realized_trading_pnl, 2),
+                "realized_gross_pnl_gbp": round(realized_trading_pnl, 2),
+                "realized_pnl_gbp": round(realized_trading_pnl, 2),
+                "unrealized_pnl_gbp": round(unrealized_trading_pnl, 2),
                 "total_broker_debited_fees_gbp": total_broker_debited_fees,
                 "uk_stamp_duty_taxes_gbp": round(total_sdrt_paid, 2),
                 "uk_stamp_duty_tag": "BROKER_DEBITED",
@@ -487,7 +510,7 @@ class PortfolioSnapshotService:
                 "cash_interest_received_gbp": round(cash_interest_received, 2),
                 "pnl_bridge_rhs_gbp": pnl_bridge_rhs,
                 "variance_gbp": pnl_variance,
-                "equation": f"NAV Delta (£{nav_delta:,.2f}) == Realized (£{challenge_realized_pnl:,.2f}) + Unrealized (£{total_unrealized_pnl:,.2f}) - Debited Fees (£{total_broker_debited_fees:,.2f}) = £{pnl_bridge_rhs:,.2f}",
+                "equation": f"NAV Delta (£{nav_delta:,.2f}) == Realized (£{realized_trading_pnl:,.2f}) + Unrealized (£{unrealized_trading_pnl:,.2f}) - Debited Fees (£{total_broker_debited_fees:,.2f}) = £{pnl_bridge_rhs:,.2f}",
                 "passed": inv6_passed
             }
         }
