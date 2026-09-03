@@ -363,6 +363,14 @@ class OrderRouter:
 
                 portfolio_reservations.release(managed_order.client_order_id)
                 audit_tag = "FILLED_BROKER" if broker_status == "FILLED" else "BROKER_ACCEPTED"
+                
+                # Place broker-native protective stop order immediately upon entry
+                if stop_loss_price and stop_loss_price > 0:
+                    try:
+                        broker.sync_broker_stop_order(t212_ticker, quantity, stop_loss_price)
+                    except Exception as stop_err:
+                        logger.warning(f"Failed to place broker stop order for {t212_ticker}: {stop_err}")
+
                 self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, audit_tag)
                 return True, f"✅ Order Executed ({settings.ACCOUNT_MODE}): {quantity} shares of {symbol} at £{fill_price:.2f} (Broker ID: {broker_order_id})", res["data"]
             else:
@@ -505,6 +513,12 @@ class OrderRouter:
                     gross_realized_pnl=net_calc["gross_profit_loss"],
                     total_costs=net_calc["total_transaction_costs"]
                 )
+
+                # Cancel associated broker-native stop orders to prevent stale protective orders
+                try:
+                    broker.cancel_stop_orders_for_ticker(t212_ticker)
+                except Exception as cancel_err:
+                    logger.warning(f"Error cancelling stop orders for {t212_ticker} post-exit: {cancel_err}")
 
                 self._log_audit("SELL_EXECUTION", symbol, "N/A", {}, 100.0, exit_reason, True, quantity, f"NET_PNL_{net_calc['net_realized_pnl']:+.2f}")
                 return True, f"✅ Live Exit Executed for {symbol}: Gross P&L £{net_calc['gross_profit_loss']:+.2f}, Costs £{net_calc['total_transaction_costs']:.2f}, NET P&L £{net_calc['net_realized_pnl']:+.2f}", net_calc

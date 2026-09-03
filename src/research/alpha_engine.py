@@ -41,7 +41,8 @@ class InstitutionalAlphaEngine:
 
         # 3. Sector Relative Strength Score
         df_stock = snapshot.get("dataframe")
-        sector_data = sector_rotation.evaluate_relative_strength(df_stock, sector)
+        ret_30d = snapshot.get("indicators", {}).get("return_30d", 0.0)
+        sector_data = sector_rotation.evaluate_relative_strength(df_stock, sector, stock_return_30d_fallback=ret_30d)
         sector_score = (sector_data.get("sector_momentum_score", 50.0) * 0.5) + (sector_data.get("relative_strength_score", 50.0) * 0.5)
 
         # 4. News Sentiment Score

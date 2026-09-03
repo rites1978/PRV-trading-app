@@ -186,7 +186,8 @@ class TradingSettings(BaseModel):
     ORDER_TIMEOUT_SECONDS: float = 5.0      # Timeout before evaluating signal decay and cancel/amend
     
     # Execution Intervals
-    SCAN_INTERVAL_SECONDS: int = 15
+    SCAN_INTERVAL_SECONDS: int = 180
+    POSITION_MONITOR_INTERVAL_SECONDS: int = 15
     MARKET_DATA_TIMEFRAME: str = "1d"
     
     # Database & Storage

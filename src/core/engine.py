@@ -284,6 +284,145 @@ class PRVQuantEngine:
         except Exception:
             pass
 
+    def monitor_open_positions(self, open_positions: Optional[List[Dict[str, Any]]] = None) -> Tuple[List[str], Dict[str, Any]]:
+        """
+        Lightweight continuous position & risk management watchdog:
+        - Tracks peak high-watermark prices.
+        - Calculates certified stop-loss and ATR trailing stops.
+        - Ratchets stop to breakeven (+0.1%) after +3.0% peak gain.
+        - Synchronizes broker-native protective stop orders at Trading212.
+        - Triggers market exits on stop loss or trailing stop violations.
+        """
+        closed_trades = []
+        active_positions_returns = {}
+        
+        if open_positions is None:
+            open_positions = broker.get_open_positions(force_refresh=False) or []
+
+        for pos in open_positions:
+            t212_ticker = pos.get("ticker")
+            qty = float(pos.get("quantity", 0))
+            avg_price = float(pos.get("averagePrice", 0))
+            cur_price = float(pos.get("currentPrice", 0))
+            
+            if avg_price <= 0 or qty <= 0:
+                continue
+
+            # Update High Watermark Peak Price
+            if t212_ticker not in self.position_peaks or cur_price > self.position_peaks[t212_ticker]:
+                self.position_peaks[t212_ticker] = cur_price
+
+            peak_p = self.position_peaks[t212_ticker]
+            pnl_pct = (cur_price - avg_price) / avg_price
+            peak_gain_pct = (peak_p - avg_price) / avg_price
+
+            # Fetch compact scalar ATR for Trailing Stop
+            yf_ticker = t212_ticker.replace("_US_EQ", "").replace("_EQ", "").replace("l", ".L")
+            snap = market_data.get_market_snapshot(yf_ticker)
+            atr = snap["indicators"]["atr"] if (snap.get("success") and "atr" in snap.get("indicators", {})) else (avg_price * 0.02)
+            active_positions_returns[yf_ticker] = snap.get("recent_returns", [])
+
+            # Phase 38 Protocol: Fixed -2.5% for Trades 1-50; Dynamic 2.5x ATR for Trades 51+
+            total_historical_trades = len(db.get_trades(limit=500))
+            if total_historical_trades < 50:
+                base_stop_pct = -settings.DEFAULT_STOP_LOSS_PCT  # Baseline -2.5% (Stage 1 Benchmark)
+            else:
+                base_stop_pct = -min(0.065, max(0.025, (2.5 * atr) / avg_price))
+
+            # Exit Rule 1: Breakeven Stop Ratchet after +3.0% Peak Gain
+            effective_stop_pct = base_stop_pct
+            if peak_gain_pct >= 0.030:
+                effective_stop_pct = 0.001  # Breakeven (+0.1% covering friction)
+
+            # Exit Rule 2: ATR Trailing Stop (2.5x ATR from Peak once in profit)
+            atr_trailing_triggered = False
+            if peak_gain_pct >= 0.030 and peak_p > 0:
+                trail_distance_pct = (2.5 * atr) / peak_p
+                pullback_from_peak = (peak_p - cur_price) / peak_p
+                if pullback_from_peak >= trail_distance_pct and pnl_pct > 0.01:
+                    atr_trailing_triggered = True
+
+            # Synchronize broker-native protective stop order (crash-resistant floor)
+            desired_broker_stop = round(avg_price * (1.0 + effective_stop_pct), 2)
+            if not self.paper_mode and settings.ACCOUNT_MODE in ("PRACTICE", "LIVE"):
+                try:
+                    broker.sync_broker_stop_order(t212_ticker, qty, desired_broker_stop)
+                except Exception as stop_sync_err:
+                    logger.warning(f"Error syncing broker stop for {t212_ticker}: {stop_sync_err}")
+
+            # Trigger Stop-Loss / Breakeven Stop
+            if pnl_pct <= effective_stop_pct:
+                stop_label = "Breakeven Stop (+0.1%)" if effective_stop_pct > 0 else f"Stop Loss ({pnl_pct * 100:.2f}%)"
+                exit_msg = f"{stop_label} triggered: {pnl_pct * 100:.2f}%"
+                success, msg, realized_pnl = order_router.route_exit_order(
+                    symbol=t212_ticker,
+                    t212_ticker=t212_ticker,
+                    quantity=qty,
+                    current_price=cur_price,
+                    entry_price=avg_price,
+                    exit_reason=exit_msg,
+                    is_paper=self.paper_mode
+                )
+                if success:
+                    capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
+                    self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, exit_msg, is_paper=self.paper_mode, pnl_pct=pnl_pct * 100.0, pnl_gbp=realized_pnl)
+                    closed_trades.append(t212_ticker)
+                    if t212_ticker in self.position_peaks:
+                        del self.position_peaks[t212_ticker]
+                    try:
+                        latest_trades = db.get_trades(limit=1)
+                        t_id = latest_trades[0]["id"] if latest_trades else 1
+                        attribution_service.classify_trade_outcome(
+                            trade_id=t_id,
+                            trade_data={"symbol": yf_ticker, "realized_pnl": realized_pnl, "realized_pnl_pct": pnl_pct * 100.0, "exit_reason": exit_msg},
+                            telemetry={"pre_entry_latency_days": 0.0, "post_exit_mfe_20d_pct": 0.0, "entry_atr14": atr}
+                        )
+                        trajectory_service.record_trajectory(
+                            trade_id=t_id,
+                            symbol=yf_ticker,
+                            entry_timestamp=datetime.now(timezone.utc).isoformat(),
+                            exit_timestamp=datetime.now(timezone.utc).isoformat(),
+                            entry_price=avg_price,
+                            exit_price=cur_price,
+                            entry_atr=atr,
+                            duration_hours=24.0,
+                            in_trade_mfe_pct=peak_gain_pct * 100.0,
+                            in_trade_mae_pct=pnl_pct * 100.0
+                        )
+                    except Exception:
+                        pass
+
+            # Trigger ATR Trailing Stop
+            elif atr_trailing_triggered:
+                exit_msg = f"ATR Trailing Stop triggered at +{pnl_pct * 100:.2f}% (Peak was +{peak_gain_pct * 100:.2f}%)"
+                success, msg, realized_pnl = order_router.route_exit_order(
+                    symbol=t212_ticker,
+                    t212_ticker=t212_ticker,
+                    quantity=qty,
+                    current_price=cur_price,
+                    entry_price=avg_price,
+                    exit_reason=exit_msg,
+                    is_paper=self.paper_mode
+                )
+                if success:
+                    capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
+                    self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, f"{exit_msg} | Vaulted: £{realized_pnl:+.2f}", is_paper=self.paper_mode, pnl_pct=pnl_pct * 100.0, pnl_gbp=realized_pnl)
+                    closed_trades.append(t212_ticker)
+                    if t212_ticker in self.position_peaks:
+                        del self.position_peaks[t212_ticker]
+                    try:
+                        latest_trades = db.get_trades(limit=1)
+                        t_id = latest_trades[0]["id"] if latest_trades else 1
+                        attribution_service.classify_trade_outcome(
+                            trade_id=t_id,
+                            trade_data={"symbol": yf_ticker, "realized_pnl": realized_pnl, "realized_pnl_pct": pnl_pct * 100.0, "exit_reason": exit_msg},
+                            telemetry={"pre_entry_latency_days": 0.0, "post_exit_mfe_20d_pct": 0.0, "entry_atr14": atr}
+                        )
+                    except Exception:
+                        pass
+
+        return closed_trades, active_positions_returns
+
     def run_cycle(self) -> Dict[str, Any]:
         """
         Execute Phase 6 Return-Optimized quantitative cycle:
@@ -341,122 +480,7 @@ class PRVQuantEngine:
 
         # 5. Monitor and Manage Open Positions with ATR Trailing Stop & Breakeven Ratchet
         holding_map = {p.get("ticker"): p for p in open_positions}
-        closed_trades = []
-        active_positions_dfs = {}
-
-        for pos in open_positions:
-            t212_ticker = pos.get("ticker")
-            qty = float(pos.get("quantity", 0))
-            avg_price = float(pos.get("averagePrice", 0))
-            cur_price = float(pos.get("currentPrice", 0))
-            
-            if avg_price <= 0 or qty <= 0:
-                continue
-
-            # Update High Watermark Peak Price
-            if t212_ticker not in self.position_peaks or cur_price > self.position_peaks[t212_ticker]:
-                self.position_peaks[t212_ticker] = cur_price
-
-            peak_p = self.position_peaks[t212_ticker]
-            pnl_pct = (cur_price - avg_price) / avg_price
-            peak_gain_pct = (peak_p - avg_price) / avg_price
-
-            # Fetch ATR for Trailing Stop
-            yf_ticker = t212_ticker.replace("_US_EQ", "").replace("_EQ", "").replace("l", ".L")
-            snap = market_data.get_market_snapshot(yf_ticker)
-            atr = snap["indicators"]["atr"] if (snap.get("success") and "atr" in snap.get("indicators", {})) else (avg_price * 0.02)
-            # Phase 38 Protocol: Fixed -2.5% for Trades 1-50; Dynamic 2.5x ATR for Trades 51+
-            total_historical_trades = len(db.get_trades(limit=500))
-            if total_historical_trades < 50:
-                base_stop_pct = -settings.DEFAULT_STOP_LOSS_PCT  # Baseline -2.5% (Stage 1 Benchmark)
-            else:
-                # Dynamic 2.5x ATR Stop Loss (Out-of-sample forward test on £5,000 account)
-                base_stop_pct = -min(0.065, max(0.025, (2.5 * atr) / avg_price))
-
-            # Exit Rule 1: Breakeven Stop Ratchet after +3.0% Peak Gain
-            effective_stop_pct = base_stop_pct
-            if peak_gain_pct >= 0.030:
-                effective_stop_pct = 0.001  # Breakeven (+0.1% covering friction)
-
-            # Exit Rule 2: ATR Trailing Stop (2.5x ATR from Peak once in profit)
-            atr_trailing_triggered = False
-            if peak_gain_pct >= 0.030 and peak_p > 0:
-                trail_distance_pct = (2.5 * atr) / peak_p
-                pullback_from_peak = (peak_p - cur_price) / peak_p
-                if pullback_from_peak >= trail_distance_pct and pnl_pct > 0.01:
-                    atr_trailing_triggered = True
-
-            # Trigger Stop-Loss / Breakeven Stop
-            if pnl_pct <= effective_stop_pct:
-                stop_label = "Breakeven Stop (+0.1%)" if effective_stop_pct > 0 else f"Stop Loss ({pnl_pct * 100:.2f}%)"
-                exit_msg = f"{stop_label} triggered: {pnl_pct * 100:.2f}%"
-                success, msg, realized_pnl = order_router.route_exit_order(
-                    symbol=t212_ticker,
-                    t212_ticker=t212_ticker,
-                    quantity=qty,
-                    current_price=cur_price,
-                    entry_price=avg_price,
-                    exit_reason=exit_msg,
-                    is_paper=self.paper_mode
-                )
-                if success:
-                    capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
-                    self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, exit_msg, is_paper=self.paper_mode, pnl_pct=pnl_pct * 100.0, pnl_gbp=realized_pnl)
-                    closed_trades.append(t212_ticker)
-                    if t212_ticker in self.position_peaks:
-                        del self.position_peaks[t212_ticker]
-                    # Post-trade attribution & trajectory capture
-                    try:
-                        latest_trades = db.get_trades(limit=1)
-                        t_id = latest_trades[0]["id"] if latest_trades else 1
-                        attribution_service.classify_trade_outcome(
-                            trade_id=t_id,
-                            trade_data={"symbol": yf_ticker, "realized_pnl": realized_pnl, "realized_pnl_pct": pnl_pct * 100.0, "exit_reason": exit_msg},
-                            telemetry={"pre_entry_latency_days": 0.0, "post_exit_mfe_20d_pct": 0.0, "entry_atr14": atr}
-                        )
-                        trajectory_service.record_trajectory(
-                            trade_id=t_id,
-                            symbol=yf_ticker,
-                            entry_timestamp=datetime.now(timezone.utc).isoformat(),
-                            exit_timestamp=datetime.now(timezone.utc).isoformat(),
-                            entry_price=avg_price,
-                            exit_price=cur_price,
-                            entry_atr=atr,
-                            duration_hours=24.0,
-                            in_trade_mfe_pct=peak_gain_pct * 100.0,
-                            in_trade_mae_pct=pnl_pct * 100.0
-                        )
-                    except Exception:
-                        pass
-
-            # Trigger ATR Trailing Stop
-            elif atr_trailing_triggered:
-                exit_msg = f"ATR Trailing Stop triggered at +{pnl_pct * 100:.2f}% (Peak was +{peak_gain_pct * 100:.2f}%)"
-                success, msg, realized_pnl = order_router.route_exit_order(
-                    symbol=t212_ticker,
-                    t212_ticker=t212_ticker,
-                    quantity=qty,
-                    current_price=cur_price,
-                    entry_price=avg_price,
-                    exit_reason=exit_msg,
-                    is_paper=self.paper_mode
-                )
-                if success:
-                    capital_manager.process_realized_trade(f"EXIT_{t212_ticker}", t212_ticker, realized_pnl)
-                    self.notifier.notify_trade("SELL", t212_ticker, qty, cur_price, f"{exit_msg} | Vaulted: £{realized_pnl:+.2f}", is_paper=self.paper_mode, pnl_pct=pnl_pct * 100.0, pnl_gbp=realized_pnl)
-                    closed_trades.append(t212_ticker)
-                    if t212_ticker in self.position_peaks:
-                        del self.position_peaks[t212_ticker]
-                    try:
-                        latest_trades = db.get_trades(limit=1)
-                        t_id = latest_trades[0]["id"] if latest_trades else 1
-                        attribution_service.classify_trade_outcome(
-                            trade_id=t_id,
-                            trade_data={"symbol": yf_ticker, "realized_pnl": realized_pnl, "realized_pnl_pct": pnl_pct * 100.0, "exit_reason": exit_msg},
-                            telemetry={"pre_entry_latency_days": 0.0, "post_exit_mfe_20d_pct": 0.0, "entry_atr14": atr}
-                        )
-                    except Exception:
-                        pass
+        closed_trades, active_positions_dfs = self.monitor_open_positions(open_positions)
 
         # 6. Quantitative Universe Scanning & Dynamic Sizing (3% - 8%)
         universe = universe_manager.get_all()
@@ -497,7 +521,7 @@ class PRVQuantEngine:
 
                 price = snapshot["current_price"]
                 atr = snapshot["indicators"]["atr"]
-                df_asset = snapshot["dataframe"]
+                ann_vol = snapshot.get("indicators", {}).get("annualized_vol", 0.20)
 
                 # Multi-Factor Sizing Multiplier (3% - 8%)
                 composite_alpha_score, alpha_breakdown = alpha_engine.compute_institutional_alpha(
@@ -514,7 +538,7 @@ class PRVQuantEngine:
                     symbol=symbol,
                     price=price,
                     atr=atr,
-                    df=df_asset,
+                    df=ann_vol,
                     core_capital=core_capital,
                     available_cash=available_cash,
                     remaining_capacity=remaining_allowance,
@@ -845,11 +869,20 @@ class PRVQuantEngine:
                 import gc
                 gc.collect()
                 
-            for _ in range(self.scan_interval):
+            sleep_ticks = self.scan_interval
+            for tick in range(sleep_ticks):
                 if self._stop_event.is_set():
                     break
                 self.last_heartbeat_time = time.time()
                 self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
+                
+                # Continuous lightweight position & stop protection watchdog every 15 seconds
+                if tick > 0 and tick % 15 == 0:
+                    try:
+                        self.monitor_open_positions()
+                    except Exception as pos_err:
+                        logger.warning(f"Position monitor watchdog error: {pos_err}")
+
                 time.sleep(1)
 
 quant_engine = PRVQuantEngine()

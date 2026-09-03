@@ -26,9 +26,11 @@ class PortfolioConstructor:
         self.max_position_pct = max_position_pct
         self.target_annual_vol = target_annual_vol
 
-    def compute_asset_volatility(self, df: pd.DataFrame) -> float:
-        """Calculate annualized historical volatility from daily returns."""
-        if df.empty or len(df) < 20:
+    def compute_asset_volatility(self, df: Any) -> float:
+        """Calculate annualized historical volatility from daily returns or scalar fallback."""
+        if isinstance(df, (int, float)) and df > 0:
+            return float(df)
+        if not isinstance(df, pd.DataFrame) or df.empty or len(df) < 20:
             return self.target_annual_vol
         returns = df['Close'].pct_change().dropna()
         daily_std = returns.std()
@@ -36,20 +38,29 @@ class PortfolioConstructor:
 
     def compute_portfolio_correlation(
         self,
-        candidate_df: pd.DataFrame,
-        active_positions_dfs: Dict[str, pd.DataFrame]
+        candidate_df: Any,
+        active_positions_dfs: Dict[str, Any]
     ) -> float:
         """Calculate average pairwise return correlation between candidate and active holdings."""
-        if not active_positions_dfs or candidate_df.empty:
+        if not active_positions_dfs:
             return 0.0
 
         correlations = []
-        cand_returns = candidate_df['Close'].pct_change().dropna()
+        if isinstance(candidate_df, list) and len(candidate_df) >= 15:
+            cand_returns = pd.Series(candidate_df)
+        elif isinstance(candidate_df, pd.DataFrame) and not candidate_df.empty:
+            cand_returns = candidate_df['Close'].pct_change().dropna()
+        else:
+            return 0.0
 
-        for ticker, pos_df in active_positions_dfs.items():
-            if pos_df.empty:
+        for ticker, pos_data in active_positions_dfs.items():
+            if isinstance(pos_data, list) and len(pos_data) >= 15:
+                pos_returns = pd.Series(pos_data)
+            elif isinstance(pos_data, pd.DataFrame) and not pos_data.empty:
+                pos_returns = pos_data['Close'].pct_change().dropna()
+            else:
                 continue
-            pos_returns = pos_df['Close'].pct_change().dropna()
+
             combined = pd.concat([cand_returns, pos_returns], axis=1).dropna()
             if len(combined) >= 15:
                 corr = combined.iloc[:, 0].corr(combined.iloc[:, 1])

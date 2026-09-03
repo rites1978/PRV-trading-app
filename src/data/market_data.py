@@ -9,9 +9,11 @@ class MarketDataProvider:
         self._cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
         self._snapshot_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._cache_ttl_seconds: float = 1800.0  # 30-minute memory cache
+        self._cache_max_size: int = 25           # Bounded history cache
+        self._snapshot_cache_max_size: int = 150 # Bounded snapshot cache
 
     def fetch_history(self, yf_ticker: str, period: str = "6mo", interval: str = "1d") -> pd.DataFrame:
-        """Fetch historical price series from Yahoo Finance with TTL in-memory caching and fallback."""
+        """Fetch historical price series from Yahoo Finance with bounded in-memory caching and fallback."""
         now = time.time()
         if yf_ticker in self._cache:
             ts, cached_df = self._cache[yf_ticker]
@@ -22,6 +24,10 @@ class MarketDataProvider:
             stock = yf.Ticker(yf_ticker)
             df = stock.history(period=period, interval=interval)
             if not df.empty and len(df) >= 10:
+                # Evict oldest entry if cache exceeds bounds
+                if len(self._cache) >= self._cache_max_size:
+                    oldest_key = min(self._cache, key=lambda k: self._cache[k][0])
+                    del self._cache[oldest_key]
                 self._cache[yf_ticker] = (now, df)
                 return df.copy()
             elif yf_ticker in self._cache:
@@ -93,7 +99,7 @@ class MarketDataProvider:
         return data
 
     def get_market_snapshot(self, yf_ticker: str, is_uk_pence: bool = False) -> Dict[str, Any]:
-        """Generate structured analytical market snapshot for a ticker with cache fallback."""
+        """Generate structured analytical market snapshot for a ticker with bounded scalar cache."""
         now = time.time()
         cache_key = f"{yf_ticker}_{is_uk_pence}"
         if cache_key in self._snapshot_cache:
@@ -103,7 +109,6 @@ class MarketDataProvider:
 
         df = self.fetch_history(yf_ticker, period="6mo", interval="1d")
         if df.empty or len(df) < 15:
-            # Fallback baseline snapshot for index/macro tickers like ^GSPC
             fallback_snap = {
                 "success": True,
                 "ticker": yf_ticker,
@@ -124,9 +129,12 @@ class MarketDataProvider:
                     "atr": 45.0,
                     "atr_pct": 0.008,
                     "vol_ratio": 1.05,
-                    "obv_trending_up": True
+                    "obv_trending_up": True,
+                    "return_30d": 0.01,
+                    "annualized_vol": 0.20
                 },
-                "dataframe": df
+                "recent_returns": [0.001] * 20,
+                "dataframe": pd.DataFrame()
             }
             return fallback_snap
 
@@ -137,6 +145,15 @@ class MarketDataProvider:
         current_price = float(last['Close'])
         unit_price = (current_price / 100.0) if is_uk_pence else current_price
         
+        # Calculate compact scalars
+        idx_30d = max(0, len(df) - 21)
+        return_30d = float((current_price - float(df['Close'].iloc[idx_30d])) / max(0.001, float(df['Close'].iloc[idx_30d])))
+        
+        ret_series = df['Close'].pct_change().dropna()
+        daily_std = float(ret_series.std()) if len(ret_series) > 1 else 0.01
+        annualized_vol = float(daily_std * np.sqrt(252)) if not np.isnan(daily_std) else 0.20
+        recent_returns = [round(float(r), 5) for r in ret_series.tail(30).tolist()]
+
         snap = {
             "success": True,
             "ticker": yf_ticker,
@@ -157,10 +174,19 @@ class MarketDataProvider:
                 "atr": (float(last['ATR']) / 100.0) if is_uk_pence else float(last['ATR']),
                 "atr_pct": float(last['ATR_Pct']) if not pd.isna(last['ATR_Pct']) else 0.02,
                 "vol_ratio": float(last['Vol_Ratio']) if not pd.isna(last['Vol_Ratio']) else 1.0,
-                "obv_trending_up": bool(last['OBV'] > last['OBV_SMA_20']) if ('OBV' in last and 'OBV_SMA_20' in last) else True
+                "obv_trending_up": bool(last['OBV'] > last['OBV_SMA_20']) if ('OBV' in last and 'OBV_SMA_20' in last) else True,
+                "return_30d": return_30d,
+                "annualized_vol": annualized_vol
             },
-            "dataframe": df
+            "recent_returns": recent_returns,
+            "dataframe": pd.DataFrame() # Bounded stub: release full DataFrame memory
         }
+        
+        # Evict oldest snapshot if cache exceeds bounds
+        if len(self._snapshot_cache) >= self._snapshot_cache_max_size:
+            oldest_snap_key = min(self._snapshot_cache, key=lambda k: self._snapshot_cache[k][0])
+            del self._snapshot_cache[oldest_snap_key]
+
         self._snapshot_cache[cache_key] = (now, snap)
         return snap
 

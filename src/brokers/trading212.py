@@ -383,10 +383,56 @@ class Trading212Broker:
             try:
                 res = self._request_with_retry("DELETE", f"equity/orders/{order_id}")
                 if res.status_code in [200, 204]:
+                    self._cached_orders = None
+                    self._cached_orders_time = 0.0
                     return {"success": True}
                 return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
             except Exception as e:
                 return {"success": False, "error": str(e)}
+
+    def cancel_stop_orders_for_ticker(self, ticker: str) -> List[str]:
+        """Cancel any active stop orders for a specific ticker on Trading212."""
+        cancelled = []
+        try:
+            orders = self.get_open_orders(force_refresh=True)
+            for o in orders:
+                if str(o.get("ticker", "")).upper() == ticker.upper() and o.get("type") == "STOP":
+                    order_id = str(o.get("id"))
+                    res = self.cancel_order(order_id)
+                    if res.get("success"):
+                        cancelled.append(order_id)
+        except Exception as e:
+            logger.warning(f"Error cancelling stop orders for {ticker}: {e}")
+        return cancelled
+
+    def sync_broker_stop_order(self, ticker: str, quantity: float, desired_stop_price: float) -> Dict[str, Any]:
+        """
+        Ensures a broker-native stop order exists at or above desired_stop_price.
+        If existing stop is lower than desired_stop_price (e.g. trailing ratchet),
+        cancels the existing stop and places the new higher stop order.
+        """
+        try:
+            orders = self.get_open_orders(force_refresh=False)
+            existing_stop = next((o for o in orders if str(o.get("ticker", "")).upper() == ticker.upper() and o.get("type") == "STOP"), None)
+            
+            desired_stop_price = round(desired_stop_price, 2)
+            if existing_stop:
+                current_stop = float(existing_stop.get("stopPrice", 0.0))
+                # If existing stop is already at or above desired stop, keep it
+                if current_stop >= desired_stop_price:
+                    return {"success": True, "action": "KEPT_EXISTING", "order_id": existing_stop.get("id"), "stopPrice": current_stop}
+                
+                # Ratchet up: cancel lower stop order and replace with higher
+                self.cancel_order(str(existing_stop.get("id")))
+            
+            # Place new stop order
+            qty = -abs(quantity)
+            res = self.place_stop_order(ticker, quantity=qty, stop_price=desired_stop_price, time_validity="DAY")
+            if res.get("success"):
+                return {"success": True, "action": "PLACED_NEW", "order_id": res.get("data", {}).get("id"), "stopPrice": desired_stop_price}
+            return {"success": False, "error": res.get("error")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def refresh_broker_snapshot(self, force: bool = True) -> Dict[str, Any]:
         """

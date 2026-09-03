@@ -24,9 +24,17 @@ class SectorRotationResearcher:
     """
     def __init__(self):
         self._sector_cache: Dict[str, float] = {}
+        self._etf_returns: Dict[str, float] = {}
+        self._sector_cache_time: float = 0.0
+        self._cache_ttl_seconds: float = 1800.0
 
     def compute_sector_momentum(self) -> Dict[str, float]:
-        """Compute 30-day relative strength of all major sectors vs S&P 500."""
+        """Compute 30-day relative strength of all major sectors vs S&P 500 with 30-minute cache."""
+        import time
+        now = time.time()
+        if self._sector_cache and (now - self._sector_cache_time) < self._cache_ttl_seconds:
+            return self._sector_cache
+
         try:
             sp500 = yf.Ticker("^GSPC").history(period="3mo")
             if sp500.empty or len(sp500) < 20:
@@ -34,11 +42,13 @@ class SectorRotationResearcher:
 
             sp_return_30d = (sp500['Close'].iloc[-1] - sp500['Close'].iloc[-20]) / sp500['Close'].iloc[-20]
             scores = {}
+            etf_returns = {}
 
             for sector, etf_ticker in SECTOR_ETF_MAP.items():
                 etf = yf.Ticker(etf_ticker).history(period="3mo")
                 if etf.empty or len(etf) < 20:
                     scores[sector] = 50.0
+                    etf_returns[sector] = 0.0
                     continue
 
                 etf_return_30d = (etf['Close'].iloc[-1] - etf['Close'].iloc[-20]) / etf['Close'].iloc[-20]
@@ -47,40 +57,36 @@ class SectorRotationResearcher:
                 # Sector Alpha Score (0 - 100)
                 sector_score = 50.0 + (excess_return * 500.0) # 1% excess return = +5 score points
                 scores[sector] = max(10.0, min(95.0, sector_score))
+                etf_returns[sector] = float(etf_return_30d)
 
             self._sector_cache = scores
+            self._etf_returns = etf_returns
+            self._sector_cache_time = now
             return scores
         except Exception:
             return {s: 50.0 for s in SECTOR_ETF_MAP}
 
     def evaluate_relative_strength(
         self,
-        stock_df: pd.DataFrame,
-        sector: str
+        stock_df: Any,
+        sector: str,
+        stock_return_30d_fallback: float = 0.0
     ) -> Dict[str, Any]:
         """
-        Evaluate stock relative strength against its specific sector ETF benchmark.
+        Evaluate stock relative strength against its specific sector ETF benchmark using cached ETF returns.
         """
         if not self._sector_cache:
             self.compute_sector_momentum()
 
         sector_momentum_score = self._sector_cache.get(sector, 50.0)
-        etf_ticker = SECTOR_ETF_MAP.get(sector, "XLK")
+        etf_return = self._etf_returns.get(sector, 0.0)
 
         try:
-            if stock_df.empty or len(stock_df) < 20:
-                return {
-                    "sector_momentum_score": sector_momentum_score,
-                    "relative_strength_score": 50.0,
-                    "is_sector_leader": False
-                }
-
-            stock_return_30d = (stock_df['Close'].iloc[-1] - stock_df['Close'].iloc[-20]) / stock_df['Close'].iloc[-20]
-            
-            etf = yf.Ticker(etf_ticker).history(period="3mo")
-            etf_return = 0.0
-            if not etf.empty and len(etf) >= 20:
-                etf_return = (etf['Close'].iloc[-1] - etf['Close'].iloc[-20]) / etf['Close'].iloc[-20]
+            stock_return_30d = stock_return_30d_fallback
+            if isinstance(stock_df, pd.DataFrame) and not stock_df.empty and len(stock_df) >= 20:
+                stock_return_30d = (stock_df['Close'].iloc[-1] - stock_df['Close'].iloc[-20]) / stock_df['Close'].iloc[-20]
+            elif isinstance(stock_df, (int, float)):
+                stock_return_30d = float(stock_df)
 
             stock_vs_sector_alpha = stock_return_30d - etf_return
             
