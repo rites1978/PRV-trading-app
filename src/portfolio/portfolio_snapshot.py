@@ -385,45 +385,14 @@ class PortfolioSnapshotService:
         net_external_flows = 0.0
         nav_delta = round(total_nav - starting_capital - net_external_flows, 2)
 
-        # Realized P&L directly from broker account summary result or closed trades ledger
-        broker_result = summary.get("result")
-        realized_trading_pnl = round(float(broker_result), 2) if broker_result is not None else 0.0
-        
-        # Unrealized P&L: Mark-to-market position gain over authoritative cost basis
-        unrealized_trading_pnl = round(total_unrealized_pnl, 2)
-
-        # Actual debited fees: query filled orders ledger from broker for explicit taxes/fees
-        # (STAMP_DUTY_RESERVE_TAX, CURRENCY_CONVERSION_FEE)
-        total_sdrt_paid = self._cached_fees.get("sdrt", 0.0)
-        total_fx_paid = self._cached_fees.get("fx", 0.0)
-        try:
-            res_orders = broker._request_with_retry("GET", "equity/history/orders?limit=50")
-            if res_orders.status_code == 200:
-                h_items = res_orders.json().get("items", [])
-                if h_items:
-                    computed_sdrt = 0.0
-                    computed_fx = 0.0
-                    for it in h_items:
-                        if it.get("order", {}).get("status") == "FILLED":
-                            w = it.get("fill", {}).get("walletImpact", {})
-                            for tax in w.get("taxes", []):
-                                t_name = tax.get("name")
-                                t_qty = abs(float(tax.get("quantity", 0.0)))
-                                if t_name == "STAMP_DUTY_RESERVE_TAX":
-                                    computed_sdrt += t_qty
-                                elif t_name == "CURRENCY_CONVERSION_FEE":
-                                    computed_fx += t_qty
-                    if computed_sdrt > 0 or computed_fx > 0:
-                        total_sdrt_paid = computed_sdrt
-                        total_fx_paid = computed_fx
-                        self._cached_fees["sdrt"] = round(total_sdrt_paid, 2)
-                        self._cached_fees["fx"] = round(total_fx_paid, 2)
-        except Exception:
-            pass
-
-        total_sdrt_paid = round(total_sdrt_paid, 2)
-        total_fx_paid = round(total_fx_paid, 2)
-        total_broker_debited_fees = round(total_sdrt_paid + total_fx_paid, 2)
+        # Pull authoritative ground-truth ledger directly from broker_ledger service
+        from src.brokers.broker_ledger import broker_ledger
+        ledger = broker_ledger.fetch_ground_truth_ledger(force_refresh=False)
+        realized_trading_pnl = ledger["broker_derived_realized_pnl_gbp"]
+        unrealized_trading_pnl = ledger["broker_derived_unrealized_pnl_gbp"]
+        total_sdrt_paid = ledger["sdrt_paid_gbp"]
+        total_fx_paid = ledger["fx_fees_paid_gbp"]
+        total_broker_debited_fees = ledger["broker_derived_total_costs_gbp"]
         dividends_received = 0.0
         cash_interest_received = 0.0
         ptm_levy = 0.0
