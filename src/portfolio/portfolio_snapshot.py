@@ -203,6 +203,13 @@ class PortfolioSnapshotService:
         position_ages: List[float] = []
 
         broker_invested = float(summary.get("invested", 0.0)) if summary.get("invested") is not None else 0.0
+        # If broker_invested was passed as market value (invested ~= total_nav - free_cash),
+        # normalize to cost basis by subtracting summary unrealized P&L
+        summary_ppl = float(summary.get("ppl", 0.0))
+        if broker_invested > 0 and summary.get("total_value") is not None and summary.get("available_cash") is not None:
+            implied_mkt_val = float(summary.get("total_value")) - float(summary.get("available_cash"))
+            if abs(broker_invested - implied_mkt_val) < 1.0 and abs(summary_ppl) > 0.01:
+                broker_invested = round(implied_mkt_val - summary_ppl, 2)
         
         # Pre-compute raw cost bases for proportional allocation
         raw_costs = []
@@ -387,7 +394,7 @@ class PortfolioSnapshotService:
 
         # Pull authoritative ground-truth ledger directly from broker_ledger service
         from src.brokers.broker_ledger import broker_ledger
-        ledger = broker_ledger.fetch_ground_truth_ledger(force_refresh=False)
+        ledger = broker_ledger.fetch_ground_truth_ledger(force_refresh=force_refresh)
         realized_trading_pnl = ledger["broker_derived_realized_pnl_gbp"]
         unrealized_trading_pnl = ledger["broker_derived_unrealized_pnl_gbp"]
         total_sdrt_paid = ledger["sdrt_paid_gbp"]

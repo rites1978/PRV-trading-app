@@ -43,8 +43,12 @@ class TestPracticeMarketHoursGate(unittest.TestCase):
         }
         self.daily_patch = patch("src.portfolio.daily_objective_service.daily_objective_service.get_daily_status", return_value={"new_discretionary_entries_allowed": True, "gate_reason": "CLEAR", "sizing_multiplier": 1.0, "emergency_risk_mode": False})
         self.daily_patch.start()
+        from src.config.settings import settings
+        self.settings_patch = patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True)
+        self.settings_patch.start()
 
     def tearDown(self):
+        self.settings_patch.stop()
         self.daily_patch.stop()
 
     @patch("src.data.market_hours.market_hours.is_asset_market_open")

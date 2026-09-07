@@ -765,6 +765,28 @@ CREATE TABLE IF NOT EXISTS shadow_strategy_ledger (
     status TEXT NOT NULL DEFAULT 'ACTIVE'
 );
 CREATE INDEX IF NOT EXISTS idx_shadow_strat ON shadow_strategy_ledger(strategy_id, evaluation_date);
+
+CREATE TABLE IF NOT EXISTS v2_rotations (
+    rotation_id TEXT PRIMARY KEY,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    strategy_id TEXT NOT NULL DEFAULT 'V2',
+    ticker TEXT NOT NULL,
+    planned_capital REAL NOT NULL DEFAULT 0.0,
+    deployed_capital REAL NOT NULL,
+    entry_broker_ids TEXT NOT NULL,
+    exit_broker_ids TEXT NOT NULL,
+    gross_pnl REAL NOT NULL,
+    sdrt REAL NOT NULL DEFAULT 0.0,
+    fx REAL NOT NULL DEFAULT 0.0,
+    regulatory_fees REAL NOT NULL DEFAULT 0.0,
+    other_costs REAL NOT NULL DEFAULT 0.0,
+    realised_net_pnl REAL NOT NULL,
+    recovery_allocation REAL NOT NULL DEFAULT 0.0,
+    vault_allocation REAL NOT NULL DEFAULT 0.0,
+    rotation_type TEXT NOT NULL DEFAULT 'STRATEGY_ROTATION'
+);
+CREATE INDEX IF NOT EXISTS idx_v2_rotations_ticker ON v2_rotations(ticker);
+CREATE INDEX IF NOT EXISTS idx_v2_rotations_time ON v2_rotations(timestamp);
 """
 
 class Database:
@@ -883,6 +905,14 @@ class Database:
                 if ot_cols and c_name not in ot_cols:
                     cur.execute(f"ALTER TABLE order_telemetry ADD COLUMN {c_name} {c_def}")
 
+            # Auto-migrate v2_rotations table for planned_capital and rotation_type
+            cur.execute("PRAGMA table_info(v2_rotations)")
+            v2_cols = [c["name"] for c in cur.fetchall()]
+            if v2_cols and "planned_capital" not in v2_cols:
+                cur.execute("ALTER TABLE v2_rotations ADD COLUMN planned_capital REAL NOT NULL DEFAULT 0.0")
+            if v2_cols and "rotation_type" not in v2_cols:
+                cur.execute("ALTER TABLE v2_rotations ADD COLUMN rotation_type TEXT NOT NULL DEFAULT 'STRATEGY_ROTATION'")
+
             # Seed initial cycles if ai_performance_cycles is empty
             cur.execute("SELECT COUNT(*) as cnt FROM ai_performance_cycles")
             cnt = cur.fetchone()["cnt"]
@@ -979,6 +1009,76 @@ class Database:
             """, ("CAPITAL_TRANSFER_WITHDRAWAL", "N/A", -amount, new_total, notes))
             conn.commit()
             return new_total
+
+    # --- Strategy V2 Capital Rotation Ledger ---
+    def record_v2_rotation(
+        self,
+        rotation_id: str,
+        ticker: str,
+        deployed_capital: float,
+        entry_broker_ids: str,
+        exit_broker_ids: str,
+        gross_pnl: float,
+        sdrt: float,
+        fx: float,
+        regulatory_fees: float,
+        other_costs: float,
+        realised_net_pnl: float,
+        recovery_allocation: float,
+        vault_allocation: float,
+        strategy_id: str = "V2",
+        planned_capital: Optional[float] = None,
+        rotation_type: str = "STRATEGY_ROTATION"
+    ) -> Dict[str, Any]:
+        planned_cap = float(planned_capital) if planned_capital is not None else float(deployed_capital)
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT OR REPLACE INTO v2_rotations (
+                    rotation_id, strategy_id, ticker, planned_capital, deployed_capital,
+                    entry_broker_ids, exit_broker_ids, gross_pnl,
+                    sdrt, fx, regulatory_fees, other_costs,
+                    realised_net_pnl, recovery_allocation, vault_allocation, rotation_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                rotation_id, strategy_id, ticker, planned_cap, float(deployed_capital),
+                str(entry_broker_ids), str(exit_broker_ids), float(gross_pnl),
+                float(sdrt), float(fx), float(regulatory_fees), float(other_costs),
+                float(realised_net_pnl), float(recovery_allocation), float(vault_allocation),
+                str(rotation_type)
+            ))
+            conn.commit()
+            return {
+                "rotation_id": rotation_id,
+                "strategy_id": strategy_id,
+                "ticker": ticker,
+                "planned_capital": planned_cap,
+                "deployed_capital": deployed_capital,
+                "entry_broker_ids": entry_broker_ids,
+                "exit_broker_ids": exit_broker_ids,
+                "gross_pnl": gross_pnl,
+                "sdrt": sdrt,
+                "fx": fx,
+                "regulatory_fees": regulatory_fees,
+                "other_costs": other_costs,
+                "realised_net_pnl": realised_net_pnl,
+                "recovery_allocation": recovery_allocation,
+                "vault_allocation": vault_allocation,
+                "rotation_type": rotation_type
+            }
+
+    def get_v2_rotations(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM v2_rotations ORDER BY timestamp DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_v2_rotation_by_id(self, rotation_id: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM v2_rotations WHERE rotation_id = ?", (rotation_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
 
     # --- Capital Transfers (Separated from Trading P&L) ---
     def record_capital_transfer(

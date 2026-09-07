@@ -17,7 +17,7 @@ class TradingSettings(BaseModel):
     # Environment, Account Mode & Practice Trading Controls
     ACCOUNT_MODE: str = "PRACTICE"
     PRACTICE_TRADING_ENABLED: bool = True
-    PRACTICE_NEW_ENTRIES_ALLOWED: bool = True
+    PRACTICE_NEW_ENTRIES_ALLOWED: bool = False
     REAL_MONEY_TRADING_ENABLED: bool = False
     REAL_MONEY_NEW_ENTRIES_ALLOWED: bool = False
     

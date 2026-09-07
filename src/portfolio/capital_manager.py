@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from src.config.settings import settings
 from src.database.db import db
 
@@ -149,16 +149,42 @@ class CapitalManager:
 
         return breakdown
 
-    def process_realized_trade(self, trade_id: str, symbol: str, realized_pnl: float) -> Dict[str, Any]:
-        """On trade close: Sweep 100% of realized gain to Profit Vault."""
+    def process_realized_trade(self, trade_id: str, symbol: str, realized_pnl: float, current_core_capital: Optional[float] = None) -> Dict[str, Any]:
+        """
+        On trade close:
+        If in Recovery Mode (core_capital < £50,000), realized profits first restore the active base to £50,000.
+        Only the excess profit beyond the deficit is swept to the Profit Vault.
+        """
         if realized_pnl > 0:
-            new_vault_total = db.deposit_profit_vault(
-                trade_id=trade_id,
-                symbol=symbol,
-                realized_profit=realized_pnl,
-                notes="Automated profit sweep from closed position."
-            )
-            return {"vaulted": True, "amount": realized_pnl, "new_vault_total": new_vault_total}
-        return {"vaulted": False, "amount": 0.0, "realized_loss": realized_pnl}
+            vault_bal = db.get_vault_balance()
+            if current_core_capital is not None:
+                core_cap = current_core_capital
+            else:
+                snap = self.get_capital_state(
+                    total_broker_nav=settings.REFERENCE_BASE_CAPITAL,
+                    total_invested=0.0,
+                    available_cash=settings.REFERENCE_BASE_CAPITAL
+                )
+                core_cap = snap.get("core_capital", settings.REFERENCE_BASE_CAPITAL)
+
+            base_deficit = max(0.0, round(settings.REFERENCE_BASE_CAPITAL - core_cap, 2))
+            restored_to_base = min(realized_pnl, base_deficit)
+            amount_to_vault = round(realized_pnl - restored_to_base, 2)
+
+            new_vault_total = vault_bal
+            if amount_to_vault > 0:
+                new_vault_total = db.deposit_profit_vault(
+                    trade_id=trade_id,
+                    symbol=symbol,
+                    realized_profit=amount_to_vault,
+                    notes=f"V2 Profit Rotation sweep ({symbol}). Restored to base: £{restored_to_base:.2f}"
+                )
+            return {
+                "vaulted": (amount_to_vault > 0),
+                "amount": amount_to_vault,
+                "restored_to_base": restored_to_base,
+                "new_vault_total": new_vault_total
+            }
+        return {"vaulted": False, "amount": 0.0, "restored_to_base": 0.0, "realized_loss": realized_pnl}
 
 capital_manager = CapitalManager()

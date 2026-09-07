@@ -32,7 +32,13 @@ class TestProfitabilityExecutionUpgrade(unittest.TestCase):
 
     def setUp(self):
         from src.execution.order_state_machine import portfolio_reservations
+        from src.portfolio.portfolio_snapshot import portfolio_snapshot
+        from src.brokers.broker_ledger import broker_ledger
         portfolio_reservations.reset()
+        portfolio_snapshot._last_snapshot = None
+        portfolio_snapshot._last_snapshot_time = 0.0
+        broker_ledger._cached_ledger = None
+        broker_ledger._cache_timestamp = 0.0
 
     def test_nav_reconciliation_and_invariants(self):
         """Test authoritative snapshot verifies all 6 balance sheet invariants."""
@@ -245,7 +251,9 @@ class TestProfitabilityExecutionUpgrade(unittest.TestCase):
     def test_order_telemetry_and_marketable_limits(self):
         """Test order routing records full execution telemetry and price controls."""
         from unittest.mock import patch
-        with patch("src.portfolio.daily_objective_service.daily_objective_service.get_daily_status", return_value={"new_discretionary_entries_allowed": True, "gate_reason": "CLEAR", "sizing_multiplier": 1.0, "emergency_risk_mode": False}):
+        from src.config.settings import settings
+        with patch("src.portfolio.daily_objective_service.daily_objective_service.get_daily_status", return_value={"new_discretionary_entries_allowed": True, "gate_reason": "CLEAR", "sizing_multiplier": 1.0, "emergency_risk_mode": False}), \
+             patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True):
             success, msg, data = order_router.route_entry_order(
                 symbol="CRM",
                 t212_ticker="CRM_US_EQ",

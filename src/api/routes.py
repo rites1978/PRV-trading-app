@@ -29,6 +29,9 @@ app = FastAPI(
 @app.on_event("startup")
 def on_startup():
     """Start background 60s broker snapshot refresh worker on API boot."""
+    import sys
+    if "unittest" in sys.modules or os.getenv("PRV_TESTING", "").lower() in ("true", "1", "yes"):
+        return
     broker.start_background_sync(interval_seconds=60)
     autorun = os.getenv("PRV_AUTORUN_ENGINE", "true").strip().lower() in ("true", "1", "yes")
     if autorun:
@@ -57,11 +60,25 @@ def serve_dashboard():
 
 @app.get("/health")
 def health_check():
+    git_commit = os.getenv("RENDER_GIT_COMMIT", "")
+    if not git_commit:
+        try:
+            import subprocess
+            git_commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        except Exception:
+            git_commit = "UNKNOWN"
+
+    from src.strategies.registry import strategy_registry
+    exec_authority = "HOLD" if not settings.PRACTICE_NEW_ENTRIES_ALLOWED else strategy_registry.get_active_execution_strategy_id()
+
     return {
         "status": "healthy",
         "engine_running": quant_engine.is_running,
         "paper_mode": quant_engine.paper_mode,
-        "environment": broker.env
+        "environment": broker.env,
+        "git_commit": git_commit,
+        "new_entries_allowed": settings.PRACTICE_NEW_ENTRIES_ALLOWED,
+        "execution_authority": exec_authority
     }
 
 @app.get("/api/system/memory")
@@ -99,6 +116,17 @@ def get_system_memory_diagnostics():
     from src.data.market_data import market_data
     uptime_sec = round(time.time() - getattr(quant_engine, "boot_time", time.time()), 1)
 
+    git_commit = os.getenv("RENDER_GIT_COMMIT", "")
+    if not git_commit:
+        try:
+            import subprocess
+            git_commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        except Exception:
+            git_commit = "UNKNOWN"
+
+    from src.strategies.registry import strategy_registry
+    exec_authority = "HOLD" if not settings.PRACTICE_NEW_ENTRIES_ALLOWED else strategy_registry.get_active_execution_strategy_id()
+
     return {
         "memory_rss_mb": round(rss_mb, 2),
         "memory_peak_mb": round(vm_peak_mb, 2),
@@ -110,7 +138,9 @@ def get_system_memory_diagnostics():
         "market_data_cache_count": len(getattr(market_data, "_cache", {})),
         "market_data_snapshot_count": len(getattr(market_data, "_snapshot_cache", {})),
         "gc_counts": gc.get_count(),
-        "new_entries_allowed": settings.PRACTICE_NEW_ENTRIES_ALLOWED
+        "git_commit": git_commit,
+        "new_entries_allowed": settings.PRACTICE_NEW_ENTRIES_ALLOWED,
+        "execution_authority": exec_authority
     }
 
 @app.get("/capital")
@@ -904,6 +934,118 @@ def get_shadow_portfolio_history(limit: int = 30):
 def get_broker_parity_check():
     """Verify that Broker is the Source of Truth and reconcile holdings counts."""
     return broker.verify_broker_truth()
+
+@app.get("/api/strategy/v2_panel")
+def get_strategy_v2_panel():
+    """
+    Returns full V2 Net Profit Capital Rotation Dashboard Panel payload:
+    - Active Strategy Metadata & Version Hashes
+    - Capital & Vault Ledger (Active Capital, Deployed, Free Cash, Vault, Deficit)
+    - Open Position Tracking (Deployed, Gross P&L, Estimated Net P&L, Net Return %, +0.5% Target £, Reached, Protected Floor, Stop, Broker Stop ID)
+    - Today's Performance (Realized Net P&L, Banked, Losses, Costs, Completed Rotations)
+    - Strategy Benchmarks: V1 Shadow vs V2 Live
+    """
+    from src.strategies.registry import strategy_registry
+    from src.strategies.v2_rotation import strategy_v2
+    from src.portfolio.capital_manager import capital_manager
+    from src.brokers.broker_ledger import broker_ledger
+
+    ledger = broker_ledger.fetch_ground_truth_ledger()
+    open_orders = broker.get_open_orders(force_refresh=False) or []
+    stop_orders_by_ticker = {
+        str(o.get("ticker", "")).upper(): o
+        for o in open_orders if o.get("type") == "STOP"
+    }
+
+    nav = ledger["broker_nav_gbp"]
+    cash = ledger["cash_gbp"]
+    invested = ledger["invested_value_gbp"]
+    cap_state = capital_manager.get_capital_state(nav, invested, cash)
+
+    # Open positions enriched with V2 Net Profit liquidation analytics
+    positions = ledger.get("open_positions", [])
+    enriched_positions = []
+    for p in positions:
+        ticker = str(p.get("ticker", "")).upper()
+        qty = float(p.get("quantity", 0))
+        avg_price = float(p.get("averagePrice", 0))
+        cur_price = float(p.get("currentPrice", 0))
+        deployed = round(qty * avg_price, 2)
+        cur_val = round(qty * cur_price, 2)
+        
+        is_uk = ticker.endswith("l_EQ") or ticker.endswith(".L")
+        is_foreign = not is_uk
+
+        entry_friction = strategy_v2.compute_entry_friction(deployed, is_uk=is_uk, is_foreign=is_foreign, shares_count=qty)
+        entry_costs = entry_friction["explicit_entry_fee"]
+
+        pnl_data = strategy_v2.calculate_estimated_net_liquidation_pnl(
+            current_value=cur_val,
+            true_entry_capital=deployed,
+            entry_costs=entry_costs,
+            ticker=ticker,
+            is_uk=is_uk,
+            is_foreign=is_foreign,
+            shares_count=qty
+        )
+
+        matching_stop = stop_orders_by_ticker.get(ticker, {})
+        stop_id = str(matching_stop.get("id")) if matching_stop else None
+        stop_price = float(matching_stop.get("stopPrice", 0.0)) if matching_stop else round(avg_price * 0.975, 2)
+
+        pnl_pct = (cur_price - avg_price) / max(0.01, avg_price)
+        trend_state = "STRONG_UPTREND" if pnl_pct > 0.02 else ("MODERATE_UPTREND" if pnl_pct > 0 else "CONSOLIDATING")
+
+        min_target = pnl_data["min_target_gbp"]
+        protected_profit = min_target if pnl_data["target_reached"] else 0.0
+
+        enriched_positions.append({
+            "ticker": ticker,
+            "quantity": qty,
+            "average_price": avg_price,
+            "current_price": cur_price,
+            "deployed_capital": deployed,
+            "current_value": cur_val,
+            "gross_pnl": pnl_data["gross_pnl"],
+            "estimated_net_pnl": pnl_data["estimated_net_pnl"],
+            "net_return_pct": pnl_data["net_return_pct"],
+            "min_target_gbp": min_target,
+            "target_reached": pnl_data["target_reached"],
+            "protected_profit_gbp": protected_profit,
+            "current_stop_price": stop_price,
+            "trend_state": trend_state,
+            "broker_stop_id": stop_id
+        })
+
+    today_exits = ledger.get("exits", [])
+    today_realized_pnl = round(sum(e["realized_pnl_gbp"] for e in today_exits if e.get("realized_pnl_gbp") is not None), 2)
+    today_costs = round(ledger.get("broker_derived_total_costs_gbp", 0.0), 2)
+    today_losses = round(sum(e["realized_pnl_gbp"] for e in today_exits if (e.get("realized_pnl_gbp") or 0) < 0), 2)
+
+    return {
+        "active_strategy": "PRV_STRATEGY_V2",
+        "strategy_name": "Net Profit Capital Rotation",
+        "v2_config_hash": strategy_registry.get_v2_config_hash(),
+        "v1_config_hash": strategy_registry.get_v1_config_hash(),
+        "active_trading_capital": cap_state["core_capital"],
+        "capital_currently_deployed": cap_state["active_capital"],
+        "free_deployable_cash": cap_state["idle_core_cash"],
+        "locked_profit_vault": cap_state["profit_vault_balance"],
+        "recovery_deficit": cap_state["base_capital_deficit"],
+        "in_recovery_mode": cap_state["in_recovery_mode"],
+        "open_positions": enriched_positions,
+        "today": {
+            "realised_net_pnl": today_realized_pnl,
+            "banked_profit": cap_state["profit_vault_balance"],
+            "losses": today_losses,
+            "transaction_costs": today_costs,
+            "number_of_completed_rotations": len(today_exits)
+        },
+        "benchmarks": {
+            "v1_shadow": strategy_registry.get_strategy("V1"),
+            "v2_live": strategy_registry.get_strategy("V2")
+        }
+    }
 
 # --- Pre-Market Production Readiness Gate & Master PDF Endpoints ---
 from src.monitoring.production_readiness_gate import readiness_gate

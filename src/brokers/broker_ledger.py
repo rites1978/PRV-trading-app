@@ -18,6 +18,16 @@ class BrokerLedgerService:
     def __init__(self):
         self._cached_ledger: Optional[Dict[str, Any]] = None
         self._cached_time: float = 0.0
+        self._cached_order_items: List[Dict[str, Any]] = []
+        try:
+            import json, os
+            cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "trading212_raw_orders.json")
+            if os.path.exists(cache_path):
+                with open(cache_path, "r") as f:
+                    data = json.load(f)
+                    self._cached_order_items = data if isinstance(data, list) else data.get("items", [])
+        except Exception:
+            pass
 
     def get_challenge_day(self) -> int:
         now_date = datetime.now(timezone.utc).date()
@@ -48,11 +58,13 @@ class BrokerLedgerService:
         # 3. Pull ALL historical orders with full pagination
         all_order_items = []
         path = "equity/history/orders?limit=50"
+        orders_request_succeeded = False
         while path:
             try:
                 res = broker._request_with_retry("GET", path)
-                if res.status_code != 200:
+                if not res or res.status_code != 200:
                     break
+                orders_request_succeeded = True
                 d = res.json()
                 items = d.get("items", [])
                 all_order_items.extend(items)
@@ -61,6 +73,21 @@ class BrokerLedgerService:
             except Exception as e:
                 logger.error(f"Error paginating broker historical orders: {e}")
                 break
+
+        if all_order_items or (orders_request_succeeded and broker_result == 0.0):
+            self._cached_order_items = all_order_items
+            try:
+                import json, os
+                cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "trading212_raw_orders.json")
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                with open(cache_path, "w") as f:
+                    json.dump(all_order_items, f)
+            except Exception:
+                pass
+        elif getattr(self, "_cached_order_items", None):
+            all_order_items = list(self._cached_order_items)
+        elif self._cached_ledger:
+            return dict(self._cached_ledger)
 
         # 4. Parse filled transactions
         entries = []

@@ -131,13 +131,21 @@ class OrderRouter:
         instrument_type: str = "EQUITY",
         decision_price: Optional[float] = None,
         bypass_market_hours: bool = False,
-        bypass_audit_freeze: bool = False
+        bypass_audit_freeze: bool = False,
+        strategy_id: str = "V2"
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Validates Net Edge Gate and executes entry order with hardened lifecycle and telemetry.
         """
         signal_time = datetime.now(timezone.utc).isoformat()
         t0 = time.time()
+
+        # 0. Strategy Execution Authority Gate (Only active strategy V2 can route practice orders)
+        from src.strategies.registry import strategy_registry
+        if not strategy_registry.can_strategy_route_orders(strategy_id):
+            reason = f"HOLD: Strategy '{strategy_id}' is not authorized for broker execution (shadow benchmark only)."
+            self._log_audit("HOLD_STRATEGY_SHADOW", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, f"STRATEGY_{strategy_id}_SHADOW_ONLY")
+            return False, reason, {"approved": False, "rejection_reasons": [f"STRATEGY_{strategy_id}_SHADOW_ONLY"]}
 
         # Determine explicit simulation mode (never triggered merely by ACCOUNT_MODE=PRACTICE)
         is_internal_sim = is_simulation or (is_paper is True) or (settings.ACCOUNT_MODE.upper() in ("SIMULATION", "INTERNAL_SIMULATION"))

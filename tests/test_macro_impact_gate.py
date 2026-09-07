@@ -14,7 +14,7 @@ Verifies:
 """
 import os
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi.testclient import TestClient
 from main import app
 from src.database.db import db
@@ -36,13 +36,15 @@ class TestMacroImpactGatePhase2(unittest.TestCase):
         self.assertLess(hrs_live, 24.0)
 
         # 2. 1-7 days -> RECENT NEWS
-        q_recent, hrs_recent, disp_recent = macro_impact_gate._calculate_news_quality_and_age("2026-08-29T10:00:00Z")
+        recent_iso = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+        q_recent, hrs_recent, disp_recent = macro_impact_gate._calculate_news_quality_and_age(recent_iso)
         self.assertEqual(q_recent, "RECENT NEWS")
         self.assertGreaterEqual(hrs_recent, 24.0)
         self.assertLessEqual(hrs_recent, 168.0)
 
         # 3. >7 days -> STALE NEWS
-        q_stale, hrs_stale, disp_stale = macro_impact_gate._calculate_news_quality_and_age("2026-08-10T00:00:00Z")
+        stale_iso = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        q_stale, hrs_stale, disp_stale = macro_impact_gate._calculate_news_quality_and_age(stale_iso)
         self.assertEqual(q_stale, "STALE NEWS")
         self.assertGreater(hrs_stale, 168.0)
 

@@ -20,6 +20,14 @@ class TestDatabaseSecurityAndRLS(unittest.TestCase):
     """
     Test suite for Supabase Row-Level Security, least-privilege access, and startup security preflight.
     """
+    def setUp(self):
+        portfolio_snapshot._last_snapshot = None
+        portfolio_snapshot._last_snapshot_time = 0.0
+
+    def tearDown(self):
+        portfolio_snapshot._last_snapshot = None
+        portfolio_snapshot._last_snapshot_time = 0.0
+
     def test_migration_003_sql_structure_and_syntax(self):
         """Test Migration 003 contains explicit RLS enable, force RLS, revoke anon, and service_role grants."""
         migration_path = "src/database/migrations/003_supabase_rls_security_hardening.sql"
