@@ -29,6 +29,12 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
     def tearDown(self):
         settings.ACCOUNT_MODE = self.orig_mode
         settings.PRACTICE_NEW_ENTRIES_ALLOWED = self.orig_entries
+        try:
+            conn = db.get_connection()
+            conn.execute("DELETE FROM trades WHERE trade_id LIKE 'OP_TEST_%'")
+            conn.commit()
+        except Exception:
+            pass
 
     def test_1_practice_calls_broker_place_market_order(self):
         """1. ACCOUNT_MODE=PRACTICE must call broker.place_market_order() on Trading212 Demo API."""

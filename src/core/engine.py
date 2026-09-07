@@ -706,7 +706,7 @@ class PRVQuantEngine:
                         agent_votes=agent_votes,
                         risk_approved=cand["risk_approved"],
                         is_simulation=self.is_simulation,
-                        strategy_id="V1"
+                        strategy_id="V2"
                     )
                     
                     if success:
