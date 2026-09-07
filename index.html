@@ -921,6 +921,101 @@
             </div>
         </div>
 
+        <!-- 🏛️ PRV Strategy V2: Net Profit Capital Rotation Panel -->
+        <div id="strategyV2Panel" style="background: var(--card-bg); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: var(--radius); padding: 18px; margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px;">
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 16px; font-weight: 800; color: var(--accent-blue);">PRV Strategy V2: Net Profit Capital Rotation</span>
+                        <span id="v2ExecutionBadge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px;">ACTIVE PRACTICE ENGINE</span>
+                        <span id="v2RecoveryBadge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px;">RECOVERY MODE</span>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                        Minimum Target: <strong style="color: var(--text-primary);">+0.50% NET</strong> on Deployed Capital | Max Loss: <strong style="color: var(--text-primary);">-1.00%</strong> | Dynamic Cash: <strong style="color: var(--text-primary);">0%-100%</strong> | Hash: <code id="v2ConfigHashShort" style="color: var(--accent-blue);">--</code>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="font-size: 11px; color: var(--text-secondary);">Benchmark V1: </span>
+                    <span style="background: rgba(100, 116, 139, 0.2); color: #94a3b8; font-size: 10px; padding: 2px 6px; border-radius: 8px; border: 1px solid rgba(100, 116, 139, 0.3);">FROZEN SHADOW</span>
+                </div>
+            </div>
+
+            <!-- Strategy V2 Capital Metric Cards -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px;">
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px;">
+                    <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Active Capital</div>
+                    <div id="v2ActiveCapital" style="font-size: 16px; font-weight: 800; color: var(--text-primary); margin-top: 4px;">--</div>
+                    <div style="font-size: 9px; color: var(--text-muted); margin-top: 2px;">Core Deployable Bankroll</div>
+                </div>
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px;">
+                    <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Deployed Capital</div>
+                    <div id="v2DeployedCapital" style="font-size: 16px; font-weight: 800; color: var(--accent-blue); margin-top: 4px;">--</div>
+                    <div style="font-size: 9px; color: var(--text-muted); margin-top: 2px;">In Active Broker Positions</div>
+                </div>
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px;">
+                    <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Free Deployable Cash</div>
+                    <div id="v2FreeCash" style="font-size: 16px; font-weight: 800; color: var(--accent-green); margin-top: 4px;">--</div>
+                    <div style="font-size: 9px; color: var(--text-muted); margin-top: 2px;">Available for High-Conviction</div>
+                </div>
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px;">
+                    <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Locked Profit Vault</div>
+                    <div id="v2ProfitVault" style="font-size: 16px; font-weight: 800; color: #a855f7; margin-top: 4px;">--</div>
+                    <div style="font-size: 9px; color: var(--text-muted); margin-top: 2px;">Hard Locked Realized Gains</div>
+                </div>
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px;">
+                    <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Recovery Deficit</div>
+                    <div id="v2RecoveryDeficit" style="font-size: 16px; font-weight: 800; color: var(--accent-red); margin-top: 4px;">--</div>
+                    <div style="font-size: 9px; color: var(--text-muted); margin-top: 2px;">Restores to £50k Base First</div>
+                </div>
+            </div>
+
+            <!-- Open Positions Detail Table (V2 Net Profit & Trailing Protection) -->
+            <div style="margin-bottom: 16px;">
+                <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 8px; display: flex; justify-content: space-between;">
+                    <span>Open Positions Net Profit & Protection Telemetry (<span id="v2PosCount">0</span>)</span>
+                    <span style="font-size: 11px; text-transform: none; color: var(--text-muted);">Minimum target +0.50% NET per transaction</span>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 11px; text-align: left;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--card-border); color: var(--text-muted);">
+                                <th style="padding: 6px 8px;">Ticker</th>
+                                <th style="padding: 6px 8px;">Deployed</th>
+                                <th style="padding: 6px 8px;">Gross P&L</th>
+                                <th style="padding: 6px 8px;">Est Net P&L</th>
+                                <th style="padding: 6px 8px;">Net %</th>
+                                <th style="padding: 6px 8px;">+0.5% Target</th>
+                                <th style="padding: 6px 8px;">Target Reached</th>
+                                <th style="padding: 6px 8px;">Protected Floor</th>
+                                <th style="padding: 6px 8px;">Current Stop</th>
+                                <th style="padding: 6px 8px;">Broker Stop ID</th>
+                            </tr>
+                        </thead>
+                        <tbody id="v2PositionsTableBody">
+                            <tr><td colspan="10" style="padding: 12px; text-align: center; color: var(--text-muted);">Loading V2 position analytics...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Today's Rotation Summary & V1/V2 Benchmark Comparison -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border-top: 1px solid var(--card-border); padding-top: 12px;">
+                <div style="font-size: 11px; line-height: 1.6;">
+                    <div style="font-weight: 700; color: var(--text-secondary); margin-bottom: 4px;">TODAY'S ROTATION PERFORMANCE</div>
+                    <div>Realized Net P&L: <strong id="v2TodayRealized">--</strong></div>
+                    <div>Banked to Vault: <strong id="v2TodayBanked">--</strong></div>
+                    <div>Friction / Costs: <strong id="v2TodayCosts">--</strong></div>
+                    <div>Completed Rotations: <strong id="v2TodayRotations">--</strong></div>
+                </div>
+                <div style="font-size: 11px; line-height: 1.6; border-left: 1px solid var(--card-border); padding-left: 12px;">
+                    <div style="font-weight: 700; color: var(--text-secondary); margin-bottom: 4px;">STRATEGY BENCHMARKS</div>
+                    <div>V1 Shadow: <span style="color: #94a3b8;">Frozen Benchmark (0 Broker Orders)</span></div>
+                    <div>V2 Live: <span style="color: var(--accent-green);">Net Profit Capital Rotation (Active Practice)</span></div>
+                    <div>Execution Authority: <span style="color: var(--accent-blue);">Trading212 Practice API</span></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Middle Section: Chart Panel & Active Positions -->
         <div class="middle-row-grid">
             <!-- Clean Curve Chart Panel -->
@@ -2420,17 +2515,87 @@
             }
         }
 
-        // 🚀 Initialize Page (Concurrent immediate paint of summary, parity, positions, and equity curve)
+        async function fetchStrategyV2Panel() {
+            try {
+                const res = await safeFetch(API_BASE + '/api/strategy/v2_panel', {}, 4000);
+                if (!res || !res.active_strategy) return;
+
+                document.getElementById('v2ActiveCapital').textContent = `£${Number(res.active_trading_capital).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                document.getElementById('v2DeployedCapital').textContent = `£${Number(res.capital_currently_deployed).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                document.getElementById('v2FreeCash').textContent = `£${Number(res.free_deployable_cash).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                document.getElementById('v2ProfitVault').textContent = `£${Number(res.locked_profit_vault).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                document.getElementById('v2RecoveryDeficit').textContent = `£${Number(res.recovery_deficit).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+                const recBadge = document.getElementById('v2RecoveryBadge');
+                if (res.in_recovery_mode) {
+                    recBadge.textContent = "RECOVERY MODE ACTIVE";
+                    recBadge.style.background = "rgba(245, 158, 11, 0.15)";
+                    recBadge.style.color = "#f59e0b";
+                    recBadge.style.borderColor = "rgba(245, 158, 11, 0.4)";
+                } else {
+                    recBadge.textContent = "NORMAL TRADING BASE";
+                    recBadge.style.background = "rgba(16, 185, 129, 0.15)";
+                    recBadge.style.color = "#10b981";
+                    recBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
+                }
+
+                if (res.v2_config_hash) {
+                    document.getElementById('v2ConfigHashShort').textContent = res.v2_config_hash.substring(0, 8);
+                }
+
+                const posList = res.open_positions || [];
+                document.getElementById('v2PosCount').textContent = posList.length;
+
+                const tbody = document.getElementById('v2PositionsTableBody');
+                if (posList.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="10" style="padding: 12px; text-align: center; color: var(--text-muted);">No open positions currently deployed. 100% Capital Preserved.</td></tr>';
+                } else {
+                    tbody.innerHTML = posList.map(p => {
+                        const netClass = p.estimated_net_pnl >= 0 ? '#10b981' : '#f43f5e';
+                        const targetBadge = p.target_reached
+                            ? '<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 700;">YES</span>'
+                            : '<span style="background: rgba(100, 116, 139, 0.2); color: #94a3b8; padding: 2px 6px; border-radius: 4px;">NO</span>';
+                        return `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <td style="padding: 6px 8px; font-weight: 700;">${p.ticker}</td>
+                                <td style="padding: 6px 8px;">£${Number(p.deployed_capital).toLocaleString('en-GB', {minimumFractionDigits: 2})}</td>
+                                <td style="padding: 6px 8px; color: ${p.gross_pnl >= 0 ? '#10b981' : '#f43f5e'}">${p.gross_pnl >= 0 ? '+' : ''}£${Number(p.gross_pnl).toFixed(2)}</td>
+                                <td style="padding: 6px 8px; font-weight: 700; color: ${netClass}">${p.estimated_net_pnl >= 0 ? '+' : ''}£${Number(p.estimated_net_pnl).toFixed(2)}</td>
+                                <td style="padding: 6px 8px; color: ${netClass}">${p.net_return_pct >= 0 ? '+' : ''}${Number(p.net_return_pct).toFixed(2)}%</td>
+                                <td style="padding: 6px 8px;">£${Number(p.min_target_gbp).toFixed(2)}</td>
+                                <td style="padding: 6px 8px;">${targetBadge}</td>
+                                <td style="padding: 6px 8px; color: #38bdf8;">£${Number(p.protected_profit_gbp).toFixed(2)}</td>
+                                <td style="padding: 6px 8px;">£${Number(p.current_stop_price).toFixed(2)}</td>
+                                <td style="padding: 6px 8px; font-family: monospace; color: var(--text-muted); font-size: 10px;">${p.broker_stop_id || 'NATIVE_ACTIVE'}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+
+                const t = res.today || {};
+                document.getElementById('v2TodayRealized').textContent = `${(t.realised_net_pnl || 0) >= 0 ? '+' : ''}£${Number(t.realised_net_pnl || 0).toFixed(2)}`;
+                document.getElementById('v2TodayRealized').style.color = (t.realised_net_pnl || 0) >= 0 ? '#10b981' : '#f43f5e';
+                document.getElementById('v2TodayBanked').textContent = `£${Number(t.banked_profit || 0).toFixed(2)}`;
+                document.getElementById('v2TodayCosts').textContent = `£${Number(t.transaction_costs || 0).toFixed(2)}`;
+                document.getElementById('v2TodayRotations').textContent = `${t.number_of_completed_rotations || 0} Exits`;
+            } catch(e) {
+                console.warn("Error fetching V2 strategy panel:", e);
+            }
+        }
+
+        // --- Initial Boot Sequencer ---
         fetchFastSummary();
         fetchBrokerParity();
         fetchPositionsBackground();
+        fetchStrategyV2Panel();
         loadEquityCurve();
 
-        // ⏱️ Active periodic poll (Refreshes summary, parity, and positions every 10s)
+        // ⏱️ Active periodic poll (Refreshes summary, parity, positions, and strategy v2 every 10s)
         setInterval(() => {
             fetchFastSummary();
             fetchBrokerParity();
             fetchPositionsBackground();
+            fetchStrategyV2Panel();
         }, 10000);
 
         // 🔄 Lifecycle Refresh Handlers (window focus, visibilitychange, pageshow)
