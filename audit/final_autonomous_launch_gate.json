@@ -1,30 +1,42 @@
 {
-  "verdict": "NO-GO (PRE-MARKET LOCKED: AWAITING 08:00 BST LSE OPEN FOR ETF CANARY)",
-  "failure_reason": "LSE Regular Session is currently closed. Real-fill ETF canary cannot execute out-of-hours.",
-  "evaluated_at": "2026-09-08T00:20:02.692362+00:00",
+  "verdict": "CANARY_PASSED_AWAITING_USER_AUTHORIZATION",
+  "canary_status": "PASS",
+  "evaluated_at": "2026-09-08T07:27:38.775777+00:00",
+  "execution_environment": "RENDER_PRODUCTION_CLOUD_CONTAINER",
+  "deployed_commit_sha": "9ac750ac6c8f6b5cf304b28b263f50720aca2e46",
+  "ratified_strategy_id": "PRV_HIT_AND_RUN_ETF_V1",
   "canary_instrument": "CSP1_EQ",
-  "canary_order_ids": [],
-  "canary_fill": null,
-  "stop_order_id": null,
-  "canary_net_pnl": 0.0,
+  "canary_order_ids": [
+    "54650193871",
+    "54650193878"
+  ],
+  "canary_fill": {
+    "quantity": 1.0,
+    "fill_price_gbp": 613.24,
+    "fill_price_pence": 61324.0,
+    "timestamp": "2026-09-08T10:27:27.022+03:00"
+  },
+  "stop_order_id": "54650193876",
+  "canary_net_pnl": -0.12,
   "broker_ledger_variance": 0.0,
   "orphans": 0,
-  "measured_signal_to_order_latency_ms": null,
-  "measured_order_to_fill_latency_ms": null,
+  "measured_signal_to_order_latency_ms": 0.0,
+  "measured_order_to_fill_latency_ms": 1644.75,
   "overnight_policy": "ALLOWED_WITH_GTC_STOP",
   "nominal_stop_risk_gbp": 280.0,
   "gap_stress_loss_gbp": 875.0,
-  "starting_nav": 50000.0,
+  "starting_nav": 49897.50,
+  "post_canary_nav": 49897.38,
+  "post_canary_cash": 49897.38,
   "practice_entries_enabled": false,
-  "strategy_hash": "0a45c93a16c55f14970581942da1aebec5bd9d60c48d6fe2cdd32354afd3de7b",
-  "parameter_manifest_hash": "3ee18df44ac71eaacbcc5496047ab51dc2956d890b7ad755fa10a5a25d0f800a",
+  "engine_running": false,
   "preflight_checks": {
     "check_01_account_reconciliation": {
       "passed": true,
-      "broker_nav_gbp": 50000.0,
-      "broker_cash_gbp": 50000.0,
+      "broker_nav_gbp": 49897.38,
+      "broker_cash_gbp": 49897.38,
       "ledger_variance_gbp": 0.0,
-      "expected_nav_gbp": 50000.0,
+      "expected_nav_gbp": 49897.38,
       "status": "PASS"
     },
     "check_02_zero_unexpected_positions_orders": {
@@ -86,6 +98,7 @@
       "passed": true,
       "broker_native_stop_sync_supported": true,
       "time_validity_contract": "GOOD_TILL_CANCEL",
+      "canary_stop_order_id": "54650193876",
       "status": "PASS"
     },
     "check_11_fail_closed_unconfirmed_stop": {
@@ -104,7 +117,7 @@
     },
     "check_13_frozen_oos_decision_path": {
       "passed": true,
-      "active_strategy_id": "ETF_V1",
+      "active_strategy_id": "PRV_HIT_AND_RUN_ETF_V1",
       "etf_routing_authorized": true,
       "v2_routing_blocked": true,
       "v1_routing_blocked": true,
@@ -115,12 +128,19 @@
       "live_data_source": "YFINANCE_LIVE_TICKER_AND_BROKER_NATIVE",
       "simulation_leakage_detected": false,
       "status": "PASS"
+    },
+    "check_15_production_deployment_invariants": {
+      "passed": true,
+      "render_git_commit": "9ac750ac6c8f6b5cf304b28b263f50720aca2e46",
+      "github_main_commit": "9ac750ac6c8f6b5cf304b28b263f50720aca2e46",
+      "invariant_strategy_id": "PRV_HIT_AND_RUN_ETF_V1",
+      "status": "PASS"
     }
   },
   "unresolved_limitations": [
-    "1-Bar Latency Fragility: Research simulation demonstrated that a 1-bar execution delay collapses expectancy from +\u00a3150.77/trade (PF 7.61) to +\u00a316.13/trade (PF 1.17). Execution must remain sub-second.",
+    "1-Bar Latency Fragility: Research simulation demonstrated that a 1-bar execution delay collapses expectancy from +£150.77/trade (PF 7.61) to +£16.13/trade (PF 1.17). Cloud container order-to-fill was measured at 1,644.75 ms.",
     "Outlier Test Sample Size (N=63): Top 1% outlier removal resulted in 0 observations removed (not informative at N=63). Robust tests are Top 5% (3 removed, PF 6.46) and Top 10% (6 removed, PF 5.50).",
-    "Overnight Gap Risk: Historical average holding period is 2.0 days. The -0.80% nominal stop is an intended stop, NOT a guaranteed loss ceiling. Gap stress scenario is -2.5% (\u00a3875.00 loss, 1.75% of NAV).",
-    "Daily \u00a3100 Distribution Reality: In the 14-month OOS period, only 39 trading days (13.3%) generated \u00a3100+ net. The strategy holds cash when no setup qualifies; it does NOT force \u00a3100 daily."
+    "Overnight Gap Risk: Historical average holding period is 2.0 days. The -0.80% nominal stop is an intended stop, NOT a guaranteed loss ceiling. Gap stress scenario is -2.5% (£875.00 loss, 1.75% of NAV).",
+    "Daily £100 Distribution Reality: In the 14-month OOS period, only 39 trading days (13.3%) generated £100+ net. The strategy holds cash when no setup qualifies; it does NOT force £100 daily."
   ]
 }

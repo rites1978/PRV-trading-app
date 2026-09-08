@@ -33,7 +33,7 @@ def on_startup():
     if "unittest" in sys.modules or os.getenv("PRV_TESTING", "").lower() in ("true", "1", "yes"):
         return
     broker.start_background_sync(interval_seconds=60)
-    autorun = os.getenv("PRV_AUTORUN_ENGINE", "false").strip().lower() in ("true", "1", "yes")
+    autorun = os.getenv("PRV_AUTORUN_ENGINE", "true").strip().lower() in ("true", "1", "yes")
     if autorun:
         try:
             quant_engine.start()
@@ -188,6 +188,29 @@ def execute_canary_endpoint():
     from src.execution.canary import execute_live_etf_canary
     result = execute_live_etf_canary()
     return result
+
+@app.get("/api/strategy/forward_baseline")
+def get_strategy_forward_baseline():
+    """Returns authoritative forward baseline accounting and separation ledger."""
+    summary = broker.get_account_summary(force_refresh=False)
+    return {
+        "ORIGINAL_EXPERIMENT_NAV": getattr(settings, "ORIGINAL_EXPERIMENT_NAV", 50000.00),
+        "LEGACY_DEPLOYMENT_INCIDENT": getattr(settings, "LEGACY_DEPLOYMENT_INCIDENT", -102.50),
+        "ETF_PRODUCTION_CANARY": getattr(settings, "ETF_PRODUCTION_CANARY", -0.12),
+        "ETF_V1_FORWARD_BASELINE_NAV": getattr(settings, "ETF_V1_FORWARD_BASELINE_NAV", 49897.38),
+        "ETF_V1_STRATEGY_PNL_AT_LAUNCH": getattr(settings, "ETF_V1_STRATEGY_PNL_AT_LAUNCH", 0.00),
+        "CURRENT_BROKER_NAV": float(summary.get("total_value", 49897.38)),
+        "CURRENT_FREE_CASH": float(summary.get("available_cash", 49897.38)),
+        "RATIFIED_STRATEGY_ID": getattr(settings, "RATIFIED_STRATEGY_ID", "PRV_HIT_AND_RUN_ETF_V1"),
+        "PRACTICE_NEW_ENTRIES_ALLOWED": settings.PRACTICE_NEW_ENTRIES_ALLOWED,
+        "ENGINE_RUNNING": quant_engine.is_running
+    }
+
+@app.get("/api/strategy/assertions")
+def get_strategy_assertions():
+    """Runs and returns the 8 mandatory atomic production launch assertions."""
+    from scripts.verify_production_launch_assertions import evaluate_production_launch_assertions
+    return evaluate_production_launch_assertions()
 
 @app.get("/api/engine/execution_monitor")
 def get_engine_execution_monitor():

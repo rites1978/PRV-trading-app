@@ -394,17 +394,34 @@ class OrderRouter:
                 audit_tag = "FILLED_BROKER" if broker_status == "FILLED" else "BROKER_ACCEPTED"
                 
                 # Place broker-native protective stop order immediately upon entry
+                stop_order_id = None
                 if stop_loss_price and stop_loss_price > 0:
                     try:
                         broker_stop_price = stop_loss_price
                         if is_uk and broker_stop_price < 500.0:
                             broker_stop_price = round(stop_loss_price * 100.0, 2)
-                        broker.sync_broker_stop_order(t212_ticker, quantity, broker_stop_price)
+                        stop_res = broker.sync_broker_stop_order(t212_ticker, quantity, broker_stop_price)
+                        if not stop_res or not stop_res.get("success"):
+                            # FAIL-CLOSED: no confirmed protective stop -> flatten + HALT
+                            err_stop = stop_res.get("error", "Failed stop confirmation") if stop_res else "No response"
+                            logger.critical(f"FATAL FAIL-CLOSED: No confirmed protective stop for {t212_ticker} ({err_stop})! Flattening position immediately and halting engine.")
+                            broker.place_market_order(t212_ticker, -quantity)
+                            from src.core.engine import quant_engine
+                            quant_engine.stop()
+                            return False, f"FAIL-CLOSED: Protective stop failed ({err_stop}). Position flattened and engine halted.", {"approved": False, "halt": True}
+                        stop_order_id = str(stop_res.get("order_id", ""))
                     except Exception as stop_err:
-                        logger.warning(f"Failed to place broker stop order for {t212_ticker}: {stop_err}")
+                        logger.critical(f"FATAL FAIL-CLOSED: Exception in placing broker stop order: {stop_err}! Emergency flattening.")
+                        try:
+                            broker.place_market_order(t212_ticker, -quantity)
+                        except Exception:
+                            pass
+                        from src.core.engine import quant_engine
+                        quant_engine.stop()
+                        return False, f"FAIL-CLOSED: Exception placing stop ({stop_err}). Position flattened and engine halted.", {"approved": False, "halt": True}
 
-                self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, trade_reason, True, quantity, audit_tag)
-                return True, f"✅ Order Executed ({settings.ACCOUNT_MODE}): {quantity} shares of {symbol} at £{fill_price:.2f} (Broker ID: {broker_order_id})", res["data"]
+                self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, f"{trade_reason} | StopID: {stop_order_id}", True, quantity, audit_tag)
+                return True, f"✅ Order Executed ({settings.ACCOUNT_MODE}): {quantity} shares of {symbol} at £{fill_price:.2f} (Broker ID: {broker_order_id}, Stop ID: {stop_order_id})", res["data"]
             else:
                 managed_order.transition_to(OrderState.FAILED, res.get("error", "Broker order rejected"))
                 portfolio_reservations.release(managed_order.client_order_id)

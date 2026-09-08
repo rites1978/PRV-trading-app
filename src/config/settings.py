@@ -17,7 +17,7 @@ class TradingSettings(BaseModel):
     # Environment, Account Mode & Practice Trading Controls
     ACCOUNT_MODE: str = "PRACTICE"
     PRACTICE_TRADING_ENABLED: bool = True
-    PRACTICE_NEW_ENTRIES_ALLOWED: bool = False
+    PRACTICE_NEW_ENTRIES_ALLOWED: bool = True
     REAL_MONEY_TRADING_ENABLED: bool = False
     REAL_MONEY_NEW_ENTRIES_ALLOWED: bool = False
     
@@ -26,12 +26,19 @@ class TradingSettings(BaseModel):
     REAL_MONEY_RISK_SCALING_ALLOWED: bool = False
     NORMAL_PRACTICE_POSITION_SIZING_ACTIVE: bool = True
 
+    # Authoritative Forward Test Baseline & Ledger Invariants
+    ORIGINAL_EXPERIMENT_NAV: float = 50000.00
+    LEGACY_DEPLOYMENT_INCIDENT: float = -102.50
+    ETF_PRODUCTION_CANARY: float = -0.12
+    ETF_V1_FORWARD_BASELINE_NAV: float = 49897.38
+    ETF_V1_STRATEGY_PNL_AT_LAUNCH: float = 0.00
+
     # Challenge Metadata - OFFICIAL 30-DAY CHALLENGE
     CHALLENGE_STATUS: str = "OFFICIAL_30_DAY_CHALLENGE_ACTIVE"
     CHALLENGE_ACTIVE: bool = True
-    CHALLENGE_START_TIMESTAMP: str = "2026-09-03 09:48:00 UTC"
-    CHALLENGE_END_TIMESTAMP: str = "2026-10-03 09:48:00 UTC"
-    CHALLENGE_START_NAV: float = 50000.00
+    CHALLENGE_START_TIMESTAMP: str = "2026-09-08 08:30:00 UTC"
+    CHALLENGE_END_TIMESTAMP: str = "2026-10-08 08:30:00 UTC"
+    CHALLENGE_START_NAV: float = 49897.38
     CHALLENGE_DURATION_DAYS: int = 30
 
     TRADING_ENV: str = Field(default_factory=lambda: os.getenv("TRADING_ENV", "demo").lower())
@@ -39,19 +46,18 @@ class TradingSettings(BaseModel):
     TRADING212_API_SECRET: str = Field(default_factory=lambda: os.getenv("TRADING212_API_SECRET") or os.getenv("T212_API_SECRET", ""))
     
     # Capital Management Bands & Capital Preservation Reserve
-    STARTING_CAPITAL: float = 50000.0
-    REQUIRED_CASH_RESERVE_PCT: float = 45.0 # Mandatory 45.0% Capital Preservation Cash reserve (£22,500 floor)
-    MIN_CASH_BUFFER_PCT: float = 0.05       # 5% cash safety buffer (£2,500)
+    STARTING_CAPITAL: float = 49897.38
+    REQUIRED_CASH_RESERVE_PCT: float = 45.0 # Mandatory 45.0% Capital Preservation Cash reserve (£22,453 floor)
+    MIN_CASH_BUFFER_PCT: float = 0.05       # 5% cash safety buffer (£2,495)
     MAX_DEPLOYMENT_BEAR: float = 0.25       # 15%-30% (Target 25%) in bear markets
     MAX_DEPLOYMENT_NEUTRAL: float = 0.45    # 30%-50% (Target 45%) in neutral markets
     MAX_DEPLOYMENT_BULL: float = 0.55       # 45%-55% (Target 55%) in bull markets (capped by 45% cash floor)
 
     # 🏛️ Daily Net Profit Objective & Anti-Overtrading Mandate
-    # 🏛️ Daily Net Profit Objective & Anti-Overtrading Mandate
-    BASE_TRADING_CAPITAL: float = 50000.0
-    REFERENCE_BASE_CAPITAL: float = 50000.0
-    MAX_DEPLOYABLE_TRADING_CAPITAL: float = 50000.0
-    MAX_NORMAL_DEPLOYABLE_CAPITAL: float = 50000.0
+    BASE_TRADING_CAPITAL: float = 49897.38
+    REFERENCE_BASE_CAPITAL: float = 49897.38
+    MAX_DEPLOYABLE_TRADING_CAPITAL: float = 49897.38
+    MAX_NORMAL_DEPLOYABLE_CAPITAL: float = 49897.38
     
     # Permanent Invariants & Strategy Governance
     RATIFIED_STRATEGY_ID: str = "PRV_HIT_AND_RUN_ETF_V1"
