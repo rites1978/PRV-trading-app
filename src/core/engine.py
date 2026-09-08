@@ -102,6 +102,16 @@ class PRVQuantEngine:
         """Airtight signal de-duplication: ensures the same daily bar signal is never traded twice."""
         if dedup_key in getattr(self, "_executed_signals", set()):
             return True
+        # Check database persistent state for core compounding decisions across process restarts
+        try:
+            core_dec = db.get_core_compounding_decision(dedup_key)
+            if core_dec and core_dec.get("execution_status") in ("DISPATCHED", "FILLED"):
+                if not hasattr(self, "_executed_signals"):
+                    self._executed_signals = set()
+                self._executed_signals.add(dedup_key)
+                return True
+        except Exception:
+            pass
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         try:
             trades = db.get_trades(limit=100)
@@ -764,9 +774,10 @@ class PRVQuantEngine:
             df["MOM_SHARPE"] = df["MOM"] / (df["Vol20"] + 1e-4)
             data[f"{sym}_L"] = df
 
-        # Fail-closed check: Require all 7 ETFs in universe to be present
-        if len(data) < len(core_compounding_strategy.CERTIFIED_UNIVERSE):
-            msg = f"UNIVERSE_INCOMPLETE_FAIL_CLOSED: Only {len(data)}/{len(core_compounding_strategy.CERTIFIED_UNIVERSE)} ETFs available in market data feed."
+        # Incomplete universe handling: Match frozen research rules
+        # If an individual ETF is missing, log warning and rank available remainder per frozen research rules
+        if len(data) == 0:
+            msg = "UNIVERSE_DATA_EMPTY_FAIL_CLOSED: 0/7 ETFs available in market data feed."
             logger.warning(msg)
             return {
                 "strategy_id": core_compounding_strategy.STRATEGY_ID,
@@ -780,6 +791,8 @@ class PRVQuantEngine:
                 "as_of_date": now_uk.strftime("%Y-%m-%d"),
                 "timestamp": now_uk.strftime("%Y-%m-%d %H:%M:%S")
             }
+        elif len(data) < len(core_compounding_strategy.CERTIFIED_UNIVERSE):
+            logger.warning(f"Market feed missing {len(core_compounding_strategy.CERTIFIED_UNIVERSE) - len(data)} ETFs. Ranking available remainder per frozen research rules.")
 
         # Determine completed observation bar
         any_df = next(iter(data.values()))
@@ -809,13 +822,13 @@ class PRVQuantEngine:
         self.latest_core_compounding_signal = sig
         return sig
 
-    def _run_core_compounding_cycle(self, account: Dict[str, Any]) -> Dict[str, Any]:
+    def _run_core_compounding_cycle(self, account: Dict[str, Any], bypass_execution_window: bool = False) -> Dict[str, Any]:
         """
         Production execution cycle for PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1:
         - Evaluates completed Day T-1 close data across 7-ETF universe.
-        - Strictly binds signal execution session to immediately following valid LSE trading day.
+        - Strictly binds signal execution session to immediately following valid LSE trading day at 08:00:00-08:05:00 BST market open.
         - Enforces exactly-once execution and full lifecycle: PENDING -> DISPATCHED -> FILLED.
-        - Fails closed if data is stale or if execution window has elapsed.
+        - Signals whose 08:00 market-open window is missed strictly EXPIRE per frozen research semantics.
         """
         from src.strategies.core_compounding_v1 import core_compounding_strategy
         from datetime import time as dtime
@@ -900,9 +913,19 @@ class PRVQuantEngine:
                     or any(o.get("ticker") == selected_ticker for o in open_orders)
                 )
 
+                is_window = bypass_execution_window or session_ctx.get("is_execution_window", False)
+
                 if is_dedup:
                     decision = "HOLD"
                     reason = f"DEDUP: Signal for {selected_symbol} on bar {obs_bar_str} already executed or working order exists."
+                elif not is_window:
+                    # Strict Frozen Research Semantics: Market open execution window (08:00:00-08:05:00 BST)
+                    if cur_t < dtime(8, 0):
+                        decision = "HOLD"
+                        reason = f"AWAITING_EXECUTION_WINDOW: Signal for {selected_symbol} on bar {obs_bar_str} scheduled for market open at 08:00:00 BST on {intended_session}."
+                    else:
+                        decision = "HOLD"
+                        reason = f"SIGNAL_EXPIRED: 08:00:00-08:05:00 BST market open execution window for session {intended_session} has elapsed. Signal expires per frozen research semantics."
                 elif not settings.PRACTICE_NEW_ENTRIES_ALLOWED:
                     decision = "HOLD"
                     reason = f"PRACTICE_NEW_ENTRIES_ALLOWED=False: Signal {selected_symbol} generated (Sharpe {selected_score:+.4f}), but new entries are locked."
@@ -923,7 +946,8 @@ class PRVQuantEngine:
                     else:
                         order_qty = core_compounding_strategy.calculate_order_shares(
                             entry_price_gbp=cur_price,
-                            available_cash_gbp=available_cash
+                            available_cash_gbp=available_cash,
+                            total_nav_gbp=total_nav
                         )
                         stop_price = round(cur_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
 
@@ -939,7 +963,7 @@ class PRVQuantEngine:
                                 "target_instrument": selected_ticker,
                                 "target_score": selected_score,
                                 "intended_execution_session": cur_d_str,
-                                "intended_execution_window": "REGULAR_LSE_MARKET_HOURS",
+                                "intended_execution_window": "08:00:00-08:05:00 BST",
                                 "execution_status": "DISPATCHING",
                                 "notes": f"Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}, Close > SMA200)."
                             })
@@ -954,14 +978,14 @@ class PRVQuantEngine:
                             target_price=round(cur_price * 1.10, 4),
                             stop_loss_price=stop_price,
                             sector="ETF",
-                            confidence_score=round(min(95.0, max(60.0, 75.0 + selected_score * 20.0)), 1),
+                            confidence_score=0.0,
                             market_regime="CROSS_SECTIONAL_MOMENTUM",
                             agent_votes={"CORE_COMPOUNDING": "BUY"},
                             risk_approved=True,
                             is_paper=self.paper_mode,
                             instrument_type="ETF",
                             decision_price=cur_price,
-                            bypass_market_hours=False,
+                            bypass_market_hours=bypass_execution_window,
                             strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
                         )
 

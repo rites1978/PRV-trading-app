@@ -213,26 +213,27 @@ class OrderRouter:
                 self._log_audit("HOLD_UNAUTHORIZED_UNIVERSE", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "REJECTED_UNAUTHORIZED_INSTRUMENT")
                 return False, reason, {"approved": False, "rejection_reasons": ["UNAUTHORIZED_INSTRUMENT_CLASS"]}
 
-        # 2b. Capital State Machine & Anti-Overtrading Gate
-        from src.portfolio.daily_objective_service import daily_objective_service
-        daily_status = daily_objective_service.get_daily_status()
-        entries_allowed = daily_status["new_discretionary_entries_allowed"]
-        objective_reason = daily_status["gate_reason"]
+        # 2b. Capital State Machine & Anti-Overtrading Gate (Applies strictly to discretionary intraday strategies; Core Compounding Engine has its own ratified -2% stop risk model)
+        if str(strategy_id).upper() not in ("PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1", "CORE_V1"):
+            from src.portfolio.daily_objective_service import daily_objective_service
+            daily_status = daily_objective_service.get_daily_status()
+            entries_allowed = daily_status["new_discretionary_entries_allowed"]
+            objective_reason = daily_status["gate_reason"]
 
-        if not entries_allowed:
-            if daily_status.get("emergency_risk_mode", False):
-                try:
-                    if hasattr(broker, "cancel_all_pending_orders"):
-                        broker.cancel_all_pending_orders()
-                except Exception:
-                    pass
-            self._log_audit("HOLD_CAPITAL_STATE_GATE", symbol, market_regime, agent_votes, confidence_score, objective_reason, risk_approved, quantity, "CAPITAL_STATE_HALT")
-            return False, f"HOLD: {objective_reason}", {"approved": False, "rejection_reasons": [objective_reason]}
+            if not entries_allowed:
+                if daily_status.get("emergency_risk_mode", False):
+                    try:
+                        if hasattr(broker, "cancel_all_pending_orders"):
+                            broker.cancel_all_pending_orders()
+                    except Exception:
+                        pass
+                self._log_audit("HOLD_CAPITAL_STATE_GATE", symbol, market_regime, agent_votes, confidence_score, objective_reason, risk_approved, quantity, "CAPITAL_STATE_HALT")
+                return False, f"HOLD: {objective_reason}", {"approved": False, "rejection_reasons": [objective_reason]}
 
-        # Anti-gambling recovery sizing adjustment (Loss never increases risk; sizing scales down strictly with remaining equity)
-        sizing_mult = daily_status.get("sizing_multiplier", 1.0)
-        if sizing_mult < 1.0:
-            quantity = max(1, int(quantity * sizing_mult))
+            # Anti-gambling recovery sizing adjustment (Loss never increases risk; sizing scales down strictly with remaining equity)
+            sizing_mult = daily_status.get("sizing_multiplier", 1.0)
+            if sizing_mult < 1.0:
+                quantity = max(1, int(quantity * sizing_mult))
             nominal_value = quantity * price
 
         # Compute spread

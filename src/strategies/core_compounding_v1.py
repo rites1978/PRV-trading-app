@@ -280,11 +280,19 @@ class CoreCompoundingStrategy:
 
         return False, "HOLD"
 
-    def calculate_order_shares(self, entry_price_gbp: float, available_cash_gbp: float = 50000.0) -> float:
-        """Calculates exact order quantity for £40,000 nominal deployment."""
+    def calculate_order_shares(
+        self,
+        entry_price_gbp: float,
+        available_cash_gbp: float = 50000.0,
+        total_nav_gbp: Optional[float] = None
+    ) -> float:
+        """Calculates exact order quantity for £40,000 nominal deployment bounded by available cash and 80% NAV."""
         if entry_price_gbp <= 0:
             return 0.0
-        deployable = min(self.POSITION_SIZE_GBP, available_cash_gbp)
+        max_by_nav = (float(total_nav_gbp) * 0.80 - 15.0) if total_nav_gbp is not None else self.POSITION_SIZE_GBP
+        deployable = min(self.POSITION_SIZE_GBP, available_cash_gbp, max_by_nav)
+        if deployable <= 0:
+            return 0.0
         return round(deployable / entry_price_gbp, 4)
 
 

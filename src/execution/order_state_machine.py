@@ -197,7 +197,7 @@ class PortfolioReservationManager:
                     min_cash_reserve_gbp = float(total_nav) * cash_pct
             if max_sector_budget_gbp is None:
                 if str(strategy_id).upper() in ("ETF_V1", "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1", "CORE_V1"):
-                    max_sector_budget_gbp = max(40050.0, float(total_nav) * 0.82)
+                    max_sector_budget_gbp = min(40000.0, float(total_nav) * 0.80)
                 else:
                     sector_pct = settings.MAX_SECTOR_EXPOSURE_PCT if settings.MAX_SECTOR_EXPOSURE_PCT <= 1.0 else (settings.MAX_SECTOR_EXPOSURE_PCT / 100.0)
                     max_sector_budget_gbp = float(total_nav) * sector_pct

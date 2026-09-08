@@ -136,14 +136,14 @@ class NetEdgeGate:
                 f"REJECT: Bid-ask spread ({current_spread_pct*10000:.1f} bps) exceeds emergency liquidity circuit breaker of {self.max_emergency_spread_pct*10000:.0f} bps."
             )
 
-        # G6: Fundamental Outlook >= Neutral
-        if fundamental_score < 50.0:
+        # G6: Fundamental Outlook >= Neutral (discretionary single-stock equities only; ETFs governed by strategy trend gate)
+        if instrument_type != "ETF" and fundamental_score < 50.0:
             rejection_reasons.append(
                 f"REJECT: Fundamental outlook score ({fundamental_score:.1f}/100) is below neutral threshold of 50.0."
             )
 
-        # G7: Technical Trend supportive
-        if technical_score < 50.0:
+        # G7: Technical Trend supportive (discretionary single-stock equities only; ETFs governed by strategy trend gate)
+        if instrument_type != "ETF" and technical_score < 50.0:
             rejection_reasons.append(
                 f"REJECT: Technical trend score ({technical_score:.1f}/100) is unsupportive (< 50.0)."
             )

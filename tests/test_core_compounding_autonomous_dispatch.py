@@ -44,6 +44,13 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
         self.engine.is_running = False
         if hasattr(self.engine, "_executed_signals"):
             self.engine._executed_signals.clear()
+        try:
+            with db.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM core_compounding_decisions")
+                conn.commit()
+        except Exception:
+            pass
 
         self.strategy = CoreCompoundingStrategy()
 
@@ -51,6 +58,13 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
         settings.PRACTICE_NEW_ENTRIES_ALLOWED = self.orig_practice
         settings.REAL_MONEY_NEW_ENTRIES_ALLOWED = self.orig_real
         settings.ACCOUNT_MODE = self.orig_mode
+        try:
+            with db.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM core_compounding_decisions")
+                conn.commit()
+        except Exception:
+            pass
 
     def _build_mock_7_asset_data(self, dates: pd.DatetimeIndex, target_sym: str = "EMIM", target_sharpe: float = 1.5) -> dict:
         mock_data = {}
@@ -202,7 +216,7 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
              patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True):
 
             account = {"success": True, "total_value": 49897.38, "available_cash": 49897.38}
-            res = self.engine._run_core_compounding_cycle(account)
+            res = self.engine._run_core_compounding_cycle(account, bypass_execution_window=True)
             self.assertEqual(res["decision"], "ENTER")
             mock_route_entry.assert_called_once()
 
@@ -213,7 +227,7 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
         with patch.object(self.engine, "evaluate_core_compounding_live_state", return_value=sig), \
              patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True):
 
-            res2 = self.engine._run_core_compounding_cycle(account)
+            res2 = self.engine._run_core_compounding_cycle(account, bypass_execution_window=True)
             self.assertEqual(res2["decision"], "HOLD")
             self.assertIn("HOLDING_ACTIVE_POSITION", res2["reason"])
             mock_route_entry.assert_not_called()
