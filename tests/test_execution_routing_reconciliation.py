@@ -47,7 +47,12 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
             "emergency_risk_mode": False
         }
         order_id = f"OP_TEST_{uuid.uuid4().hex[:8]}"
+        mock_snap = {"account_summary": {"free_cash": 50000.0, "total_nav": 50000.0}, "positions": []}
         with patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "fillPrice": 9.58}}) as mock_order, \
+             patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
+             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
              patch.object(daily_objective_service, "get_daily_status", return_value=mock_status):
             success, msg, res = order_router.route_entry_order(
                 symbol="IGLT",
@@ -79,7 +84,12 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
             "emergency_risk_mode": False
         }
         order_id = f"OP_TEST_{uuid.uuid4().hex[:8]}"
+        mock_snap = {"account_summary": {"free_cash": 50000.0, "total_nav": 50000.0}, "positions": []}
         with patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "fillPrice": 9.58}}), \
+             patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
+             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
              patch.object(daily_objective_service, "get_daily_status", return_value=mock_status):
             success, msg, res = order_router.route_entry_order(
                 symbol="IGLT",

@@ -542,8 +542,6 @@ class Trading212Broker:
             # No existing stop: place new stop directly (with brief retry for broker position indexing settlement)
             for attempt in range(5):
                 res = self.place_stop_order(ticker, quantity=-abs(qty), stop_price=desired_stop_price, time_validity=time_validity)
-                if not res.get("success"):
-                    res = self.place_stop_order(ticker, quantity=abs(qty), stop_price=desired_stop_price, time_validity=time_validity)
                 if res.get("success"):
                     return {"success": True, "action": "PLACED_NEW", "order_id": res.get("data", {}).get("id"), "stopPrice": desired_stop_price}
                 if "selling-equity-not-owned" in str(res.get("error", "")):
