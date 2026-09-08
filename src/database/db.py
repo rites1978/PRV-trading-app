@@ -248,6 +248,26 @@ CREATE TABLE IF NOT EXISTS market_regimes (
     diagnostic_rationale TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS core_compounding_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT NOT NULL DEFAULT 'PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1',
+    dedup_key TEXT UNIQUE NOT NULL,
+    signal_bar_date TEXT NOT NULL,
+    signal_generated_at DATETIME NOT NULL,
+    target_instrument TEXT NOT NULL,
+    target_score REAL NOT NULL,
+    intended_execution_session TEXT NOT NULL,
+    intended_execution_window TEXT NOT NULL DEFAULT '08:00:00-08:05:00 BST',
+    execution_status TEXT NOT NULL,
+    broker_order_id TEXT,
+    order_timestamp DATETIME,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_core_decisions_dedup ON core_compounding_decisions(dedup_key);
+CREATE INDEX IF NOT EXISTS idx_core_decisions_session ON core_compounding_decisions(intended_execution_session);
+
 CREATE TABLE IF NOT EXISTS evidence_registry (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     claim_id TEXT NOT NULL UNIQUE,
@@ -2312,6 +2332,94 @@ class Database:
             else:
                 cur.execute("SELECT * FROM shadow_strategy_ledger ORDER BY id DESC LIMIT 20")
             return [dict(row) for row in cur.fetchall()]
+
+    def save_core_compounding_decision(self, decision: Dict[str, Any]) -> bool:
+        """Persist or update core compounding strategy pending or executed decision."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO core_compounding_decisions (
+                    strategy_id, dedup_key, signal_bar_date, signal_generated_at,
+                    target_instrument, target_score, intended_execution_session,
+                    intended_execution_window, execution_status, broker_order_id,
+                    order_timestamp, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(dedup_key) DO UPDATE SET
+                    signal_bar_date = excluded.signal_bar_date,
+                    signal_generated_at = excluded.signal_generated_at,
+                    target_instrument = excluded.target_instrument,
+                    target_score = excluded.target_score,
+                    intended_execution_session = excluded.intended_execution_session,
+                    intended_execution_window = excluded.intended_execution_window,
+                    execution_status = CASE 
+                        WHEN core_compounding_decisions.execution_status IN ('EXECUTED', 'DISPATCHED') 
+                        THEN core_compounding_decisions.execution_status 
+                        ELSE excluded.execution_status 
+                    END,
+                    broker_order_id = COALESCE(core_compounding_decisions.broker_order_id, excluded.broker_order_id),
+                    order_timestamp = COALESCE(core_compounding_decisions.order_timestamp, excluded.order_timestamp),
+                    notes = excluded.notes,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                decision.get("strategy_id", "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"),
+                decision["dedup_key"],
+                decision["signal_bar_date"],
+                decision.get("signal_generated_at", datetime.now(timezone.utc).isoformat()),
+                decision["target_instrument"],
+                float(decision.get("target_score", 0.0)),
+                decision["intended_execution_session"],
+                decision.get("intended_execution_window", "08:00:00-08:05:00 BST"),
+                decision.get("execution_status", "PENDING"),
+                decision.get("broker_order_id"),
+                decision.get("order_timestamp"),
+                decision.get("notes", "")
+            ))
+            conn.commit()
+            return True
+
+    def get_core_compounding_decision(self, dedup_key: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM core_compounding_decisions WHERE dedup_key = ?", (dedup_key,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_latest_core_compounding_decision(self) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM core_compounding_decisions ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def update_core_compounding_decision_status(
+        self, dedup_key: str, status: str, broker_order_id: Optional[str] = None, notes: Optional[str] = None
+    ) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            updates = ["execution_status = ?", "updated_at = CURRENT_TIMESTAMP"]
+            params: List[Any] = [status]
+            if broker_order_id is not None:
+                updates.append("broker_order_id = ?")
+                params.append(broker_order_id)
+                updates.append("order_timestamp = CURRENT_TIMESTAMP")
+            if notes is not None:
+                updates.append("notes = ?")
+                params.append(notes)
+            params.append(dedup_key)
+            cur.execute(f"UPDATE core_compounding_decisions SET {', '.join(updates)} WHERE dedup_key = ?", params)
+            conn.commit()
+            return cur.rowcount > 0
+
+    def is_core_decision_executed(self, dedup_key: str) -> bool:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT execution_status FROM core_compounding_decisions WHERE dedup_key = ?", (dedup_key,)
+            )
+            row = cur.fetchone()
+            if row and row["execution_status"] in ("EXECUTED", "DISPATCHED", "PENDING_EXECUTION"):
+                return True
+            return False
 
 db = Database()
 
