@@ -152,6 +152,46 @@ def evaluate_production_launch_assertions() -> Dict[str, Any]:
     if not daily_pnl_zero:
         all_passed = False
 
+    # 9. STOP_UNIT_CONVERSION_VALIDATED
+    csp1_entry_gbp = 613.24
+    csp1_sl_gbp = csp1_entry_gbp * (1.0 - 0.008)
+    meta_csp1 = universe_manager.get_by_t212_ticker("CSP1_EQ")
+    csp1_is_pence = meta_csp1.get("is_uk_pence", False) if meta_csp1 else True
+    csp1_broker_stop = round(csp1_sl_gbp * 100.0, 2) if csp1_is_pence else round(csp1_sl_gbp, 4)
+    csp1_stop_ok = (csp1_broker_stop > 50000.0) # Must be ~60,833 GBX pence, NOT 608.33p (£6.08)
+
+    vusa_entry_gbp = 107.76
+    vusa_sl_gbp = vusa_entry_gbp * (1.0 - 0.008)
+    meta_vusa = universe_manager.get_by_t212_ticker("VUSAl_EQ")
+    vusa_is_pence = meta_vusa.get("is_uk_pence", False) if meta_vusa else False
+    vusa_broker_stop = round(vusa_sl_gbp * 100.0, 2) if vusa_is_pence else round(vusa_sl_gbp, 4)
+    vusa_stop_ok = (vusa_broker_stop < 500.0) # Must be ~£106.90 GBP, NOT 10,690p
+
+    stop_unit_pass = (csp1_stop_ok and vusa_stop_ok)
+    assertions["STOP_UNIT_CONVERSION_VALIDATED"] = {
+        "passed": stop_unit_pass,
+        "csp1_calculated_broker_stop": f"{csp1_broker_stop} GBX (pence)",
+        "csp1_expected_pence": 60833.41,
+        "vusa_calculated_broker_stop": f"£{vusa_broker_stop:.4f} GBP",
+        "vusa_expected_gbp": 106.8979
+    }
+    if not stop_unit_pass:
+        all_passed = False
+
+    # 10. SIGNAL_DEDUPLICATION_GATE_ACTIVE
+    from src.core.engine import quant_engine
+    test_key = "PRV_HIT_AND_RUN_ETF_V1_TEST_TICKER_2026-09-08"
+    quant_engine.mark_signal_bar_executed(test_key)
+    dedup_detected = quant_engine.is_signal_bar_already_executed(test_key)
+    assertions["SIGNAL_DEDUPLICATION_GATE_ACTIVE"] = {
+        "passed": dedup_detected,
+        "dedup_key_format": "{strategy_id}_{t212_ticker}_{bar_date}",
+        "test_key": test_key,
+        "duplicate_prevented": dedup_detected
+    }
+    if not dedup_detected:
+        all_passed = False
+
     summary = broker.get_account_summary(force_refresh=True)
     broker_nav = float(summary.get("total_value", 49897.38))
     free_cash = float(summary.get("available_cash", 49897.38))

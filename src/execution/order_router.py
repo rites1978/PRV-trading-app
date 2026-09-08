@@ -397,9 +397,16 @@ class OrderRouter:
                 stop_order_id = None
                 if stop_loss_price and stop_loss_price > 0:
                     try:
-                        broker_stop_price = stop_loss_price
-                        if is_uk and broker_stop_price < 500.0:
+                        from src.data.universe import universe_manager
+                        meta = universe_manager.get_by_t212_ticker(t212_ticker) or universe_manager.get_by_symbol(symbol)
+                        is_pence = meta.get("is_uk_pence", False) if meta else (is_uk and not t212_ticker.startswith("VUSA"))
+                        if is_pence:
+                            # Convert GBP (£) stop loss to broker-native GBX (pence): e.g. £608.33 -> 60,833.00p
                             broker_stop_price = round(stop_loss_price * 100.0, 2)
+                        else:
+                            # Native GBP (£) instrument: e.g. VUSA £106.90
+                            broker_stop_price = round(stop_loss_price, 4)
+                        logger.info(f"Submitting native stop order for {t212_ticker}: entry=£{fill_price:.2f}, stop_loss=£{stop_loss_price:.4f} -> broker_stop_price={broker_stop_price} {'GBX (pence)' if is_pence else 'GBP (£)'}")
                         stop_res = broker.sync_broker_stop_order(t212_ticker, quantity, broker_stop_price)
                         if not stop_res or not stop_res.get("success"):
                             # FAIL-CLOSED: no confirmed protective stop -> flatten + HALT

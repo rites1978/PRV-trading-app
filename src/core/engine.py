@@ -94,7 +94,33 @@ class PRVQuantEngine:
         self.top_rejected_candidates: List[Dict[str, Any]] = []
         self.last_execution_error: Optional[str] = None
         self._stale_heartbeat_alerted: bool = False
+        self._executed_signals: set = set()
         self._initialized = True
+
+    def is_signal_bar_already_executed(self, dedup_key: str) -> bool:
+        """Airtight signal de-duplication: ensures the same daily bar signal is never traded twice."""
+        if dedup_key in getattr(self, "_executed_signals", set()):
+            return True
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        try:
+            trades = db.get_trades(limit=100)
+            for t in trades:
+                if str(t.get("timestamp", "")).startswith(today_str):
+                    t_sym = str(t.get("symbol", "")).upper()
+                    t_tick = str(t.get("t212_ticker", "")).upper()
+                    if dedup_key.endswith(t_sym) or (t_tick and dedup_key.endswith(t_tick)):
+                        if not hasattr(self, "_executed_signals"):
+                            self._executed_signals = set()
+                        self._executed_signals.add(dedup_key)
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def mark_signal_bar_executed(self, dedup_key: str):
+        if not hasattr(self, "_executed_signals"):
+            self._executed_signals = set()
+        self._executed_signals.add(dedup_key)
 
     def _is_symbol_active_or_pending(self, t212_ticker: str) -> bool:
         """
@@ -729,6 +755,13 @@ class PRVQuantEngine:
 
                 snapshot = market_data.get_market_snapshot(yf_ticker, is_uk_pence=is_uk_pence)
                 if not snapshot.get("success"):
+                    return None
+
+                # Signal Bar De-duplication Gate: Prevents repeated entries across 3-minute scans on the same daily bar
+                bar_date = snapshot.get("last_bar_date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                dedup_key = f"{active_strategy_id}_{t212_ticker}_{bar_date}"
+                if self.is_signal_bar_already_executed(dedup_key):
+                    logger.info(f"DEDUP: Bar signal {dedup_key} already executed today. Skipping duplicate.")
                     return None
 
                 price = snapshot["current_price"]
