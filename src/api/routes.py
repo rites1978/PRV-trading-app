@@ -182,6 +182,13 @@ def execute_cycle():
     result = quant_engine.run_cycle()
     return result
 
+@app.post("/api/canary/execute_etf")
+def execute_canary_endpoint():
+    """Execute live 1-share CSP1 ETF canary on Trading212 Practice directly on deployed production container."""
+    from src.execution.canary import execute_live_etf_canary
+    result = execute_live_etf_canary()
+    return result
+
 @app.get("/api/engine/execution_monitor")
 def get_engine_execution_monitor():
     """Retrieve comprehensive real-time execution monitor telemetry."""

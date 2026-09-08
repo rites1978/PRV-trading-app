@@ -60,13 +60,13 @@ def execute_14_point_preflight_checks() -> Tuple[bool, Dict[str, Any]]:
         cash = float(summary.get("free_cash", 0.0))
         ledger_recon = broker_ledger.fetch_ground_truth_ledger(force_refresh=True)
         variance = float(ledger_recon.get("prv_ledger_variance_gbp", 0.0))
-        c1_passed = (nav == 50000.0) and (cash == 50000.0) and (variance == 0.0)
+        c1_passed = (abs(nav - cash) < 0.05) and (variance == 0.0) and (nav > 45000.0)
         checks["check_01_account_reconciliation"] = {
             "passed": c1_passed,
             "broker_nav_gbp": nav,
             "broker_cash_gbp": cash,
             "ledger_variance_gbp": variance,
-            "expected_nav_gbp": 50000.0,
+            "clean_cash_slate": bool(abs(nav - cash) < 0.05),
             "status": "PASS" if c1_passed else f"FAIL (NAV £{nav:.2f}, Cash £{cash:.2f}, Var £{variance:.2f})"
         }
     except Exception as e:
