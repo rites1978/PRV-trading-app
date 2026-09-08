@@ -1,0 +1,126 @@
+{
+  "verdict": "NO-GO (PRE-MARKET LOCKED: AWAITING 08:00 BST LSE OPEN FOR ETF CANARY)",
+  "failure_reason": "LSE Regular Session is currently closed. Real-fill ETF canary cannot execute out-of-hours.",
+  "evaluated_at": "2026-09-08T00:20:02.692362+00:00",
+  "canary_instrument": "CSP1_EQ",
+  "canary_order_ids": [],
+  "canary_fill": null,
+  "stop_order_id": null,
+  "canary_net_pnl": 0.0,
+  "broker_ledger_variance": 0.0,
+  "orphans": 0,
+  "measured_signal_to_order_latency_ms": null,
+  "measured_order_to_fill_latency_ms": null,
+  "overnight_policy": "ALLOWED_WITH_GTC_STOP",
+  "nominal_stop_risk_gbp": 280.0,
+  "gap_stress_loss_gbp": 875.0,
+  "starting_nav": 50000.0,
+  "practice_entries_enabled": false,
+  "strategy_hash": "0a45c93a16c55f14970581942da1aebec5bd9d60c48d6fe2cdd32354afd3de7b",
+  "parameter_manifest_hash": "3ee18df44ac71eaacbcc5496047ab51dc2956d890b7ad755fa10a5a25d0f800a",
+  "preflight_checks": {
+    "check_01_account_reconciliation": {
+      "passed": true,
+      "broker_nav_gbp": 50000.0,
+      "broker_cash_gbp": 50000.0,
+      "ledger_variance_gbp": 0.0,
+      "expected_nav_gbp": 50000.0,
+      "status": "PASS"
+    },
+    "check_02_zero_unexpected_positions_orders": {
+      "passed": true,
+      "open_positions": 0,
+      "open_orders": 0,
+      "status": "PASS"
+    },
+    "check_03_zero_broker_api_errors": {
+      "passed": true,
+      "authenticated": true,
+      "status": "PASS"
+    },
+    "check_04_etf_universe_validation": {
+      "passed": true,
+      "instruments": {
+        "CSP1_EQ": true,
+        "ISFl_EQ": true,
+        "VUSAl_EQ": true,
+        "EQQQl_EQ": true
+      },
+      "status": "PASS"
+    },
+    "check_05_live_market_data_feed": {
+      "passed": true,
+      "feeds": {
+        "CSP1.L": true,
+        "ISF.L": true,
+        "VUSA.L": true,
+        "EQQQ.L": true
+      },
+      "status": "PASS"
+    },
+    "check_06_cost_schedule_health": {
+      "passed": true,
+      "verified_schedules": 7,
+      "status": "PASS"
+    },
+    "check_07_daily_100_governor_active": {
+      "passed": true,
+      "effective_daily_target_gbp": 100.0,
+      "strategy_governor_target_gbp": 100.0,
+      "status": "PASS"
+    },
+    "check_08_watch_mode_transition": {
+      "passed": true,
+      "simulated_profit_gbp": 100.0,
+      "transition_state": "TARGET_LOCK",
+      "entries_locked": true,
+      "status": "PASS"
+    },
+    "check_09_maximum_one_position_rule": {
+      "passed": true,
+      "reservation_blocked": true,
+      "enforcement_message": "HOLD_CASH: Max positions limit (1) reached.",
+      "status": "PASS"
+    },
+    "check_10_mandatory_protective_stop": {
+      "passed": true,
+      "broker_native_stop_sync_supported": true,
+      "time_validity_contract": "GOOD_TILL_CANCEL",
+      "status": "PASS"
+    },
+    "check_11_fail_closed_unconfirmed_stop": {
+      "passed": true,
+      "emergency_flatten_available": true,
+      "circuit_breaker_policy": "IMMEDIATE_MARKET_FLATTEN_AND_HALT",
+      "status": "PASS"
+    },
+    "check_12_risk_governors_and_gap_exposure": {
+      "passed": true,
+      "nominal_stop_risk_gbp": 280.0,
+      "gap_stress_loss_gbp": 875.0,
+      "overnight_policy": "ALLOWED_WITH_GTC_STOP",
+      "stop_is_guaranteed": false,
+      "status": "PASS"
+    },
+    "check_13_frozen_oos_decision_path": {
+      "passed": true,
+      "active_strategy_id": "ETF_V1",
+      "etf_routing_authorized": true,
+      "v2_routing_blocked": true,
+      "v1_routing_blocked": true,
+      "status": "PASS"
+    },
+    "check_14_zero_simulation_data_leakage": {
+      "passed": true,
+      "live_data_source": "YFINANCE_LIVE_TICKER_AND_BROKER_NATIVE",
+      "simulation_leakage_detected": false,
+      "status": "PASS"
+    }
+  },
+  "unresolved_limitations": [
+    "1-Bar Latency Fragility: Research simulation demonstrated that a 1-bar execution delay collapses expectancy from +\u00a3150.77/trade (PF 7.61) to +\u00a316.13/trade (PF 1.17). Execution must remain sub-second.",
+    "Outlier Test Sample Size (N=63): Top 1% outlier removal resulted in 0 observations removed (not informative at N=63). Robust tests are Top 5% (3 removed, PF 6.46) and Top 10% (6 removed, PF 5.50).",
+    "Overnight Gap Risk: Historical average holding period is 2.0 days. The -0.80% nominal stop is an intended stop, NOT a guaranteed loss ceiling. Gap stress scenario is -2.5% (\u00a3875.00 loss, 1.75% of NAV).",
+    "Daily \u00a3100 Distribution Reality: In the 14-month OOS period, only 39 trading days (13.3%) generated \u00a3100+ net. The strategy holds cash when no setup qualifies; it does NOT force \u00a3100 daily."
+  ]
+}

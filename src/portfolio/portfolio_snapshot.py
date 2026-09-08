@@ -396,7 +396,7 @@ class PortfolioSnapshotService:
         from src.brokers.broker_ledger import broker_ledger
         ledger = broker_ledger.fetch_ground_truth_ledger(force_refresh=force_refresh)
         realized_trading_pnl = ledger["broker_derived_realized_pnl_gbp"]
-        unrealized_trading_pnl = ledger["broker_derived_unrealized_pnl_gbp"]
+        unrealized_trading_pnl = total_unrealized_pnl
         total_sdrt_paid = ledger["sdrt_paid_gbp"]
         total_fx_paid = ledger["fx_fees_paid_gbp"]
         total_broker_debited_fees = ledger["broker_derived_total_costs_gbp"]

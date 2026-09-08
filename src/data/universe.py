@@ -18,18 +18,18 @@ INSTITUTIONAL_UNIVERSE: List[Dict[str, Any]] = [
     {"symbol": "NG", "name": "National Grid PLC", "yf_ticker": "NG.L", "t212_ticker": "NGl_EQ", "sector": "Utilities", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "VOD", "name": "Vodafone Group PLC", "yf_ticker": "VOD.L", "t212_ticker": "VODl_EQ", "sector": "Communication", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "GLEN", "name": "Glencore PLC", "yf_ticker": "GLEN.L", "t212_ticker": "GLENl_EQ", "sector": "Materials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
-    {"symbol": "LSEG", "name": "London Stock Exchange Group", "yf_ticker": "LSEG.L", "t212_ticker": "LSEGl_EQ", "sector": "Financials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
+    {"symbol": "LSEG", "name": "London Stock Exchange Group", "yf_ticker": "LSEG.L", "t212_ticker": "LSEl_EQ", "sector": "Financials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "PRU", "name": "Prudential PLC", "yf_ticker": "PRU.L", "t212_ticker": "PRUl_EQ", "sector": "Financials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "AAL", "name": "Anglo American PLC", "yf_ticker": "AAL.L", "t212_ticker": "AALl_EQ", "sector": "Materials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
-    {"symbol": "NWG", "name": "NatWest Group PLC", "yf_ticker": "NWG.L", "t212_ticker": "NWGl_EQ", "sector": "Financials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
+    {"symbol": "NWG", "name": "NatWest Group PLC", "yf_ticker": "NWG.L", "t212_ticker": "RBSl_EQ", "sector": "Financials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "EXPN", "name": "Experian PLC", "yf_ticker": "EXPN.L", "t212_ticker": "EXPNl_EQ", "sector": "Industrials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
-    {"symbol": "CPG", "name": "Compass Group PLC", "yf_ticker": "CPG.L", "t212_ticker": "CPGl_EQ", "sector": "Consumer Discretionary", "country": "UK", "currency": "GBP", "is_uk_pence": True},
+    {"symbol": "CPG", "name": "Compass Group PLC", "yf_ticker": "CPG.L", "t212_ticker": "CCPGl_EQ", "sector": "Consumer Discretionary", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "STAN", "name": "Standard Chartered PLC", "yf_ticker": "STAN.L", "t212_ticker": "STANl_EQ", "sector": "Financials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "BA_UK", "name": "BAE Systems PLC", "yf_ticker": "BA.L", "t212_ticker": "BAl_EQ", "sector": "Industrials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "SSE", "name": "SSE PLC", "yf_ticker": "SSE.L", "t212_ticker": "SSEl_EQ", "sector": "Utilities", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "IMB", "name": "Imperial Brands PLC", "yf_ticker": "IMB.L", "t212_ticker": "IMBl_EQ", "sector": "Consumer Staples", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "FLTR", "name": "Flutter Entertainment PLC", "yf_ticker": "FLTR.L", "t212_ticker": "FLTRl_EQ", "sector": "Consumer Discretionary", "country": "UK", "currency": "GBP", "is_uk_pence": True},
-    {"symbol": "RKT", "name": "Reckitt Benckiser Group", "yf_ticker": "RKT.L", "t212_ticker": "RKTl_EQ", "sector": "Consumer Staples", "country": "UK", "currency": "GBP", "is_uk_pence": True},
+    {"symbol": "RKT", "name": "Reckitt Benckiser Group", "yf_ticker": "RKT.L", "t212_ticker": "RBl_EQ", "sector": "Consumer Staples", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "ANTO", "name": "Antofagasta PLC", "yf_ticker": "ANTO.L", "t212_ticker": "ANTOl_EQ", "sector": "Materials", "country": "UK", "currency": "GBP", "is_uk_pence": True},
     {"symbol": "WPP", "name": "WPP PLC", "yf_ticker": "WPP.L", "t212_ticker": "WPPl_EQ", "sector": "Communication", "country": "UK", "currency": "GBP", "is_uk_pence": True},
 
@@ -103,12 +103,12 @@ INSTITUTIONAL_UNIVERSE: List[Dict[str, Any]] = [
     {"symbol": "HON", "name": "Honeywell International", "yf_ticker": "HON", "t212_ticker": "HON_US_EQ", "sector": "Industrials", "country": "US", "currency": "USD", "is_uk_pence": False},
     {"symbol": "DE", "name": "Deere & Co", "yf_ticker": "DE", "t212_ticker": "DE_US_EQ", "sector": "Industrials", "country": "US", "currency": "USD", "is_uk_pence": False},
     {"symbol": "LMT", "name": "Lockheed Martin Corp", "yf_ticker": "LMT", "t212_ticker": "LMT_US_EQ", "sector": "Industrials", "country": "US", "currency": "USD", "is_uk_pence": False},
-    {"symbol": "RTX", "name": "RTX Corp", "yf_ticker": "RTX", "t212_ticker": "RTX_US_EQ", "sector": "Industrials", "country": "US", "currency": "USD", "is_uk_pence": False},
+    {"symbol": "RTX", "name": "RTX Corp", "yf_ticker": "RTX", "t212_ticker": "UTX_US_EQ", "sector": "Industrials", "country": "US", "currency": "USD", "is_uk_pence": False},
     {"symbol": "BA", "name": "Boeing Co", "yf_ticker": "BA", "t212_ticker": "BA_US_EQ", "sector": "Industrials", "country": "US", "currency": "USD", "is_uk_pence": False},
 
     # --- Top US Communication, Utilities, Materials, Real Estate ---
     {"symbol": "GOOGL", "name": "Alphabet Inc (Class A)", "yf_ticker": "GOOGL", "t212_ticker": "GOOGL_US_EQ", "sector": "Communication", "country": "US", "currency": "USD", "is_uk_pence": False},
-    {"symbol": "META", "name": "Meta Platforms Inc", "yf_ticker": "META", "t212_ticker": "META_US_EQ", "sector": "Communication", "country": "US", "currency": "USD", "is_uk_pence": False},
+    {"symbol": "META", "name": "Meta Platforms Inc", "yf_ticker": "META", "t212_ticker": "FB_US_EQ", "sector": "Communication", "country": "US", "currency": "USD", "is_uk_pence": False},
     {"symbol": "NEE", "name": "NextEra Energy Inc", "yf_ticker": "NEE", "t212_ticker": "NEE_US_EQ", "sector": "Utilities", "country": "US", "currency": "USD", "is_uk_pence": False},
     {"symbol": "SO", "name": "Southern Co", "yf_ticker": "SO", "t212_ticker": "SO_US_EQ", "sector": "Utilities", "country": "US", "currency": "USD", "is_uk_pence": False},
     {"symbol": "DUK", "name": "Duke Energy Corp", "yf_ticker": "DUK", "t212_ticker": "DUK_US_EQ", "sector": "Utilities", "country": "US", "currency": "USD", "is_uk_pence": False},
@@ -117,7 +117,21 @@ INSTITUTIONAL_UNIVERSE: List[Dict[str, Any]] = [
     {"symbol": "FCX", "name": "Freeport-McMoRan Inc", "yf_ticker": "FCX", "t212_ticker": "FCX_US_EQ", "sector": "Materials", "country": "US", "currency": "USD", "is_uk_pence": False},
     {"symbol": "PLD", "name": "Prologis Inc", "yf_ticker": "PLD", "t212_ticker": "PLD_US_EQ", "sector": "Real Estate", "country": "US", "currency": "USD", "is_uk_pence": False},
     {"symbol": "AMT", "name": "American Tower Corp", "yf_ticker": "AMT", "t212_ticker": "AMT_US_EQ", "sector": "Real Estate", "country": "US", "currency": "USD", "is_uk_pence": False},
-    {"symbol": "CCI", "name": "Crown Castle Inc", "yf_ticker": "CCI", "t212_ticker": "CCI_US_EQ", "sector": "Real Estate", "country": "US", "currency": "USD", "is_uk_pence": False}
+    {"symbol": "CCI", "name": "Crown Castle Inc", "yf_ticker": "CCI", "t212_ticker": "CCI_US_EQ", "sector": "Real Estate", "country": "US", "currency": "USD", "is_uk_pence": False},
+
+    # --- Certified GBP SDRT-Exempt LSE Index / Sector ETFs ---
+    {"symbol": "CSP1", "name": "iShares Core S&P 500 UCITS ETF", "yf_ticker": "CSP1.L", "t212_ticker": "CSP1_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": True, "instrument_type": "ETF"},
+    {"symbol": "ISF", "name": "iShares Core FTSE 100 UCITS ETF", "yf_ticker": "ISF.L", "t212_ticker": "ISFl_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": True, "instrument_type": "ETF"},
+    {"symbol": "VUSA", "name": "Vanguard S&P 500 UCITS ETF", "yf_ticker": "VUSA.L", "t212_ticker": "VUSAl_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": False, "instrument_type": "ETF"},
+    {"symbol": "EQQQ", "name": "Invesco EQQQ Nasdaq-100 UCITS ETF", "yf_ticker": "EQQQ.L", "t212_ticker": "EQQQl_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": True, "instrument_type": "ETF"}
+]
+
+# Authoritative Production Universe: Model B GBP SDRT-Exempt ETFs
+ETF_HIT_AND_RUN_UNIVERSE: List[Dict[str, Any]] = [
+    {"symbol": "CSP1", "name": "iShares Core S&P 500 UCITS ETF", "yf_ticker": "CSP1.L", "t212_ticker": "CSP1_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": True, "instrument_type": "ETF"},
+    {"symbol": "ISF", "name": "iShares Core FTSE 100 UCITS ETF", "yf_ticker": "ISF.L", "t212_ticker": "ISFl_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": True, "instrument_type": "ETF"},
+    {"symbol": "VUSA", "name": "Vanguard S&P 500 UCITS ETF", "yf_ticker": "VUSA.L", "t212_ticker": "VUSAl_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": False, "instrument_type": "ETF"},
+    {"symbol": "EQQQ", "name": "Invesco EQQQ Nasdaq-100 UCITS ETF", "yf_ticker": "EQQQ.L", "t212_ticker": "EQQQl_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": True, "instrument_type": "ETF"}
 ]
 
 class UniverseManager:
@@ -125,6 +139,13 @@ class UniverseManager:
         self.universe = INSTITUTIONAL_UNIVERSE
 
     def get_all(self) -> List[Dict[str, Any]]:
+        try:
+            from src.strategies.registry import strategy_registry
+            active_id = strategy_registry.get_active_execution_strategy_id()
+            if str(active_id).upper() in ("ETF_V1", "PRV_HIT_AND_RUN_ETF_V1"):
+                return list(ETF_HIT_AND_RUN_UNIVERSE)
+        except Exception:
+            pass
         return self.universe
 
     def get_by_t212_ticker(self, t212_ticker: str) -> Dict[str, Any]:
@@ -144,4 +165,26 @@ class UniverseManager:
     def filter_by_sector(self, sector: str) -> List[Dict[str, Any]]:
         return [item for item in self.universe if item["sector"].lower() == sector.lower()]
 
+    def is_broker_supported(self, t212_ticker: str) -> bool:
+        """Fail-closed validation: returns True only if broker natively supports the ticker."""
+        try:
+            from scripts.hydrate_trading212_instruments import instrument_registry
+            return instrument_registry.is_valid_ticker(t212_ticker)
+        except Exception:
+            return True  # Fallback if registry not loaded
+
+    def validate_universe_fail_closed(self) -> List[Dict[str, Any]]:
+        """Returns only assets validated against the authoritative Trading212 instrument directory."""
+        try:
+            from scripts.hydrate_trading212_instruments import instrument_registry
+            validated = []
+            for item in self.universe:
+                tick = item.get("t212_ticker", "")
+                if instrument_registry.is_valid_ticker(tick):
+                    validated.append(item)
+            return validated
+        except Exception:
+            return self.universe
+
 universe_manager = UniverseManager()
+

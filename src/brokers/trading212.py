@@ -5,11 +5,14 @@ Ensures zero-drop parity between Trading212, backend APIs, and dashboard DOM.
 """
 import time
 import threading
+import logging
 import requests
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from src.config.settings import settings
 from src.database.db import db
+
+logger = logging.getLogger("trading212")
 
 class Trading212Broker:
     def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, env: Optional[str] = None):
@@ -99,15 +102,16 @@ class Trading212Broker:
         max_retries = 3
         base_backoff = 1.0
 
+        req_timeout = kwargs.pop("timeout", 5.0)
         for attempt in range(max_retries):
             self._rate_limit()
             try:
                 if method.upper() == "GET":
-                    res = requests.get(url, auth=self.auth, timeout=3.0, **kwargs)
+                    res = requests.get(url, auth=self.auth, timeout=req_timeout, **kwargs)
                 elif method.upper() == "POST":
-                    res = requests.post(url, auth=self.auth, timeout=3.0, **kwargs)
+                    res = requests.post(url, auth=self.auth, timeout=req_timeout, **kwargs)
                 elif method.upper() == "DELETE":
-                    res = requests.delete(url, auth=self.auth, timeout=3.0, **kwargs)
+                    res = requests.delete(url, auth=self.auth, timeout=req_timeout, **kwargs)
                 else:
                     raise ValueError(f"Unsupported HTTP method {method}")
 
@@ -373,8 +377,8 @@ class Trading212Broker:
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
-    def place_stop_order(self, ticker: str, quantity: float, stop_price: float, time_validity: str = "DAY") -> Dict[str, Any]:
-        """Execute broker-native stop order (DAY in-force)."""
+    def place_stop_order(self, ticker: str, quantity: float, stop_price: float, time_validity: str = "GOOD_TILL_CANCEL") -> Dict[str, Any]:
+        """Execute broker-native stop order (GOOD_TILL_CANCEL in-force for persistent protection)."""
         with self._lock:
             try:
                 payload = {
@@ -390,8 +394,8 @@ class Trading212Broker:
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
-    def place_stop_limit_order(self, ticker: str, quantity: float, stop_price: float, limit_price: float, time_validity: str = "DAY") -> Dict[str, Any]:
-        """Execute broker-native stop-limit order (DAY in-force)."""
+    def place_stop_limit_order(self, ticker: str, quantity: float, stop_price: float, limit_price: float, time_validity: str = "GOOD_TILL_CANCEL") -> Dict[str, Any]:
+        """Execute broker-native stop-limit order (GOOD_TILL_CANCEL in-force)."""
         with self._lock:
             try:
                 payload = {
@@ -436,29 +440,87 @@ class Trading212Broker:
             logger.warning(f"Error cancelling stop orders for {ticker}: {e}")
         return cancelled
 
-    def sync_broker_stop_order(self, ticker: str, quantity: float, desired_stop_price: float) -> Dict[str, Any]:
+    def reconcile_orphan_stops(self) -> List[str]:
         """
-        Ensures a broker-native stop order exists at or above desired_stop_price.
-        If existing stop is lower than desired_stop_price (e.g. trailing ratchet),
-        cancels the existing stop and places the new higher stop order.
+        Safety Watchdog: Audits all working stop orders against open positions.
+        If a stop order exists for a ticker that has ZERO open positions,
+        the stop is an orphan and is immediately cancelled.
+        """
+        cancelled_orphans = []
+        try:
+            positions = self.get_open_positions(force_refresh=True) or []
+            open_tickers = {str(p.get("ticker", "")).upper() for p in positions if float(p.get("quantity", 0)) > 0}
+            orders = self.get_open_orders(force_refresh=True) or []
+            for o in orders:
+                if o.get("type") == "STOP":
+                    o_ticker = str(o.get("ticker", "")).upper()
+                    if o_ticker not in open_tickers:
+                        order_id = str(o.get("id"))
+                        res = self.cancel_order(order_id)
+                        if res.get("success"):
+                            logger.info(f"🛡️ Reconciled orphan stop order {order_id} for {o_ticker} (position closed)")
+                            cancelled_orphans.append(order_id)
+        except Exception as e:
+            logger.warning(f"Error during orphan stop reconciliation: {e}")
+        return cancelled_orphans
+
+    def sync_broker_stop_order(self, ticker: str, quantity: float, desired_stop_price: float, time_validity: str = "GOOD_TILL_CANCEL") -> Dict[str, Any]:
+        """
+        Ensures a broker-native stop order exists at or above desired_stop_price with GOOD_TILL_CANCEL persistence.
+        SAFE REPLACEMENT LIFECYCLE:
+        - Invariant: A LIVE POSITION MUST NEVER INTENTIONALLY BE LEFT WITHOUT REQUIRED BROKER-NATIVE PROTECTION.
+        - Strategy 1: Place replacement stop first (if broker allows overlapping pending orders).
+        - Strategy 2: If broker requires single-stop exclusivity, cancel old stop, submit new stop.
+          If new stop submission fails, IMMEDIATELY reinstate the previous protective stop.
         """
         try:
             orders = self.get_open_orders(force_refresh=False)
             existing_stop = next((o for o in orders if str(o.get("ticker", "")).upper() == ticker.upper() and o.get("type") == "STOP"), None)
             
             desired_stop_price = round(desired_stop_price, 2)
+            qty = -abs(quantity)
+
             if existing_stop:
                 current_stop = float(existing_stop.get("stopPrice", 0.0))
                 # If existing stop is already at or above desired stop, keep it
                 if current_stop >= desired_stop_price:
                     return {"success": True, "action": "KEPT_EXISTING", "order_id": existing_stop.get("id"), "stopPrice": current_stop}
                 
-                # Ratchet up: cancel lower stop order and replace with higher
-                self.cancel_order(str(existing_stop.get("id")))
-            
-            # Place new stop order
-            qty = -abs(quantity)
-            res = self.place_stop_order(ticker, quantity=qty, stop_price=desired_stop_price, time_validity="DAY")
+                old_stop_id = str(existing_stop.get("id"))
+
+                # Strategy 1: Place new higher stop first
+                res = self.place_stop_order(ticker, quantity=qty, stop_price=desired_stop_price, time_validity=time_validity)
+                if res.get("success"):
+                    self.cancel_order(old_stop_id)
+                    return {"success": True, "action": "PLACED_NEW", "order_id": res.get("data", {}).get("id"), "stopPrice": desired_stop_price}
+
+                # Strategy 2: If broker prevents overlapping stops, cancel old and immediately place new
+                self.cancel_order(old_stop_id)
+                res_retry = self.place_stop_order(ticker, quantity=qty, stop_price=desired_stop_price, time_validity=time_validity)
+                if res_retry.get("success"):
+                    return {"success": True, "action": "PLACED_NEW", "order_id": res_retry.get("data", {}).get("id"), "stopPrice": desired_stop_price}
+
+                # Critical Fail-Safe: Reinstate previous protective stop immediately!
+                logger.error(f"CRITICAL: Replacement stop for {ticker} failed ({res_retry.get('error')}). Reinstating previous stop at {current_stop}!")
+                reinstate_res = self.place_stop_order(ticker, quantity=qty, stop_price=current_stop, time_validity=time_validity)
+                if reinstate_res.get("success"):
+                    return {
+                        "success": False,
+                        "action": "REINSTATED_ORIGINAL",
+                        "order_id": reinstate_res.get("data", {}).get("id"),
+                        "stopPrice": current_stop,
+                        "error": f"Replacement failed ({res_retry.get('error')}); reinstated previous stop at {current_stop}"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "action": "EMERGENCY_UNPROTECTED",
+                        "naked_position_hazard": True,
+                        "error": f"EMERGENCY: Replacement failed and reinstatement failed: {reinstate_res.get('error')}"
+                    }
+
+            # No existing stop: place new stop directly
+            res = self.place_stop_order(ticker, quantity=qty, stop_price=desired_stop_price, time_validity=time_validity)
             if res.get("success"):
                 return {"success": True, "action": "PLACED_NEW", "order_id": res.get("data", {}).get("id"), "stopPrice": desired_stop_price}
             return {"success": False, "error": res.get("error")}

@@ -1,0 +1,29 @@
+{
+  "frozen_at": "2026-09-07T23:23:31.067843+00:00",
+  "strategy_name": "PRV_HIT_AND_RUN_ETF_V1",
+  "parameters": {
+    "strategy_name": "PRV_HIT_AND_RUN_ETF_V1",
+    "model_family": "MODEL_B_GBP_SDRT_EXEMPT_ETFS",
+    "universe": [
+      "CSP1.L",
+      "ISF.L",
+      "VUSA.L",
+      "EQQQ.L"
+    ],
+    "target_pct": 0.008,
+    "stop_pct": 0.008,
+    "rvol_threshold": 1.2,
+    "position_size_gbp": 35000.0,
+    "max_concurrent_positions": 1,
+    "time_cap_days": 3,
+    "daily_stop_enabled": true,
+    "daily_stop_threshold_gbp": 100.0,
+    "jurisdiction": "UK",
+    "instrument_class": "ETF"
+  },
+  "parameter_hash": "3ee18df44ac71eaacbcc5496047ab51dc2956d890b7ad755fa10a5a25d0f800a",
+  "code_hash": "0a45c93a16c55f14970581942da1aebec5bd9d60c48d6fe2cdd32354afd3de7b",
+  "cost_schedule_hash": "6c340dbca1fc9b81e30faaf867611fef61b6210e971e99ffa5c981b2fdf33464",
+  "data_manifest_hash": "5c823eaf2743978eb9e02b9ad055e8f19b7379a1a460d388fc9e5f1d83121e46",
+  "oos_window": "2025-07-01 to 2026-08-31"
+}

@@ -17,7 +17,7 @@ class TradingSettings(BaseModel):
     # Environment, Account Mode & Practice Trading Controls
     ACCOUNT_MODE: str = "PRACTICE"
     PRACTICE_TRADING_ENABLED: bool = True
-    PRACTICE_NEW_ENTRIES_ALLOWED: bool = True
+    PRACTICE_NEW_ENTRIES_ALLOWED: bool = False
     REAL_MONEY_TRADING_ENABLED: bool = False
     REAL_MONEY_NEW_ENTRIES_ALLOWED: bool = False
     
@@ -53,19 +53,23 @@ class TradingSettings(BaseModel):
     MAX_DEPLOYABLE_TRADING_CAPITAL: float = 50000.0
     MAX_NORMAL_DEPLOYABLE_CAPITAL: float = 50000.0
     
-    # Corridor Policy:
-    # +£250 Bankable Net Target -> Lock new entries
-    # -£250 Daily MTM Loss Lock -> Lock new entries (NO size halving, NO recovery trading)
-    # -£500 Emergency Loss Level -> Emergency lock, cancel unfilled entry orders, allow risk-reducing exits only
-    DAILY_BANKABLE_NET_TARGET: float = 250.0        # +£250 (+0.50%) bankable net profit
-    DAILY_NET_PROFIT_OBJECTIVE: float = 250.0       # Compatibility alias
-    DAILY_NET_RETURN_OBJECTIVE_PCT: float = 0.50    # 0.50% daily net return objective
-    DAILY_NEW_ENTRY_LOSS_LOCK: float = 250.0        # -£250 (-0.50%) daily MTM loss lock
-    DAILY_EMERGENCY_LOSS_LEVEL: float = 500.0       # -£500 (-1.00%) emergency circuit breaker
-    DAILY_SOFT_LOSS_LIMIT_GBP: float = 250.0        # Alias: -£250 loss lock
-    DAILY_HARD_LOSS_LIMIT_GBP: float = 500.0        # Alias: -£500 emergency level
-    DAILY_MAX_NET_LOSS_GBP: float = 500.0           # Compatibility alias
-    DAILY_MAX_NET_LOSS_PCT: float = 1.00            # 1.00% emergency level
+    # Permanent Invariants & Strategy Governance
+    RATIFIED_STRATEGY_ID: str = "PRV_HIT_AND_RUN_ETF_V1"
+    RATIFIED_COMMIT_SHA: str = "auto"
+
+    # Corridor Policy & £100 Realised-Net Governor:
+    # +£100 Bankable Net Target -> Lock new entries (WATCH MODE)
+    # -£100 Daily Loss Lock -> Lock new entries
+    # -£280 Emergency Loss Level (intended stop ceiling) -> Emergency lock
+    DAILY_BANKABLE_NET_TARGET: float = 100.0        # +£100 daily net realised target
+    DAILY_NET_PROFIT_OBJECTIVE: float = 100.0       # Compatibility alias
+    DAILY_NET_RETURN_OBJECTIVE_PCT: float = 0.20    # 0.20% daily net return objective on £50k
+    DAILY_NEW_ENTRY_LOSS_LOCK: float = 100.0        # -£100 daily loss lock
+    DAILY_EMERGENCY_LOSS_LEVEL: float = 280.0       # -£280 nominal intended stop risk ceiling
+    DAILY_SOFT_LOSS_LIMIT_GBP: float = 100.0        # Alias: -£100 loss lock
+    DAILY_HARD_LOSS_LIMIT_GBP: float = 280.0        # Alias: -£280 emergency level
+    DAILY_MAX_NET_LOSS_GBP: float = 280.0           # Compatibility alias
+    DAILY_MAX_NET_LOSS_PCT: float = 0.56            # 0.56% of £50k
     
     BANKED_PROFIT_IS_NON_DEPLOYABLE: bool = True    # Banked profit ring-fenced, non-deployable
     BANKED_PROFIT_RESERVE_LOCATION: str = "RINGFENCED_INSIDE_BROKER" # Ring-fenced ledger inside broker (Practice)

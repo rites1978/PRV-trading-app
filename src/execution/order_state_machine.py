@@ -187,16 +187,30 @@ class PortfolioReservationManager:
         # Support kwargs extraction
         if current_broker_free_cash_gbp is None:
             current_broker_free_cash_gbp = float(kwargs.get("free_cash", 50000.0))
+        strategy_id = kwargs.get("strategy_id", "ETF_V1")
         if total_nav := kwargs.get("total_nav"):
             if min_cash_reserve_gbp is None:
-                cash_pct = settings.REQUIRED_CASH_RESERVE_PCT if settings.REQUIRED_CASH_RESERVE_PCT <= 1.0 else (settings.REQUIRED_CASH_RESERVE_PCT / 100.0)
-                min_cash_reserve_gbp = float(total_nav) * cash_pct
+                if str(strategy_id).upper() in ("V2", "ETF_V1"):
+                    min_cash_reserve_gbp = float(total_nav) * settings.MIN_CASH_BUFFER_PCT
+                else:
+                    cash_pct = settings.REQUIRED_CASH_RESERVE_PCT if settings.REQUIRED_CASH_RESERVE_PCT <= 1.0 else (settings.REQUIRED_CASH_RESERVE_PCT / 100.0)
+                    min_cash_reserve_gbp = float(total_nav) * cash_pct
             if max_sector_budget_gbp is None:
-                sector_pct = settings.MAX_SECTOR_EXPOSURE_PCT if settings.MAX_SECTOR_EXPOSURE_PCT <= 1.0 else (settings.MAX_SECTOR_EXPOSURE_PCT / 100.0)
-                max_sector_budget_gbp = float(total_nav) * sector_pct
-        min_cash_reserve_gbp = min_cash_reserve_gbp or 22500.0
-        max_sector_budget_gbp = max_sector_budget_gbp or 15000.0
-
+                if str(strategy_id).upper() == "ETF_V1":
+                    max_sector_budget_gbp = float(total_nav) * 0.80
+                else:
+                    sector_pct = settings.MAX_SECTOR_EXPOSURE_PCT if settings.MAX_SECTOR_EXPOSURE_PCT <= 1.0 else (settings.MAX_SECTOR_EXPOSURE_PCT / 100.0)
+                    max_sector_budget_gbp = float(total_nav) * sector_pct
+        if min_cash_reserve_gbp is None:
+            if str(strategy_id).upper() in ("V2", "ETF_V1"):
+                min_cash_reserve_gbp = settings.STARTING_CAPITAL * settings.MIN_CASH_BUFFER_PCT
+            else:
+                min_cash_reserve_gbp = 22500.0
+        if str(strategy_id).upper() == "ETF_V1":
+            max_sector_budget_gbp = max_sector_budget_gbp or 40000.0
+            max_positions_limit = 1
+        else:
+            max_sector_budget_gbp = max_sector_budget_gbp or 15000.0
         if positions := kwargs.get("positions"):
             if current_position_count is None:
                 current_position_count = len(positions)
@@ -207,7 +221,6 @@ class PortfolioReservationManager:
 
         current_position_count = current_position_count or 0
         sector_current_exposure_gbp = sector_current_exposure_gbp or 0.0
-        max_positions_limit = max_positions_limit or getattr(settings, "MAX_CONCURRENT_POSITIONS", 15)
         existing_held_tickers = existing_held_tickers or []
         expected_consideration_gbp = expected_consideration_gbp if expected_consideration_gbp is not None else (order.quantity * order.price)
         fee_buffer_gbp = fee_buffer_gbp if fee_buffer_gbp is not None else 15.0

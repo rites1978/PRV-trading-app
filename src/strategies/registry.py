@@ -31,7 +31,7 @@ class StrategyRegistry:
         if getattr(self, "_initialized", False):
             return
 
-        self._active_strategy_id = "V2"
+        self._active_strategy_id = "PRV_HIT_AND_RUN_ETF_V1"
         self._strategies: Dict[str, Dict[str, Any]] = {}
         self._init_strategies()
         self._initialized = True
@@ -77,14 +77,14 @@ class StrategyRegistry:
             "net_profit_per_pound_friction": 0.0
         }
 
-        # 2. PRV Strategy V2: Net Profit Capital Rotation
+        # 2. PRV Strategy V2: Net Profit Capital Rotation (Decommissioned after falsification audit)
         v2_rules = {
-            "min_net_return_pct": 0.50, # +0.50% min net on capital deployed
-            "max_intended_loss_pct": 1.00, # -1.00% max intended loss on capital deployed
+            "min_net_return_pct": 0.50,
+            "max_intended_loss_pct": 1.00,
             "min_net_reward_risk_ratio": 2.0,
-            "no_fixed_cash_floor": True, # Dynamic allocation: 0% to 100% cash
-            "profit_vault_enabled": True, # Hard locked, excluded from sizing
-            "recovery_mode_threshold_gbp": 50000.0, # Restore £50k base before banking
+            "no_fixed_cash_floor": True,
+            "profit_vault_enabled": True,
+            "recovery_mode_threshold_gbp": 50000.0,
             "broker_native_stop_protection": True,
             "trend_aware_trailing_exit": True,
         }
@@ -93,12 +93,57 @@ class StrategyRegistry:
         self._strategies["V2"] = {
             "strategy_id": "V2",
             "version": "PRV_STRATEGY_V2",
-            "name": "Net Profit Capital Rotation",
-            "status": "ACTIVE_PRACTICE_CANDIDATE",
-            "execution_mode": "PRACTICE",
+            "name": "Net Profit Capital Rotation (Legacy)",
+            "status": "DECOMMISSIONED_AUDIT_HALT",
+            "execution_mode": "SHADOW",
             "config_hash": v2_hash,
             "rules": v2_rules,
             "activation_timestamp": "2026-09-06T00:00:00Z",
+            "deactivation_timestamp": "2026-09-07T12:00:00Z",
+            "broker_trades": 1,
+            "realised_net_pnl": 0.0,
+            "banked_profit": 0.0,
+            "number_of_trades": 1,
+            "winners": 0,
+            "losers": 0,
+            "win_rate": 0.0,
+            "expectancy": 0.0,
+            "profit_factor": 0.0,
+            "max_drawdown": 0.0,
+            "total_costs": 0.0,
+            "capital_utilisation": 0.0,
+            "average_holding_time_days": 0.0,
+            "net_profit_per_pound_friction": 0.0
+        }
+
+        # 3. PRV HIT-AND-RUN ETF V1 (Winning Model B Challenger, Frozen OOS Verified)
+        etf_rules = {
+            "universe": ["CSP1.L", "ISF.L", "VUSA.L", "EQQQ.L"],
+            "target_pct": 0.008,
+            "stop_pct": 0.008,
+            "rvol_threshold": 1.20,
+            "position_size_gbp": 35000.0,
+            "max_concurrent_positions": 1,
+            "time_cap_days": 3,
+            "daily_stop_enabled": True,
+            "daily_stop_threshold_gbp": 100.0,
+            "jurisdiction": "UK",
+            "instrument_class": "ETF",
+            "nominal_stop_risk_gbp": 280.00,
+            "gap_stress_loss_gbp": 875.00,
+            "overnight_policy": "ALLOWED_WITH_GTC_STOP"
+        }
+        etf_hash = "3ee18df44ac71eaacbcc5496047ab51dc2956d890b7ad755fa10a5a25d0f800a"
+
+        etf_entry = {
+            "strategy_id": "PRV_HIT_AND_RUN_ETF_V1",
+            "version": "PRV_HIT_AND_RUN_ETF_V1",
+            "name": "GBP SDRT-Exempt Index ETF Hit-and-Run",
+            "status": "ACTIVE_PRODUCTION_CHALLENGER",
+            "execution_mode": "PRACTICE",
+            "config_hash": etf_hash,
+            "rules": etf_rules,
+            "activation_timestamp": "2026-09-08T00:00:00Z",
             "deactivation_timestamp": None,
             "broker_trades": 0,
             "realised_net_pnl": 0.0,
@@ -115,6 +160,8 @@ class StrategyRegistry:
             "average_holding_time_days": 0.0,
             "net_profit_per_pound_friction": 0.0
         }
+        self._strategies["ETF_V1"] = etf_entry
+        self._strategies["PRV_HIT_AND_RUN_ETF_V1"] = etf_entry
 
     def get_strategy(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         return self._strategies.get(strategy_id.upper())

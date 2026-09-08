@@ -1,0 +1,73 @@
+{
+  "canary_passed": true,
+  "security": "BARCl_EQ",
+  "symbol": "BARC.L",
+  "quantity": 17.0,
+  "entry": {
+    "broker_order_id": "54650169876, 54650169914",
+    "requested_quantity": 17.0,
+    "filled_quantity": 17.0,
+    "fill_price_gbp": 4.9979,
+    "fill_timestamp": "2026-09-07T16:50:22.606+03:00",
+    "entry_costs_gbp": 0.42,
+    "sdrt_gbp": 0.42,
+    "consideration_gbp": 84.96,
+    "pass": true
+  },
+  "broker_stop": {
+    "stop_id": "54650169917",
+    "stop_price_gbx": 495.4,
+    "stop_price_gbp": 4.954,
+    "quantity": -8.0,
+    "validity": "GOOD_TILL_CANCEL",
+    "broker_status": "NEW",
+    "elapsed_seconds": 11.924,
+    "pass": true
+  },
+  "stop_lifecycle": {
+    "ratchet_observed": "NO",
+    "replacement_tested": "NO",
+    "residual_naked_interval": "NOT OBSERVED",
+    "emergency_unprotected": "NO",
+    "status": "NOT-OBSERVED"
+  },
+  "exit": {
+    "broker_order_id": "54650170100",
+    "fill_price_gbp": 5.0012,
+    "fill_timestamp": "2026-09-07 14:04:09",
+    "exit_costs_gbp": 0.0,
+    "position_after_exit": 0,
+    "consideration_gbp": 85.02,
+    "pass": true
+  },
+  "orphans": {
+    "positions": 0,
+    "working_stops": 0,
+    "pending_orders": 0,
+    "pass": true
+  },
+  "transaction_accounting": {
+    "entry_consideration": 84.96,
+    "exit_consideration": 85.02,
+    "gross_realized_pnl": 0.06,
+    "total_costs": 0.42,
+    "net_realized_pnl": -0.36,
+    "internal_realized_pnl": -0.36,
+    "variance": 0.0,
+    "vault_deposits": 0,
+    "pass": true
+  },
+  "broker_parity": {
+    "broker_nav": 49947.86,
+    "internal_nav": 49942.81,
+    "ledger_variance": 0.0,
+    "invariant_variance": 0.0,
+    "is_reconciled": true,
+    "pass": true
+  },
+  "v1_manifest": {
+    "before": "7c512be5bc26910c1c4ed81a3e650480a676cd750faa49bc8dbd8901360bc708",
+    "after": "7c512be5bc26910c1c4ed81a3e650480a676cd750faa49bc8dbd8901360bc708",
+    "pass": true
+  }
+}

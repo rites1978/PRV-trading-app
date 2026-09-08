@@ -1,0 +1,78 @@
+{
+  "partition": "TRAIN",
+  "window": "2020-01-01 to 2023-12-31",
+  "benchmarks": [
+    {
+      "name": "CASH_BASELINE",
+      "trades": 0,
+      "win_rate_pct": 0.0,
+      "gross_pnl_gbp": 0.0,
+      "friction_gbp": 0.0,
+      "net_pnl_gbp": 0.0,
+      "final_nav_gbp": 50000.0,
+      "return_pct": 0.0,
+      "max_drawdown_pct": 0.0,
+      "sharpe": 0.0
+    },
+    {
+      "name": "PASSIVE_BUY_HOLD_CSP1",
+      "trades": 1,
+      "win_rate_pct": 100.0,
+      "gross_pnl_gbp": 29274.5,
+      "friction_gbp": 49.71,
+      "net_pnl_gbp": 29224.79,
+      "final_nav_gbp": 79224.79,
+      "return_pct": 58.45,
+      "max_drawdown_pct": 24.29,
+      "sharpe": 0.76
+    },
+    {
+      "name": "PASSIVE_BUY_HOLD_ISF",
+      "trades": 1,
+      "win_rate_pct": 100.0,
+      "gross_pnl_gbp": 415.04,
+      "friction_gbp": 38.17,
+      "net_pnl_gbp": 376.87,
+      "final_nav_gbp": 50376.87,
+      "return_pct": 0.75,
+      "max_drawdown_pct": 33.12,
+      "sharpe": 0.1
+    },
+    {
+      "name": "SIMPLE_TREND_MA20_CSP1",
+      "trades": 60,
+      "win_rate_pct": 75.0,
+      "gross_pnl_gbp": 14459.46,
+      "friction_gbp": 1197.92,
+      "net_pnl_gbp": 13261.54,
+      "final_nav_gbp": 63261.51,
+      "return_pct": 26.52,
+      "max_drawdown_pct": 3.16,
+      "sharpe": 1.56
+    },
+    {
+      "name": "SIMPLE_TREND_MA20_NVDA",
+      "trades": 49,
+      "win_rate_pct": 83.7,
+      "gross_pnl_gbp": 26404.03,
+      "friction_gbp": 3285.57,
+      "net_pnl_gbp": 23118.46,
+      "final_nav_gbp": 73118.47,
+      "return_pct": 46.24,
+      "max_drawdown_pct": 11.86,
+      "sharpe": 0.44
+    },
+    {
+      "name": "SIMPLE_TREND_MA20_AAPL",
+      "trades": 41,
+      "win_rate_pct": 80.5,
+      "gross_pnl_gbp": 12194.51,
+      "friction_gbp": 2742.57,
+      "net_pnl_gbp": 9451.94,
+      "final_nav_gbp": 59451.92,
+      "return_pct": 18.9,
+      "max_drawdown_pct": 11.58,
+      "sharpe": 0.33
+    }
+  ]
+}

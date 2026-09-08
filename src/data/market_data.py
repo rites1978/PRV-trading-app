@@ -23,7 +23,9 @@ class MarketDataProvider:
         try:
             stock = yf.Ticker(yf_ticker)
             df = stock.history(period=period, interval=interval)
-            if not df.empty and len(df) >= 10:
+            if not df.empty:
+                df = df.dropna(subset=['Close'])
+            if not df.empty and len(df) >= 1:
                 # Evict oldest entry if cache exceeds bounds
                 if len(self._cache) >= self._cache_max_size:
                     oldest_key = min(self._cache, key=lambda k: self._cache[k][0])
@@ -109,40 +111,29 @@ class MarketDataProvider:
 
         df = self.fetch_history(yf_ticker, period="6mo", interval="1d")
         if df.empty or len(df) < 15:
-            fallback_snap = {
-                "success": True,
+            return {
+                "success": False,
+                "error": f"Insufficient historical data for {yf_ticker} ({len(df) if not df.empty else 0} bars found, 15 required)",
                 "ticker": yf_ticker,
-                "current_price": 5800.0 if "^" in yf_ticker else 100.0,
-                "raw_price": 5800.0 if "^" in yf_ticker else 100.0,
-                "daily_return": 0.001,
-                "indicators": {
-                    "rsi": 55.0,
-                    "sma_20": 5750.0,
-                    "sma_50": 5600.0,
-                    "sma_200": 5300.0,
-                    "macd": 15.0,
-                    "macd_signal": 12.0,
-                    "macd_hist": 3.0,
-                    "bb_upper": 5850.0,
-                    "bb_lower": 5650.0,
-                    "bb_width": 0.035,
-                    "atr": 45.0,
-                    "atr_pct": 0.008,
-                    "vol_ratio": 1.05,
-                    "obv_trending_up": True,
-                    "return_30d": 0.01,
-                    "annualized_vol": 0.20
-                },
-                "recent_returns": [0.001] * 20,
+                "current_price": 0.0,
+                "raw_price": 0.0,
                 "dataframe": pd.DataFrame()
             }
-            return fallback_snap
 
         df = self.compute_technical_indicators(df)
         last = df.iloc[-1]
         prev = df.iloc[-2]
 
         current_price = float(last['Close'])
+        if np.isnan(current_price) or current_price <= 0.0:
+            return {
+                "success": False,
+                "error": f"Invalid market price ({current_price}) for {yf_ticker}",
+                "ticker": yf_ticker,
+                "current_price": 0.0,
+                "raw_price": 0.0,
+                "dataframe": pd.DataFrame()
+            }
         unit_price = (current_price / 100.0) if is_uk_pence else current_price
         
         # Calculate compact scalars

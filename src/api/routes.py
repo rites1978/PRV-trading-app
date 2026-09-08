@@ -33,7 +33,7 @@ def on_startup():
     if "unittest" in sys.modules or os.getenv("PRV_TESTING", "").lower() in ("true", "1", "yes"):
         return
     broker.start_background_sync(interval_seconds=60)
-    autorun = os.getenv("PRV_AUTORUN_ENGINE", "true").strip().lower() in ("true", "1", "yes")
+    autorun = os.getenv("PRV_AUTORUN_ENGINE", "false").strip().lower() in ("true", "1", "yes")
     if autorun:
         try:
             quant_engine.start()
@@ -968,8 +968,11 @@ def get_strategy_v2_panel():
     for p in positions:
         ticker = str(p.get("ticker", "")).upper()
         qty = float(p.get("quantity", 0))
-        avg_price = float(p.get("averagePrice", 0))
-        cur_price = float(p.get("currentPrice", 0))
+        raw_avg_price = float(p.get("averagePrice", 0))
+        raw_cur_price = float(p.get("currentPrice", 0))
+        from src.core.money import normalize_to_gbp
+        avg_price = normalize_to_gbp(raw_avg_price, ticker).amount
+        cur_price = normalize_to_gbp(raw_cur_price, ticker).amount
         deployed = round(qty * avg_price, 2)
         cur_val = round(qty * cur_price, 2)
         

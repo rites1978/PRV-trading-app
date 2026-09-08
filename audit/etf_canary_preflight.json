@@ -1,0 +1,11 @@
+{
+  "canary_status": "QUEUED_FOR_MARKET_OPEN",
+  "market_open_at": "08:00:00 BST",
+  "target_instrument": "CSP1_EQ",
+  "starting_nav_gbp": 50000.0,
+  "starting_cash_gbp": 50000.0,
+  "open_positions": 0,
+  "open_orders": 0,
+  "safety_gate_passed": true,
+  "broker_ready": true
+}

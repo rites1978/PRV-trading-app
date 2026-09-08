@@ -78,20 +78,30 @@ class CapitalManager:
         self,
         core_capital: float,
         active_capital: float,
-        market_regime: str
+        market_regime: str,
+        strategy_id: str = "V1"
     ) -> Tuple[float, float]:
         """Calculate maximum remaining deployable capital for current regime."""
-        if market_regime == "BULL" or market_regime == "EXCEPTIONAL" or market_regime == "STRONG":
-            target_pct = settings.MAX_DEPLOYMENT_BULL
-        elif market_regime == "BEAR":
-            target_pct = settings.MAX_DEPLOYMENT_BEAR
-        else:
-            target_pct = settings.MAX_DEPLOYMENT_NEUTRAL
+        if str(strategy_id).upper() == "V1":
+            if market_regime == "BULL" or market_regime == "EXCEPTIONAL" or market_regime == "STRONG":
+                target_pct = settings.MAX_DEPLOYMENT_BULL
+            elif market_regime == "BEAR":
+                target_pct = settings.MAX_DEPLOYMENT_BEAR
+            else:
+                target_pct = settings.MAX_DEPLOYMENT_NEUTRAL
+                
+            max_allowed_active = core_capital * target_pct
+            remaining_allowance = max(0.0, max_allowed_active - active_capital)
             
-        max_allowed_active = core_capital * target_pct
-        remaining_allowance = max(0.0, max_allowed_active - active_capital)
-        
-        return round(remaining_allowance, 2), target_pct
+            return round(remaining_allowance, 2), target_pct
+        else:
+            # Strategy V2: Ratified Dynamic Deployment Policy
+            # Permanent 45% cash floor: NONE
+            # Operational execution / friction safety buffer: MIN_CASH_BUFFER_PCT (5% / £2,500)
+            target_pct = round(1.0 - settings.MIN_CASH_BUFFER_PCT, 2)
+            max_allowed_active = core_capital * target_pct
+            remaining_allowance = max(0.0, max_allowed_active - active_capital)
+            return round(remaining_allowance, 2), target_pct
 
     def generate_idle_cash_audit(
         self,
@@ -99,7 +109,8 @@ class CapitalManager:
         available_cash: float,
         active_capital: float,
         market_regime: str,
-        rejected_candidates: List[Dict[str, Any]] = None
+        rejected_candidates: List[Dict[str, Any]] = None,
+        strategy_id: str = "V1"
     ) -> List[Dict[str, Any]]:
         """Precise accounting of why every pound remains in cash."""
         idle_cash = available_cash
@@ -115,17 +126,23 @@ class CapitalManager:
             "deploy_condition": "Never deployed (permanent liquidity safeguard)"
         })
         
-        if market_regime == "BULL" or market_regime == "EXCEPTIONAL" or market_regime == "STRONG":
-            target_pct = settings.MAX_DEPLOYMENT_BULL
-            deploy_cond = "Maximum Bull allocation capacity (75% of Core Capital). 20% preserved as macro volatility safeguard."
-        elif market_regime == "BEAR":
-            target_pct = settings.MAX_DEPLOYMENT_BEAR
-            deploy_cond = "Requires Market Regime upgrade to NEUTRAL / BULL (Breadth > 45%, S&P 500 trend recovery)."
-        else:
-            target_pct = settings.MAX_DEPLOYMENT_NEUTRAL
-            deploy_cond = "Requires Market Regime upgrade to BULL (S&P 500 breakout + breadth > 70%)."
+        if str(strategy_id).upper() == "V1":
+            if market_regime == "BULL" or market_regime == "EXCEPTIONAL" or market_regime == "STRONG":
+                target_pct = settings.MAX_DEPLOYMENT_BULL
+                deploy_cond = "Maximum Bull allocation capacity (55% of Core Capital). 45% preserved as cash floor."
+            elif market_regime == "BEAR":
+                target_pct = settings.MAX_DEPLOYMENT_BEAR
+                deploy_cond = "Requires Market Regime upgrade to NEUTRAL / BULL (Breadth > 45%, S&P 500 trend recovery)."
+            else:
+                target_pct = settings.MAX_DEPLOYMENT_NEUTRAL
+                deploy_cond = "Requires Market Regime upgrade to BULL (S&P 500 breakout + breadth > 70%)."
 
-        unallocated_regime_reserve = max(0.0, core_capital * (1.0 - target_pct) - cash_buffer)
+            unallocated_regime_reserve = max(0.0, core_capital * (1.0 - target_pct) - cash_buffer)
+        else:
+            # Strategy V2: Ratified Dynamic Deployment Policy (0% fixed cash floor)
+            target_pct = round(1.0 - settings.MIN_CASH_BUFFER_PCT, 2)
+            deploy_cond = "Strategy V2 Dynamic Allocation: Deploys up to 95% of Core Capital on qualifying setups."
+            unallocated_regime_reserve = 0.0
         
         if unallocated_regime_reserve > 0:
             breakdown.append({
@@ -152,39 +169,19 @@ class CapitalManager:
     def process_realized_trade(self, trade_id: str, symbol: str, realized_pnl: float, current_core_capital: Optional[float] = None) -> Dict[str, Any]:
         """
         On trade close:
-        If in Recovery Mode (core_capital < £50,000), realized profits first restore the active base to £50,000.
-        Only the excess profit beyond the deficit is swept to the Profit Vault.
+        Delegates to CapitalStateMachine / DailyObjectiveService to ensure single authoritative state transition
+        and idempotent profit vault deposit.
         """
-        if realized_pnl > 0:
-            vault_bal = db.get_vault_balance()
-            if current_core_capital is not None:
-                core_cap = current_core_capital
-            else:
-                snap = self.get_capital_state(
-                    total_broker_nav=settings.REFERENCE_BASE_CAPITAL,
-                    total_invested=0.0,
-                    available_cash=settings.REFERENCE_BASE_CAPITAL
-                )
-                core_cap = snap.get("core_capital", settings.REFERENCE_BASE_CAPITAL)
+        if isinstance(realized_pnl, dict):
+            pnl_val = float(realized_pnl.get("net_realized_pnl", 0.0))
+        else:
+            pnl_val = float(realized_pnl or 0.0)
 
-            base_deficit = max(0.0, round(settings.REFERENCE_BASE_CAPITAL - core_cap, 2))
-            restored_to_base = min(realized_pnl, base_deficit)
-            amount_to_vault = round(realized_pnl - restored_to_base, 2)
-
-            new_vault_total = vault_bal
-            if amount_to_vault > 0:
-                new_vault_total = db.deposit_profit_vault(
-                    trade_id=trade_id,
-                    symbol=symbol,
-                    realized_profit=amount_to_vault,
-                    notes=f"V2 Profit Rotation sweep ({symbol}). Restored to base: £{restored_to_base:.2f}"
-                )
-            return {
-                "vaulted": (amount_to_vault > 0),
-                "amount": amount_to_vault,
-                "restored_to_base": restored_to_base,
-                "new_vault_total": new_vault_total
-            }
-        return {"vaulted": False, "amount": 0.0, "restored_to_base": 0.0, "realized_loss": realized_pnl}
+        from src.portfolio.daily_objective_service import daily_objective_service
+        return daily_objective_service.process_trade_close(
+            trade_id=trade_id,
+            symbol=symbol,
+            net_realized_pnl=pnl_val
+        )
 
 capital_manager = CapitalManager()

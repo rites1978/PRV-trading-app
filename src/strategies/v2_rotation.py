@@ -256,7 +256,8 @@ class StrategyV2:
         ticker: str,
         deployed_capital: float,
         realized_net_pnl: float,
-        active_equity_before: float
+        active_equity_before: float,
+        trade_id: Optional[str] = None
     ) -> Dict[str, float]:
         """
         Only confirmed broker fills trigger vault accounting.
@@ -284,10 +285,11 @@ class StrategyV2:
             new_active_equity = round(active_equity_before + realized_net_pnl, 2)
 
         if banked_to_vault > 0:
+            effective_id = trade_id or f"V2_ROTATION_PROFIT_{ticker}"
             import sys
             if "unittest" not in sys.modules:
                 try:
-                    db.deposit_profit_vault(trade_id=f"V2_ROTATION_PROFIT_{ticker}", symbol=ticker, realized_profit=banked_to_vault, notes="V2 Rotation Profit Banked")
+                    db.deposit_profit_vault(trade_id=effective_id, symbol=ticker, realized_profit=banked_to_vault, notes="V2 Rotation Profit Banked")
                 except Exception as e:
                     logger.debug(f"Vault DB record note: {e}")
 
@@ -354,7 +356,8 @@ class StrategyV2:
             ticker=ticker,
             deployed_capital=actual_deployed_capital,
             realized_net_pnl=realised_net_pnl,
-            active_equity_before=active_equity_before
+            active_equity_before=active_equity_before,
+            trade_id=rotation_id
         )
         recovery_allocation = close_calc["restored_to_base"]
         vault_allocation = close_calc["banked_to_vault"]

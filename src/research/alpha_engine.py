@@ -24,7 +24,8 @@ class InstitutionalAlphaEngine:
         snapshot: Dict[str, Any],
         market_regime: str,
         portfolio_exposure_pct: float,
-        cost_friction_pct: float
+        cost_friction_pct: float,
+        strategy_id: str = "V2"
     ) -> Tuple[float, Dict[str, Any]]:
         # 1. Technical Alpha Score
         tech_score, tech_factors = ai_scoring.compute_composite_confidence(
@@ -32,7 +33,8 @@ class InstitutionalAlphaEngine:
             snapshot=snapshot,
             market_regime=market_regime,
             portfolio_exposure_pct=portfolio_exposure_pct,
-            cost_friction_pct=cost_friction_pct
+            cost_friction_pct=cost_friction_pct,
+            strategy_id=strategy_id
         )
 
         # 2. Fundamental Alpha Score

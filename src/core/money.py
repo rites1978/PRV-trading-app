@@ -323,3 +323,49 @@ class Money:
             unit=CurrencyUnit.MAJOR,
             source="CALCULATE_MARKET_VALUE_GBP"
         )
+
+
+def normalize_to_gbp(
+    amount: Union[float, int, Money],
+    ticker: str,
+    fx_rate_usd_to_gbp: Optional[float] = None
+) -> Money:
+    """
+    Authoritative currency and unit normalization to GBP (MAJOR unit).
+    Eliminates raw number ambiguity between GBX (pence), GBP (pounds), and USD.
+    Prevents 100x scaling errors for LSE UK equities quoted in pence.
+    """
+    if isinstance(amount, Money):
+        return amount.to_gbp(fx_rate_usd_to_gbp=fx_rate_usd_to_gbp)
+
+    raw_val = float(amount)
+    from src.data.universe import universe_manager
+    u_item = universe_manager.get_by_ticker(ticker)
+
+    is_uk = False
+    is_us = False
+    if u_item:
+        is_uk = (u_item.get("country", "").upper() == "UK" or u_item.get("currency", "").upper() in ("GBP", "GBX"))
+        is_us = (u_item.get("country", "").upper() == "US" or u_item.get("currency", "").upper() == "USD")
+    else:
+        t_clean = ticker.upper()
+        if t_clean.endswith("L_EQ") or t_clean.endswith(".L") or "_LSE" in t_clean:
+            is_uk = True
+        elif "_US_EQ" in t_clean or t_clean.endswith("_US"):
+            is_us = True
+
+    if is_uk:
+        # In Trading212, UK LSE equities are quoted in pence (GBX)
+        # If value is > 50.0 (or marked as is_uk_pence), normalize pence to pounds
+        if raw_val > 50.0 or (u_item and u_item.get("is_uk_pence")):
+            return Money(raw_val, Currency.GBX, CurrencyUnit.MINOR).to_major()
+        return Money(raw_val, Currency.GBP, CurrencyUnit.MAJOR)
+    elif is_us:
+        usd_money = Money(raw_val, Currency.USD, CurrencyUnit.MAJOR)
+        rate = fx_rate_usd_to_gbp or 0.7407407  # Default 1 / 1.35
+        return usd_money.to_gbp(fx_rate_usd_to_gbp=rate)
+    else:
+        if raw_val > 500.0:  # clearly pence
+            return Money(raw_val, Currency.GBX, CurrencyUnit.MINOR).to_major()
+        return Money(raw_val, Currency.GBP, CurrencyUnit.MAJOR)
+

@@ -137,6 +137,11 @@ class ExposureBasedRiskEngine:
         if self.tier1_triggered:
             return False, "VETO: Tier 1 drawdown active. New buying paused until recovery."
 
+        # Maximum concurrent positions portfolio ceiling
+        max_positions = getattr(settings, "MAX_CONCURRENT_POSITIONS", 15)
+        if len(current_positions) >= max_positions:
+            return False, f"VETO: Maximum concurrent positions limit ({max_positions}) reached."
+
         # Phase 47 Forward Validation Protocol: 10-Day Post-Stop Cooldown for Trades 51+
         historical_trades = db.get_trades(limit=500)
         if len(historical_trades) >= 50:

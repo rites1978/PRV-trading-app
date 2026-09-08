@@ -39,6 +39,8 @@ class TestFastEndpointsLatencyAndCaching(unittest.TestCase):
         ]
         broker._cached_summary_time = 1e11
         broker._cached_positions_time = 1e11
+        from src.portfolio.portfolio_snapshot import portfolio_snapshot
+        portfolio_snapshot._cached_gbp_usd_time = 1e11
 
         with patch("requests.get") as mock_get,              patch("requests.post") as mock_post,              patch("yfinance.Ticker") as mock_yf:
 

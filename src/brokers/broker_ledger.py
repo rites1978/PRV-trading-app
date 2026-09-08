@@ -4,6 +4,8 @@ Reconstructs the ground-truth challenge ledger directly and exclusively
 from the Trading212 Public API (orders, fills, portfolio, cash summary).
 Never relies on synthetic report mockups or hardcoded assumptions.
 """
+import os
+import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime, date, timezone
 import logging
@@ -11,7 +13,8 @@ from src.brokers.trading212 import broker
 
 logger = logging.getLogger("prv.broker_ledger")
 
-CHALLENGE_START_DATE = date(2026, 9, 3)
+CHALLENGE_START_DATE = date(2026, 9, 7)
+CHALLENGE_START_TIMESTAMP = "2026-09-07T16:00:00.000Z"
 CHALLENGE_START_NAV = 50000.00
 
 class BrokerLedgerService:
@@ -59,9 +62,10 @@ class BrokerLedgerService:
         all_order_items = []
         path = "equity/history/orders?limit=50"
         orders_request_succeeded = False
+        pagination_completed = False
         while path:
             try:
-                res = broker._request_with_retry("GET", path)
+                res = broker._request_with_retry("GET", path, timeout=10.0)
                 if not res or res.status_code != 200:
                     break
                 orders_request_succeeded = True
@@ -70,23 +74,46 @@ class BrokerLedgerService:
                 all_order_items.extend(items)
                 next_page = d.get("nextPagePath")
                 path = next_page.replace("/api/v0/", "") if next_page else None
+                if not path:
+                    pagination_completed = True
             except Exception as e:
                 logger.error(f"Error paginating broker historical orders: {e}")
                 break
 
-        if all_order_items or (orders_request_succeeded and broker_result == 0.0):
+        cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "trading212_raw_orders.json")
+        cached_disk = []
+        if os.path.exists(cache_path):
+            try:
+                import json
+                with open(cache_path, "r") as f:
+                    cached_disk = json.load(f) or []
+            except Exception:
+                pass
+
+        # Merge freshly fetched items (newest first) with existing disk cache so fresh fills are never dropped
+        merged_items_map = {}
+        for it in cached_disk:
+            oid = str(it.get("order", {}).get("id"))
+            if oid:
+                merged_items_map[oid] = it
+        for it in all_order_items:
+            oid = str(it.get("order", {}).get("id"))
+            if oid:
+                merged_items_map[oid] = it
+
+        if merged_items_map:
+            all_order_items = list(merged_items_map.values())
             self._cached_order_items = all_order_items
             try:
-                import json, os
-                cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "trading212_raw_orders.json")
+                import json
                 os.makedirs(os.path.dirname(cache_path), exist_ok=True)
                 with open(cache_path, "w") as f:
                     json.dump(all_order_items, f)
             except Exception:
                 pass
-        elif getattr(self, "_cached_order_items", None):
+        elif not all_order_items and getattr(self, "_cached_order_items", None):
             all_order_items = list(self._cached_order_items)
-        elif self._cached_ledger:
+        elif not all_order_items and self._cached_ledger:
             return dict(self._cached_ledger)
 
         # 4. Parse filled transactions
@@ -109,6 +136,8 @@ class BrokerLedgerService:
             qty = float(fill.get("quantity", order.get("quantity", 0.0)))
             price = float(fill.get("price", 0.0))
             filled_at = fill.get("filledAt") or order.get("createdAt") or ""
+            if filled_at and filled_at < CHALLENGE_START_TIMESTAMP:
+                continue
             impact = fill.get("walletImpact", {}) or {}
             net_val = round(float(impact.get("netValue", 0.0)), 2)
             realized_pnl = impact.get("realisedProfitLoss")

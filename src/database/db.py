@@ -1,8 +1,11 @@
 import sqlite3
 import json
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from src.config.settings import settings
+
+logger = logging.getLogger("database")
 
 CREATE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS profit_vault (
@@ -13,6 +16,16 @@ CREATE TABLE IF NOT EXISTS profit_vault (
     realized_profit REAL NOT NULL,
     cumulative_vault_total REAL NOT NULL,
     notes TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_profit_vault_trade_id ON profit_vault(trade_id) WHERE trade_id IS NOT NULL AND trade_id NOT LIKE 'CAPITAL_TRANSFER_%';
+
+CREATE TABLE IF NOT EXISTS position_watermarks (
+    symbol TEXT PRIMARY KEY,
+    peak_price REAL NOT NULL,
+    peak_pnl_pct REAL DEFAULT 0.0,
+    peak_net_pnl REAL DEFAULT 0.0,
+    state TEXT DEFAULT 'OPEN',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS capital_transfers (
@@ -789,17 +802,52 @@ CREATE INDEX IF NOT EXISTS idx_v2_rotations_ticker ON v2_rotations(ticker);
 CREATE INDEX IF NOT EXISTS idx_v2_rotations_time ON v2_rotations(timestamp);
 """
 
+class ClosingConnection:
+    """Connection proxy that automatically closes the SQLite connection on context exit."""
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        if self._conn is None:
+            raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+        return getattr(self._conn, name)
+
+    def __enter__(self):
+        if self._conn is not None:
+            self._conn.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if self._conn is not None:
+                return self._conn.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
+    def close(self):
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+
+    def __del__(self):
+        self.close()
+
+
+
 class Database:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or settings.DB_PATH
         self._init_db()
 
-    def get_connection(self) -> sqlite3.Connection:
+    def get_connection(self) -> Any:
         conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=5.0)
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.row_factory = sqlite3.Row
-        return conn
+        return ClosingConnection(conn)
 
     def _init_db(self):
         with self.get_connection() as conn:
@@ -977,6 +1025,14 @@ class Database:
     def deposit_profit_vault(self, trade_id: str, symbol: str, realized_profit: float, notes: str = "") -> float:
         with self.get_connection() as conn:
             cur = conn.cursor()
+            # Idempotency check: if trade_id already recorded, do not duplicate deposit
+            if trade_id and not str(trade_id).startswith("CAPITAL_TRANSFER_"):
+                cur.execute("SELECT cumulative_vault_total FROM profit_vault WHERE trade_id = ?", (trade_id,))
+                existing = cur.fetchone()
+                if existing:
+                    logger.info(f"Idempotent skip: Vault deposit for {trade_id} already recorded.")
+                    return float(existing["cumulative_vault_total"])
+
             cur.execute("SELECT cumulative_vault_total FROM profit_vault ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
             prev_total = row["cumulative_vault_total"] if row else 0.0
@@ -1009,6 +1065,47 @@ class Database:
             """, ("CAPITAL_TRANSFER_WITHDRAWAL", "N/A", -amount, new_total, notes))
             conn.commit()
             return new_total
+
+    # --- Position High Watermark State ---
+    def save_position_watermark(self, symbol: str, peak_price: float, peak_pnl_pct: float = 0.0, peak_net_pnl: float = 0.0, state: str = "OPEN") -> None:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO position_watermarks (symbol, peak_price, peak_pnl_pct, peak_net_pnl, state, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(symbol) DO UPDATE SET
+                    peak_price = MAX(peak_price, excluded.peak_price),
+                    peak_pnl_pct = MAX(peak_pnl_pct, excluded.peak_pnl_pct),
+                    peak_net_pnl = MAX(peak_net_pnl, excluded.peak_net_pnl),
+                    state = excluded.state,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (symbol, peak_price, peak_pnl_pct, peak_net_pnl, state))
+            conn.commit()
+
+    def get_position_watermark(self, symbol: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT symbol, peak_price, peak_pnl_pct, peak_net_pnl, state, updated_at FROM position_watermarks WHERE symbol = ?", (symbol,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def clear_position_watermark(self, symbol: str) -> None:
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM position_watermarks WHERE symbol = ?", (symbol,))
+            conn.commit()
+
+    # --- Symbol Cooldowns ---
+    def add_symbol_cooldown(self, symbol: str, t212_ticker: str, trade_id: int = 0, duration_days: int = 10, reason: str = "Stop-loss exit triggered") -> None:
+        start_dt = datetime.now(timezone.utc)
+        expiry_dt = start_dt + timedelta(days=duration_days)
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO symbol_cooldowns (symbol, t212_ticker, triggering_trade_id, cooldown_start_timestamp, cooldown_expiry_timestamp, duration_days, status, quarantine_reason)
+                VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+            """, (symbol, t212_ticker, trade_id, start_dt.isoformat(), expiry_dt.isoformat(), duration_days, reason))
+            conn.commit()
 
     # --- Strategy V2 Capital Rotation Ledger ---
     def record_v2_rotation(

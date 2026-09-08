@@ -183,7 +183,7 @@ class MasterPDFGenerator:
             ],
             [
                 Paragraph("<b>PRV Realistic Net NAV:</b>", table_cell), Paragraph(f"£{prv_realistic_net_nav:,.2f}", table_cell_bold),
-                Paragraph("<b>Required Cash Floor:</b>", table_cell), Paragraph("£22,500.00 (45.0%)", table_cell),
+                Paragraph("<b>Operational Cash Buffer:</b>", table_cell), Paragraph(f"£{self.STARTING_NAV * settings.MIN_CASH_BUFFER_PCT:,.2f} ({settings.MIN_CASH_BUFFER_PCT * 100:.1f}%)", table_cell),
                 Paragraph("<b>PRV Realistic Return:</b>", table_cell), Paragraph(f"{prv_realistic_net_return_pct:+.3f}% (£{prv_realistic_net_nav - self.STARTING_NAV:+,.2f})", table_cell_bold)
             ],
             [
@@ -289,8 +289,8 @@ class MasterPDFGenerator:
         cash_desc = (
             f"<b>Current Free Cash: £{acc['free_cash']:,.2f} ({acc['cash_pct']}%)</b> — "
             "<b>PRV Capital operates under the strict rule that Cash is an Active Position.</b> "
-            "The mandatory cash preservation floor is 45.0% (£22,500.00). "
-            "Capital is deployed only when a setup satisfies all 8 Hard Net Edge Gate hurdles (Net R:R >= 2.0x, Cost/Profit <= 30%, Spread/Profit <= 15%, Capital Velocity >= 70). "
+            f"The operational cash preservation buffer is {settings.MIN_CASH_BUFFER_PCT * 100:.1f}% (£{self.STARTING_NAV * settings.MIN_CASH_BUFFER_PCT:,.2f}), allowing up to {100.0 - settings.MIN_CASH_BUFFER_PCT * 100.0:.1f}% dynamic capital deployment. "
+            "Capital is deployed only when a setup satisfies all Hard Net Edge Gate hurdles (Net R:R >= 2.0x, Cost/Profit <= 30%, Spread/Profit <= 15%). "
             "Preserving cash protects downside during market transitions and guarantees dry powder for high-conviction alpha opportunities."
         )
         cash_box = Table([[Paragraph(cash_desc, body_style)]], colWidths=[548])
@@ -521,54 +521,50 @@ class MasterPDFGenerator:
         shadow_rows = [[Paragraph(h, table_header) for h in shadow_headers]]
 
         # Challenge-isolated shadow tracking table
+        strat_a_trades = exp_metrics.get("trade_count", 0)
+        strat_a_exp = f"£{exp_metrics['net_expectancy_gbp']:+.2f}" if strat_a_trades > 0 else "INSUFFICIENT DATA"
+        strat_a_pf = f"{exp_metrics['profit_factor']:.2f}x" if strat_a_trades > 0 else "INSUFFICIENT DATA"
+        strat_a_wr = f"{exp_metrics.get('win_rate_pct', 0.0):.1f}%" if strat_a_trades > 0 else "INSUFFICIENT DATA"
+        strat_a_cost = f"{exp_metrics.get('cost_ratio_pct', 0.0):.1f}%" if strat_a_trades > 0 else "INSUFFICIENT DATA"
+        strat_a_days = f"{exp_metrics.get('avg_holding_period_days', 0.0):.1f}d" if strat_a_trades > 0 else "INSUFFICIENT DATA"
+        strat_a_sharpe = f"{exp_metrics.get('sharpe', 0.0):.2f}" if (strat_a_trades >= 5 and "sharpe" in exp_metrics) else "INSUFFICIENT DATA"
+
         challenge_shadow_strategies = [
             {
-                "name": "Strategy A: Current Practice Live",
+                "name": "Strategy A: Frozen V2 Baseline",
                 "nav": nav_gbp,
                 "net_pnl": challenge_net_pnl_gbp,
-                "expectancy": f"£{exp_metrics['net_expectancy_gbp']:+.2f}",
-                "pf": f"{exp_metrics['profit_factor']:.2f}x",
-                "wr": "0.0%",
-                "cost_ratio": "10.3%",
-                "days": "1.0d",
-                "sharpe": "0.85",
+                "expectancy": strat_a_exp,
+                "pf": strat_a_pf,
+                "wr": strat_a_wr,
+                "cost_ratio": strat_a_cost,
+                "days": strat_a_days,
+                "sharpe": strat_a_sharpe,
                 "status": "LIVE_CHALLENGE"
             },
             {
-                "name": "Strategy B: Baseline + Net Edge Gate",
+                "name": "Strategy B: Quality + Value",
                 "nav": 50000.00,
                 "net_pnl": 0.00,
-                "expectancy": "£+59.93",
-                "pf": "9.75x",
-                "wr": "82.1%",
-                "cost_ratio": "7.9%",
-                "days": "1.0d",
-                "sharpe": "1.42",
-                "status": "SHADOW_CHALLENGE"
+                "expectancy": "INSUFFICIENT DATA",
+                "pf": "INSUFFICIENT DATA",
+                "wr": "INSUFFICIENT DATA",
+                "cost_ratio": "INSUFFICIENT DATA",
+                "days": "INSUFFICIENT DATA",
+                "sharpe": "INSUFFICIENT DATA",
+                "status": "RESEARCH_BENCHMARK"
             },
             {
-                "name": "Strategy C: B + Spread/Liquidity Filters",
+                "name": "Strategy C: Quality + Value + Momentum",
                 "nav": 50000.00,
                 "net_pnl": 0.00,
-                "expectancy": "£+59.93",
-                "pf": "9.75x",
-                "wr": "82.1%",
-                "cost_ratio": "7.9%",
-                "days": "1.0d",
-                "sharpe": "1.88",
-                "status": "SHADOW_CHALLENGE"
-            },
-            {
-                "name": "Strategy D: C + Capital Efficiency Hurdle",
-                "nav": 50000.00,
-                "net_pnl": 0.00,
-                "expectancy": "£+63.47",
-                "pf": "10.95x",
-                "wr": "83.3%",
-                "cost_ratio": "7.9%",
-                "days": "1.0d",
-                "sharpe": "2.35",
-                "status": "SHADOW_CHALLENGE"
+                "expectancy": "INSUFFICIENT DATA",
+                "pf": "INSUFFICIENT DATA",
+                "wr": "INSUFFICIENT DATA",
+                "cost_ratio": "INSUFFICIENT DATA",
+                "days": "INSUFFICIENT DATA",
+                "sharpe": "INSUFFICIENT DATA",
+                "status": "RESEARCH_BENCHMARK"
             }
         ]
 
@@ -601,10 +597,10 @@ class MasterPDFGenerator:
         # SECTION 9: Governance & Committee Conclusion
         story.append(Paragraph("9. GOVERNANCE, BUILD FREEZE AUDIT & COMMITTEE CONCLUSION", section_heading))
         conclusion_text = (
-            "<b>Institutional Decision: MAINTAIN PRACTICE EXPOSURE & PRESERVE 45% CASH FLOOR.</b><br/>"
+            "<b>Institutional Decision: MAINTAIN PRACTICE EXPOSURE & PRESERVE OPERATIONAL CASH BUFFER.</b><br/>"
             "1. <b>Build Freeze Governance:</b> Trading strategy thresholds and parameters remain strictly frozen. Zero discretionary rebalancing is permitted.<br/>"
             "2. <b>Challenge Provenance Integrity:</b> Report generated from single immutable broker snapshot. All 9 Report Invariants verified with £0.00 tolerance.<br/>"
-            "3. <b>Capital Allocation Rule:</b> Holding cash preserves purchasing power. The 45.0% (£22,500.00) capital preservation floor is strictly protected.<br/>"
+            f"3. <b>Capital Allocation Rule:</b> Holding cash preserves purchasing power. The {settings.MIN_CASH_BUFFER_PCT * 100:.1f}% (£{self.STARTING_NAV * settings.MIN_CASH_BUFFER_PCT:,.2f}) operational buffer is protected with up to {100.0 - settings.MIN_CASH_BUFFER_PCT * 100.0:.1f}% deployable capital.<br/>"
             "4. <b>Signed by:</b> PRV Capital Autonomous CIO & Execution Integrity Guard."
         )
         conclusion_box = Table([[Paragraph(conclusion_text, body_style)]], colWidths=[548])

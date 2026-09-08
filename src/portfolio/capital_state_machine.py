@@ -76,6 +76,18 @@ class CapitalStateMachine:
         self._daily_state: DailyState = DailyState.ACTIVE
         self._market_state: MarketState = MarketState.NORMAL
 
+    @property
+    def effective_daily_target(self) -> float:
+        try:
+            from src.strategies.registry import strategy_registry
+            active_id = strategy_registry.get_active_execution_strategy_id()
+            strat = strategy_registry.get_strategy(active_id)
+            if strat and "daily_stop_threshold_gbp" in strat.get("rules", {}):
+                return float(strat["rules"]["daily_stop_threshold_gbp"])
+        except Exception:
+            pass
+        return self.daily_bankable_target
+
     def get_today_str(self) -> str:
         """Returns UTC date string (YYYY-MM-DD)."""
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -117,19 +129,12 @@ class CapitalStateMachine:
         daily_mtm_pnl = round(daily_realized_pnl + change_in_unrealized_today, 2)
 
         # 3. Capital State & Deficit
-        if unvaulted_equity < self.reference_base_capital:
-            active_trading_equity = round(unvaulted_equity, 2)
-            base_deficit = round(self.reference_base_capital - active_trading_equity, 2)
-            in_deficit = True
-        else:
-            active_trading_equity = round(min(self.max_normal_deployable, unvaulted_equity), 2)
-            base_deficit = 0.0
-            in_deficit = False
+        active_trading_equity = min(self.reference_base_capital, unvaulted_equity)
+        base_deficit = round(max(0.0, self.reference_base_capital - active_trading_equity), 2)
+        in_deficit = (base_deficit > 0.0)
 
-        # 4. Bankable Profit Today (Target must mean Bankable Net Profit!)
-        # Bankable profit cannot exceed amount by which active equity exceeds £50,000 base
-        excess_above_base = max(0.0, unvaulted_equity - self.reference_base_capital)
-        bankable_profit_today = round(min(max(0.0, daily_realized_pnl), excess_above_base), 2)
+        # 4. Bankable Profit Today
+        bankable_profit_today = round(max(0.0, daily_realized_pnl - base_deficit), 2)
 
         # 5. Dimension 1: CAPITAL_STATE Evaluation
         # Only prompt at SOD/EOD check or if manual trigger, NOT on transient intraday tick fluctuation
@@ -152,11 +157,7 @@ class CapitalStateMachine:
             cap_reason = f"NORMAL MODE: Active equity (£{active_trading_equity:.2f}) at or above £50,000 base."
 
         # 6. Dimension 2: DAILY_STATE Evaluation
-        # Corridor Policy:
-        # DAILY_MTM_PNL <= -£500 -> EMERGENCY_LOCK
-        # DAILY_MTM_PNL <= -£250 -> LOSS_LOCK (No trading, no sizing halving)
-        # BANKABLE_NET_PROFIT_TODAY >= £250 -> TARGET_LOCK
-        # Otherwise -> ACTIVE
+        target = self.effective_daily_target
         if daily_mtm_pnl <= -self.daily_emergency_loss_gbp:
             daily_st = DailyState.EMERGENCY_LOCK
             daily_reason = f"EMERGENCY LOCK: Daily MTM P&L (£{daily_mtm_pnl:+.2f}) hit emergency threshold (-£{self.daily_emergency_loss_gbp:.2f}). Unfilled entries cancelled."
@@ -165,13 +166,13 @@ class CapitalStateMachine:
             daily_st = DailyState.LOSS_LOCK
             daily_reason = f"DAILY LOSS LOCK: Daily MTM P&L (£{daily_mtm_pnl:+.2f}) hit daily loss stop (-£{self.daily_loss_lock_gbp:.2f}). New entries locked."
             cancel_unfilled = False
-        elif bankable_profit_today >= self.daily_bankable_target:
+        elif bankable_profit_today >= target:
             daily_st = DailyState.TARGET_LOCK
-            daily_reason = f"TARGET LOCK: Bankable profit (£{bankable_profit_today:.2f}) reached £250 objective. Daily gains locked."
+            daily_reason = f"TARGET LOCK: Bankable profit (£{bankable_profit_today:.2f}) reached £{target:.2f} objective. Daily gains locked."
             cancel_unfilled = False
         else:
             daily_st = DailyState.ACTIVE
-            daily_reason = f"ACTIVE: Daily MTM P&L: £{daily_mtm_pnl:+.2f} | Bankable today: £{bankable_profit_today:.2f} / £{self.daily_bankable_target:.2f}."
+            daily_reason = f"ACTIVE: Daily MTM P&L: £{daily_mtm_pnl:+.2f} | Bankable today: £{bankable_profit_today:.2f} / £{target:.2f}."
             cancel_unfilled = False
 
         # 7. Dimension 3: MARKET_STATE Evaluation

@@ -1,0 +1,68 @@
+{
+  "liquidation_records": [
+    {
+      "ticker": "STANl_EQ",
+      "quantity": 124.78,
+      "entry_avg_price": 2263.0,
+      "cancelled_stop_id": "54650184673",
+      "sell_order_id": "54650193463",
+      "verified_zero_position": true,
+      "cleaned_orphan_stops": [],
+      "timestamp": "2026-09-08T07:18:10.294692+00:00"
+    },
+    {
+      "ticker": "ULVRl_EQ",
+      "quantity": 65.44,
+      "entry_avg_price": 4692.0,
+      "cancelled_stop_id": "54650184523",
+      "sell_order_id": "54650193469",
+      "verified_zero_position": true,
+      "cleaned_orphan_stops": [],
+      "timestamp": "2026-09-08T07:18:15.587520+00:00"
+    },
+    {
+      "ticker": "RELl_EQ",
+      "quantity": 106.87,
+      "entry_avg_price": 2597.0,
+      "cancelled_stop_id": "54650184624",
+      "sell_order_id": "54650193477",
+      "verified_zero_position": true,
+      "cleaned_orphan_stops": [],
+      "timestamp": "2026-09-08T07:18:23.279093+00:00"
+    },
+    {
+      "ticker": "HSBAl_EQ",
+      "quantity": 185.17,
+      "entry_avg_price": 1565.8000216,
+      "cancelled_stop_id": "54650185468",
+      "sell_order_id": "54650193483",
+      "verified_zero_position": true,
+      "cleaned_orphan_stops": [],
+      "timestamp": "2026-09-08T07:18:28.647566+00:00"
+    },
+    {
+      "ticker": "VODl_EQ",
+      "quantity": 2114.2,
+      "entry_avg_price": 126.1,
+      "cancelled_stop_id": "54650185937",
+      "sell_order_id": "54650193492",
+      "verified_zero_position": true,
+      "cleaned_orphan_stops": [],
+      "timestamp": "2026-09-08T07:18:36.186843+00:00"
+    }
+  ],
+  "pre_nav": 49902.54,
+  "post_nav": 49897.5,
+  "post_cash": 49897.5,
+  "post_invested": 0.0,
+  "open_positions_count": 0,
+  "open_orders_count": 0,
+  "orphan_stops_count": 0,
+  "ledger_variance_gbp": 0.0,
+  "legacy_incident_start_nav": 50000.0,
+  "legacy_incident_final_nav": 49897.5,
+  "legacy_incident_total_loss": 102.5,
+  "legacy_incident_sdrt": 71.18,
+  "legacy_incident_realised_market_pnl": -31.32,
+  "is_clean_slate": true
+}

@@ -24,7 +24,8 @@ class AIScoringEngine:
         snapshot: Dict[str, Any],
         market_regime: str,
         portfolio_exposure_pct: float,
-        cost_friction_pct: float
+        cost_friction_pct: float,
+        strategy_id: str = "V1"
     ) -> Dict[str, float]:
         indicators = snapshot["indicators"]
         current_price = snapshot["current_price"]
@@ -104,12 +105,26 @@ class AIScoringEngine:
             volatility_score = 65.0
 
         # 6. Market Regime (0 to 100)
-        if market_regime == "EXCEPTIONAL":
-            regime_score = 95.0
-        elif market_regime == "STRONG":
-            regime_score = 75.0
+        if str(strategy_id).upper() == "V1":
+            if market_regime == "EXCEPTIONAL":
+                regime_score = 95.0
+            elif market_regime == "STRONG":
+                regime_score = 75.0
+            else:
+                regime_score = 45.0
         else:
-            regime_score = 45.0
+            # Strategy V2 Ratified Regime Semantics:
+            # BULL / STRONG -> 75.0 (ratified bull regime)
+            # EXCEPTIONAL -> 95.0
+            # NEUTRAL / BEAR -> 45.0 (intended neutral/bear baseline)
+            if market_regime == "EXCEPTIONAL":
+                regime_score = 95.0
+            elif market_regime in ("STRONG", "BULL"):
+                regime_score = 75.0
+            elif market_regime in ("NEUTRAL", "BEAR"):
+                regime_score = 45.0
+            else:
+                regime_score = 45.0
 
         # 7. Portfolio Exposure Score (0 to 100) - Higher score when under-allocated to deploy idle cash
         if portfolio_exposure_pct < 20.0:
@@ -148,12 +163,15 @@ class AIScoringEngine:
         snapshot: Dict[str, Any],
         market_regime: str,
         portfolio_exposure_pct: float,
-        cost_friction_pct: float
+        cost_friction_pct: float,
+        strategy_id: str = "V1"
     ) -> Tuple[float, Dict[str, float]]:
         """
         Compute total weighted confidence score (0 to 100).
         """
-        factors = self.evaluate_factor_scores(snapshot, market_regime, portfolio_exposure_pct, cost_friction_pct)
+        factors = self.evaluate_factor_scores(
+            snapshot, market_regime, portfolio_exposure_pct, cost_friction_pct, strategy_id=strategy_id
+        )
         
         composite = (
             factors["trend_strength"] * 0.20 +

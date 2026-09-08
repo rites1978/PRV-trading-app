@@ -157,6 +157,14 @@ class OrderRouter:
         nominal_value = quantity * price
         dec_price = decision_price or price
 
+        # 0. Fail-Closed Broker Ticker Validation Gate
+        if not is_internal_sim:
+            from src.data.universe import universe_manager
+            if not universe_manager.is_broker_supported(t212_ticker):
+                reason = f"FAIL CLOSED: Ticker {t212_ticker} ({symbol}) is not found in Trading212 Practice instrument directory."
+                self._log_audit("HOLD_UNKNOWN_TICKER", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "BROKER_TICKER_UNKNOWN")
+                return False, reason, {"approved": False, "rejection_reasons": ["BROKER_TICKER_UNKNOWN"]}
+
         # 1. Hard Closed-Market Gate: Disallow new regular-session entry orders while market is closed
         # Applies to BOTH Practice (is_paper=True) and Live/Real Money (is_paper=False) unconditionally.
         if not bypass_market_hours:
@@ -181,6 +189,18 @@ class OrderRouter:
                 reason = "VETO REAL MONEY: Real-money trading is disabled."
                 self._log_audit("VETO_REAL_MONEY", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "REAL_MONEY_DISABLED")
                 return False, reason, {"approved": False, "rejection_reasons": ["REAL_MONEY_TRADING_DISABLED"]}
+
+        # 2a. Permanent Production Invariant: Ratified Universe Enforcement
+        from src.strategies.registry import strategy_registry
+        active_strat = strategy_registry.get_active_execution_strategy_id()
+        if str(active_strat).upper() in ("ETF_V1", "PRV_HIT_AND_RUN_ETF_V1"):
+            from src.data.universe import ETF_HIT_AND_RUN_UNIVERSE
+            allowed_tickers = {e["t212_ticker"] for e in ETF_HIT_AND_RUN_UNIVERSE}
+            allowed_symbols = {e["symbol"] for e in ETF_HIT_AND_RUN_UNIVERSE}
+            if t212_ticker not in allowed_tickers and symbol not in allowed_symbols:
+                reason = f"HOLD CAPITAL: Unauthorized instrument {symbol} ({t212_ticker}). Production strategy {active_strat} permits ONLY ratified ETF instruments."
+                self._log_audit("HOLD_UNAUTHORIZED_UNIVERSE", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "REJECTED_UNAUTHORIZED_INSTRUMENT")
+                return False, reason, {"approved": False, "rejection_reasons": ["UNAUTHORIZED_INSTRUMENT_CLASS"]}
 
         # 2b. Capital State Machine & Anti-Overtrading Gate
         from src.portfolio.daily_objective_service import daily_objective_service
@@ -277,7 +297,8 @@ class OrderRouter:
             total_nav=total_nav,
             sector=sector,
             positions=pos_list,
-            existing_held_tickers=held_and_pending_tickers
+            existing_held_tickers=held_and_pending_tickers,
+            strategy_id=strategy_id
         )
         if not res_ok:
             managed_order.transition_to(OrderState.SIGNAL_REJECTED, res_err)
@@ -375,7 +396,10 @@ class OrderRouter:
                 # Place broker-native protective stop order immediately upon entry
                 if stop_loss_price and stop_loss_price > 0:
                     try:
-                        broker.sync_broker_stop_order(t212_ticker, quantity, stop_loss_price)
+                        broker_stop_price = stop_loss_price
+                        if is_uk and broker_stop_price < 500.0:
+                            broker_stop_price = round(stop_loss_price * 100.0, 2)
+                        broker.sync_broker_stop_order(t212_ticker, quantity, broker_stop_price)
                     except Exception as stop_err:
                         logger.warning(f"Failed to place broker stop order for {t212_ticker}: {stop_err}")
 
@@ -456,8 +480,13 @@ class OrderRouter:
         Executes position close, decomposes all transaction friction, enforces discretionary vs risk exit logic,
         and sweeps banked profit into the non-deployable vault.
         """
-        nominal_entry = quantity * entry_price
-        nominal_exit = quantity * current_price
+        # Strict currency & unit normalization to GBP to eliminate GBX/GBP scaling errors
+        from src.core.money import normalize_to_gbp
+        entry_price_gbp = normalize_to_gbp(entry_price, t212_ticker).amount
+        current_price_gbp = normalize_to_gbp(current_price, t212_ticker).amount
+
+        nominal_entry = round(quantity * entry_price_gbp, 2)
+        nominal_exit = round(quantity * current_price_gbp, 2)
 
         is_uk = t212_ticker.endswith("l_EQ") or t212_ticker.endswith(".L") or symbol.endswith(".L")
         is_foreign = not is_uk
@@ -477,7 +506,8 @@ class OrderRouter:
         upper_reason = exit_reason.upper()
         is_risk_exit = any(k in upper_reason for k in [
             "STOP", "STOP_LOSS", "THESIS_INVALIDATED", "INVALIDATED",
-            "RISK_LIMIT", "CIRCUIT_BREAKER", "EMERGENCY", "DERISKING", "TIER"
+            "RISK_LIMIT", "CIRCUIT_BREAKER", "EMERGENCY", "DERISKING", "TIER",
+            "V2", "PROFIT_PROTECTION", "PROTECTION", "RATCHET", "FLOOR", "ROTATION"
         ])
 
         # For discretionary exits: compare economic benefit of selling now vs sell cost + expected remaining upside
@@ -490,21 +520,35 @@ class OrderRouter:
                 self._log_audit("HOLD_DISCRETIONARY_EXIT", symbol, "N/A", {}, 100.0, reason, False, quantity, "HOLD_INSUFFICIENT_NET_BENEFIT")
                 return False, reason, net_calc
 
-        trade_id = f"PRV_EXIT_{int(datetime.now().timestamp())}_{symbol}"
+        trade_id = f"PRV_EXIT_{int(datetime.now(timezone.utc).timestamp())}_{symbol}"
+        net_calc["trade_id"] = trade_id
         thesis_outcome = "PROFIT_TARGET_HIT" if net_calc["net_realized_pnl"] > 0 else ("STOP_LOSS_TRIGGERED" if "STOP" in exit_reason.upper() else "REBALANCED")
 
         from src.portfolio.daily_objective_service import daily_objective_service
 
         is_internal_sim = is_simulation or (is_paper is True) or (settings.ACCOUNT_MODE.upper() in ("SIMULATION", "INTERNAL_SIMULATION"))
         if not is_internal_sim:
+            # Unlock shares by cancelling active protective stops on Trading212 before submitting market exit
+            try:
+                broker.cancel_stop_orders_for_ticker(t212_ticker)
+            except Exception as cancel_err:
+                logger.warning(f"Error cancelling stop orders for {t212_ticker} prior to exit: {cancel_err}")
+
             res = broker.place_market_order(t212_ticker, -quantity)
+            if not res.get("success") and "selling-equity-not-owned" in str(res.get("error", "")):
+                time.sleep(0.5)
+                try:
+                    broker.cancel_stop_orders_for_ticker(t212_ticker)
+                except Exception:
+                    pass
+                res = broker.place_market_order(t212_ticker, -quantity)
             if res.get("success"):
                 db.record_trade({
                     "trade_id": trade_id,
                     "symbol": symbol,
                     "action": "SELL",
                     "quantity": quantity,
-                    "price": current_price,
+                    "price": current_price_gbp,
                     "total_cost": nominal_exit,
                     "realized_pnl": net_calc["net_realized_pnl"],
                     "confidence_score": 100.0,
@@ -538,7 +582,7 @@ class OrderRouter:
                 "symbol": symbol,
                 "action": "SELL",
                 "quantity": quantity,
-                "price": current_price,
+                "price": current_price_gbp,
                 "total_cost": nominal_exit,
                 "realized_pnl": net_calc["net_realized_pnl"],
                 "confidence_score": 100.0,

@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from src.config.settings import settings
+from src.database.db import ClosingConnection
 
 EVIDENCE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS evidence_daily_snapshots (
@@ -108,10 +109,10 @@ class EvidenceRecorder:
         self.db_path = db_path or settings.DB_PATH
         self._init_evidence_db()
 
-    def get_connection(self) -> sqlite3.Connection:
+    def get_connection(self) -> Any:
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        return conn
+        return ClosingConnection(conn)
 
     def _init_evidence_db(self):
         with self.get_connection() as conn:
