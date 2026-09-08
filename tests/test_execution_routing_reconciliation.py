@@ -47,25 +47,26 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
             "emergency_risk_mode": False
         }
         order_id = f"OP_TEST_{uuid.uuid4().hex[:8]}"
-        with patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "fillPrice": 1.50}}) as mock_order, \
+        with patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "fillPrice": 9.58}}) as mock_order, \
              patch.object(daily_objective_service, "get_daily_status", return_value=mock_status):
             success, msg, res = order_router.route_entry_order(
-                symbol="VOD",
-                t212_ticker="VOD_EQ",
+                symbol="IGLT",
+                t212_ticker="IGLTl_EQ",
                 quantity=100.0,
-                price=1.50,
-                target_price=1.70,
-                stop_loss_price=1.46,
-                sector="Telecommunications",
+                price=9.58,
+                target_price=10.50,
+                stop_loss_price=9.40,
+                sector="Fixed Income",
                 confidence_score=85.0,
                 market_regime="BULL",
                 agent_votes={"trend": "BUY", "momentum": "BUY", "volatility": "BUY", "liquidity": "BUY", "risk": "BUY"},
                 risk_approved=True,
                 is_simulation=False,
-                bypass_market_hours=True
+                bypass_market_hours=True,
+                strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
             )
             self.assertTrue(success, f"Route entry order failed: {msg}")
-            mock_order.assert_called_once_with("VOD_EQ", 100.0)
+            mock_order.assert_called_once_with("IGLTl_EQ", 100.0)
 
     def test_2_practice_never_returns_simulated_fill(self):
         """2. ACCOUNT_MODE=PRACTICE must never return SIMULATED_FILL in trade log or audit trail."""
@@ -78,22 +79,23 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
             "emergency_risk_mode": False
         }
         order_id = f"OP_TEST_{uuid.uuid4().hex[:8]}"
-        with patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "fillPrice": 6.50}}), \
+        with patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "fillPrice": 9.58}}), \
              patch.object(daily_objective_service, "get_daily_status", return_value=mock_status):
             success, msg, res = order_router.route_entry_order(
-                symbol="HSBA",
-                t212_ticker="HSBA_EQ",
+                symbol="IGLT",
+                t212_ticker="IGLTl_EQ",
                 quantity=50.0,
-                price=6.50,
-                target_price=7.40,
-                stop_loss_price=6.30,
-                sector="Financials",
+                price=9.58,
+                target_price=10.50,
+                stop_loss_price=9.40,
+                sector="Fixed Income",
                 confidence_score=85.0,
                 market_regime="BULL",
                 agent_votes={"trend": "BUY", "momentum": "BUY", "volatility": "BUY", "liquidity": "BUY", "risk": "BUY"},
                 risk_approved=True,
                 is_simulation=False,
-                bypass_market_hours=True
+                bypass_market_hours=True,
+                strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
             )
             self.assertNotIn("SIMULATED", msg.upper())
             self.assertNotIn("PAPER", msg.upper())
@@ -110,19 +112,20 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
         with patch.object(broker, "place_market_order") as mock_broker, \
              patch.object(daily_objective_service, "get_daily_status", return_value=mock_status):
             success, msg, res = order_router.route_entry_order(
-                symbol="BP",
-                t212_ticker="BP_EQ",
+                symbol="IGLT",
+                t212_ticker="IGLTl_EQ",
                 quantity=100.0,
-                price=4.50,
-                target_price=5.10,
-                stop_loss_price=4.38,
-                sector="Energy",
+                price=9.58,
+                target_price=10.50,
+                stop_loss_price=9.40,
+                sector="Fixed Income",
                 confidence_score=85.0,
                 market_regime="BULL",
                 agent_votes={"trend": "BUY", "momentum": "BUY", "volatility": "BUY", "liquidity": "BUY", "risk": "BUY"},
                 risk_approved=True,
                 is_simulation=True,
-                bypass_market_hours=True
+                bypass_market_hours=True,
+                strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
             )
             self.assertTrue(success, f"Simulation order failed: {msg}")
             mock_broker.assert_not_called()

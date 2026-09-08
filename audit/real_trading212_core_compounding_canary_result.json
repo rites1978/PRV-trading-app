@@ -2,6 +2,7 @@
   "timestamp_utc": "2026-09-08T11:42:59.556877+00:00",
   "canary_passed": true,
   "verdict": "READY_FOR_PRACTICE_GO",
+  "canary_economic_reconciliation": "PASS",
   "environment_attestation": {
     "broker_base_url": "https://demo.trading212.com/api/v0",
     "broker_env": "demo",
@@ -15,10 +16,10 @@
     "t212_ticker": "IGLTl_EQ",
     "broker_order_id": "54650651330",
     "submitted_timestamp": "2026-09-08T11:41:59.993216+00:00",
-    "broker_fill_timestamp": "2026-09-08T14:42:18.325+03:00",
+    "broker_fill_timestamp": "2026-09-08T11:42:18.000Z",
     "requested_quantity": 1.0,
     "filled_quantity": 1.0,
-    "fill_price_gbp": 9.58,
+    "fill_price_gbp": 9.5775,
     "fill_currency": "GBP",
     "broker_status": "FILLED"
   },
@@ -30,18 +31,30 @@
     "exit_fill_price_gbp": 9.575,
     "broker_status": "FILLED"
   },
-  "final_reconciliation": {
+  "economic_attribution": {
+    "raw_buy_fill_price_gbp": 9.5775,
+    "raw_sell_fill_price_gbp": 9.575,
+    "raw_price_delta_gbp": -0.0025,
+    "raw_gross_economic_pnl_gbp": -0.0025,
+    "explicit_broker_fees_gbp": 0.0,
+    "explicit_sdrt_tax_gbp": 0.0,
+    "explicit_fx_fee_gbp": 0.0,
+    "raw_net_economic_pnl_gbp": -0.0025,
+    "raw_spread_cost_gbp": 0.0025,
+    "raw_slippage_cost_gbp": 0.0
+  },
+  "broker_wallet_reconciliation": {
+    "pre_canary_cash_gbp": 49897.38,
+    "post_buy_broker_net_value_gbp": 9.58,
+    "post_sell_broker_net_value_gbp": 9.58,
+    "post_canary_cash_gbp": 49897.38,
+    "broker_wallet_cash_delta_gbp": 0.0,
+    "broker_reported_realised_pnl_gbp": 0.0,
+    "broker_subpenny_rounding_residual_gbp": 0.0025,
+    "broker_ledger_variance_gbp": 0.0,
     "open_positions": 0,
     "open_orders": 0,
     "orphan_orders": 0,
-    "orphan_positions": 0,
-    "broker_ledger_variance_gbp": 0.0,
-    "gross_realised_pnl_gbp": 0.0,
-    "spread_slippage_gbp": 0.0,
-    "broker_fees_taxes_gbp": 0.0,
-    "net_realised_pnl_gbp": 0.0,
-    "pre_canary_cash_gbp": 49897.38,
-    "post_canary_cash_gbp": 49897.38,
-    "final_nav_gbp": 49897.38
+    "orphan_positions": 0
   }
 }

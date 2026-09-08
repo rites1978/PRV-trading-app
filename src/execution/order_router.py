@@ -521,11 +521,24 @@ class OrderRouter:
         entry_price_gbp = normalize_to_gbp(entry_price, t212_ticker).amount
         current_price_gbp = normalize_to_gbp(current_price, t212_ticker).amount
 
-        nominal_entry = round(quantity * entry_price_gbp, 2)
-        nominal_exit = round(quantity * current_price_gbp, 2)
+        nominal_entry = round(quantity * entry_price_gbp, 4)
+        nominal_exit = round(quantity * current_price_gbp, 4)
 
         is_uk = t212_ticker.endswith("l_EQ") or t212_ticker.endswith(".L") or symbol.endswith(".L")
         is_foreign = not is_uk
+
+        is_internal_sim = is_simulation or (is_paper is True) or (settings.ACCOUNT_MODE.upper() in ("SIMULATION", "INTERNAL_SIMULATION"))
+
+        actual_explicit_costs = None
+        if not is_internal_sim:
+            # For live execution, out-of-pocket transaction costs are actual explicit taxes and broker fees.
+            # Implicit costs (spread & slippage) are naturally reflected in the fill prices.
+            actual_explicit_costs = {
+                "broker_fees": 0.0,
+                "taxes_and_stamp_duty": 0.0 if instrument_type.upper() == "ETF" else round(nominal_entry * 0.005 if is_uk else 0.0, 2),
+                "fx_conversion_fees": round(nominal_exit * 0.0015, 2) if is_foreign else 0.0,
+                "us_regulatory_fees": 0.0
+            }
 
         net_calc = cost_model.compute_net_realized_pnl(
             gross_entry_value=nominal_entry,
@@ -533,7 +546,8 @@ class OrderRouter:
             is_uk=is_uk,
             is_foreign=is_foreign,
             shares_count=quantity,
-            instrument_type=instrument_type
+            instrument_type=instrument_type,
+            actual_costs=actual_explicit_costs
         )
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -609,7 +623,7 @@ class OrderRouter:
                     logger.warning(f"Error cancelling stop orders for {t212_ticker} post-exit: {cancel_err}")
 
                 self._log_audit("SELL_EXECUTION", symbol, "N/A", {}, 100.0, exit_reason, True, quantity, f"NET_PNL_{net_calc['net_realized_pnl']:+.2f}")
-                return True, f"✅ Live Exit Executed for {symbol}: Gross P&L £{net_calc['gross_profit_loss']:+.2f}, Costs £{net_calc['total_transaction_costs']:.2f}, NET P&L £{net_calc['net_realized_pnl']:+.2f}", net_calc
+                return True, f"✅ Live Exit Executed for {symbol}: Gross P&L £{net_calc['gross_profit_loss']:+.2f} (raw £{net_calc['gross_profit_loss_raw']:+.4f}), Explicit Costs £{net_calc['total_transaction_costs']:.2f}, NET P&L £{net_calc['net_realized_pnl']:+.2f} (raw £{net_calc['net_realized_pnl_raw']:+.4f})", net_calc
             else:
                 return False, f"❌ Failed to exit {symbol}: {res.get('error')}", net_calc
         else:

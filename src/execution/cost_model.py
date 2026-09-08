@@ -319,13 +319,16 @@ class InstitutionalCostModel:
     ) -> Dict[str, Any]:
         """
         Calculates Net Realized P&L from gross values and complete fee breakdown.
+        Retains high-precision economic P&L internally while providing standard 2-decimal rounded fields.
         """
-        gross_pnl = round(gross_exit_value - gross_entry_value, 2)
-        gross_pnl_pct = round((gross_pnl / max(0.01, gross_entry_value)) * 100.0, 2)
+        gross_pnl_raw = float(gross_exit_value - gross_entry_value)
+        gross_pnl = round(gross_pnl_raw, 2)
+        gross_pnl_pct = round((gross_pnl_raw / max(0.01, gross_entry_value)) * 100.0, 4)
 
-        if actual_costs:
-            total_costs = round(sum(actual_costs.values()), 2)
-            breakdown = actual_costs
+        if actual_costs is not None:
+            total_costs_raw = float(sum(actual_costs.values()))
+            total_costs = round(total_costs_raw, 2)
+            breakdown = dict(actual_costs)
         else:
             rt = self.calculate_round_trip_friction(
                 entry_value=gross_entry_value,
@@ -337,28 +340,35 @@ class InstitutionalCostModel:
                 exchange=exchange,
                 currency=currency
             )
-            total_costs = rt["total_round_trip_cost"]
+            total_costs_raw = float(rt["total_round_trip_cost"])
+            total_costs = round(total_costs_raw, 2)
             breakdown = rt["breakdown"]
 
-        net_pnl = round(gross_pnl - total_costs, 2)
-        net_pnl_pct = round((net_pnl / max(0.01, gross_entry_value)) * 100.0, 2)
+        net_pnl_raw = float(gross_pnl_raw - total_costs_raw)
+        net_pnl = round(net_pnl_raw, 2)
+        net_pnl_pct = round((net_pnl_raw / max(0.01, gross_entry_value)) * 100.0, 4)
 
         cost_as_pct_of_gross_profit = 0.0
-        if gross_pnl > 0:
-            cost_as_pct_of_gross_profit = round((total_costs / gross_pnl) * 100.0, 2)
-        elif gross_pnl < 0:
-            cost_as_pct_of_gross_profit = round((total_costs / abs(gross_pnl)) * 100.0, 2)
+        if gross_pnl_raw > 0:
+            cost_as_pct_of_gross_profit = round((total_costs_raw / gross_pnl_raw) * 100.0, 2)
+        elif gross_pnl_raw < 0:
+            cost_as_pct_of_gross_profit = round((total_costs_raw / abs(gross_pnl_raw)) * 100.0, 2)
 
-        is_net_profitable = net_pnl > 0
+        is_net_profitable = net_pnl_raw > 0
 
         return {
             "gross_entry_value": round(gross_entry_value, 2),
             "gross_exit_value": round(gross_exit_value, 2),
+            "gross_entry_value_raw": float(gross_entry_value),
+            "gross_exit_value_raw": float(gross_exit_value),
             "gross_profit_loss": gross_pnl,
+            "gross_profit_loss_raw": round(gross_pnl_raw, 6),
             "gross_profit_loss_pct": gross_pnl_pct,
             "total_transaction_costs": total_costs,
+            "total_transaction_costs_raw": round(total_costs_raw, 6),
             "cost_breakdown": breakdown,
             "net_realized_pnl": net_pnl,
+            "net_realized_pnl_raw": round(net_pnl_raw, 6),
             "net_realized_pnl_pct": net_pnl_pct,
             "cost_as_pct_of_gross_profit": cost_as_pct_of_gross_profit,
             "is_net_profitable": is_net_profitable

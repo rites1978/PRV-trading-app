@@ -182,8 +182,36 @@ class BrokerLedgerService:
         total_other_taxes = round(total_other_taxes, 2)
         total_costs = round(total_sdrt + total_fx + total_other_taxes, 2)
 
-        # Realized P&L: derived from actual filled exits
+        # Realized P&L: derived from actual filled exits (broker monetary cash ledger)
         derived_realized_pnl = round(sum(e["realized_pnl_gbp"] for e in exits if e["realized_pnl_gbp"] is not None), 2)
+
+        # High-precision economic P&L attribution from raw execution fill prices
+        from src.core.money import normalize_to_gbp
+        economic_realized_pnl_raw = 0.0
+        ticker_entries_queue = {}
+        for ent in entries:
+            t = ent["ticker"]
+            if t not in ticker_entries_queue:
+                ticker_entries_queue[t] = []
+            ticker_entries_queue[t].append(dict(ent))
+
+        for ex in exits:
+            t = ex["ticker"]
+            q_to_match = ex["quantity"]
+            while q_to_match > 0 and ticker_entries_queue.get(t):
+                first_ent = ticker_entries_queue[t][0]
+                matched_q = min(q_to_match, first_ent["quantity"])
+                entry_gbp = normalize_to_gbp(first_ent["fill_price"], t).amount
+                exit_gbp = normalize_to_gbp(ex["fill_price"], t).amount
+                economic_realized_pnl_raw += matched_q * (exit_gbp - entry_gbp)
+                first_ent["quantity"] -= matched_q
+                q_to_match -= matched_q
+                if first_ent["quantity"] <= 0.000001:
+                    ticker_entries_queue[t].pop(0)
+
+        economic_realized_pnl_raw = round(economic_realized_pnl_raw, 6)
+        economic_realized_pnl_gbp = round(economic_realized_pnl_raw, 2)
+        broker_rounding_residual_gbp = round(derived_realized_pnl - economic_realized_pnl_raw, 6)
 
         # Invariant checks:
         nav_delta = round(total_nav - CHALLENGE_START_NAV, 2)
@@ -199,6 +227,9 @@ class BrokerLedgerService:
             "invested_value_gbp": invested,
             "broker_derived_unrealized_pnl_gbp": unrealized_ppl,
             "broker_derived_realized_pnl_gbp": derived_realized_pnl,
+            "economic_realized_pnl_gbp": economic_realized_pnl_gbp,
+            "economic_realized_pnl_raw": economic_realized_pnl_raw,
+            "broker_rounding_residual_gbp": broker_rounding_residual_gbp,
             "broker_result_gbp": broker_result,
             "sdrt_paid_gbp": total_sdrt,
             "fx_fees_paid_gbp": total_fx,
