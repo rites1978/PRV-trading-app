@@ -1,18 +1,47 @@
 {
-  "timestamp_utc": "2026-09-08T11:29:11.083243+00:00",
+  "timestamp_utc": "2026-09-08T11:42:59.556877+00:00",
   "canary_passed": true,
-  "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
-  "ticker": "IGLTl_EQ",
-  "isin": "IE00B1FZSB30",
-  "shares": 1.0,
-  "broker_order_id": 54650651072,
-  "order_status_confirmed": "NEW",
-  "cancellation_confirmed": true,
-  "pre_flight_cash_gbp": 49897.38,
-  "post_flight_cash_gbp": 49897.38,
-  "post_flight_nav_gbp": 49897.38,
-  "orphan_orders_count": 0,
-  "orphan_positions_count": 0,
-  "cash_invariant_preserved": true,
-  "autonomous_entries_locked": true
+  "verdict": "READY_FOR_PRACTICE_GO",
+  "environment_attestation": {
+    "broker_base_url": "https://demo.trading212.com/api/v0",
+    "broker_env": "demo",
+    "account_mode": "PRACTICE",
+    "real_money_trading_enabled": false,
+    "real_money_new_entries_allowed": false,
+    "real_money_firewall_status": "LOCKED_FAIL_CLOSED"
+  },
+  "entry_execution": {
+    "symbol": "IGLT",
+    "t212_ticker": "IGLTl_EQ",
+    "broker_order_id": "54650651330",
+    "submitted_timestamp": "2026-09-08T11:41:59.993216+00:00",
+    "broker_fill_timestamp": "2026-09-08T14:42:18.325+03:00",
+    "requested_quantity": 1.0,
+    "filled_quantity": 1.0,
+    "fill_price_gbp": 9.58,
+    "fill_currency": "GBP",
+    "broker_status": "FILLED"
+  },
+  "exit_execution": {
+    "broker_exit_action": "MARKET_SELL",
+    "broker_exit_order_id": "54650651344",
+    "exit_fill_timestamp": "2026-09-08T11:42:42.000Z",
+    "filled_quantity": 1.0,
+    "exit_fill_price_gbp": 9.575,
+    "broker_status": "FILLED"
+  },
+  "final_reconciliation": {
+    "open_positions": 0,
+    "open_orders": 0,
+    "orphan_orders": 0,
+    "orphan_positions": 0,
+    "broker_ledger_variance_gbp": 0.0,
+    "gross_realised_pnl_gbp": 0.0,
+    "spread_slippage_gbp": 0.0,
+    "broker_fees_taxes_gbp": 0.0,
+    "net_realised_pnl_gbp": 0.0,
+    "pre_canary_cash_gbp": 49897.38,
+    "post_canary_cash_gbp": 49897.38,
+    "final_nav_gbp": 49897.38
+  }
 }

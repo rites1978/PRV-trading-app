@@ -99,8 +99,8 @@ class Trading212Broker:
 
     def _request_with_retry(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        max_retries = 3
-        base_backoff = 1.0
+        max_retries = 5
+        base_backoff = 1.5
 
         req_timeout = kwargs.pop("timeout", 5.0)
         for attempt in range(max_retries):
@@ -118,6 +118,7 @@ class Trading212Broker:
                 if res.status_code == 429:
                     retry_after = res.headers.get("Retry-After")
                     sleep_time = float(retry_after) if retry_after else (base_backoff * (attempt + 1))
+                    logger.warning(f"Trading212 Rate Limit (429) on {endpoint}. Backing off {sleep_time:.2f}s (attempt {attempt+1}/{max_retries})...")
                     time.sleep(sleep_time)
                     continue
                 return res
@@ -538,10 +539,17 @@ class Trading212Broker:
                         "error": f"EMERGENCY: Replacement failed and reinstatement failed: {reinstate_res.get('error')}"
                     }
 
-            # No existing stop: place new stop directly
-            res = self.place_stop_order(ticker, quantity=qty, stop_price=desired_stop_price, time_validity=time_validity)
-            if res.get("success"):
-                return {"success": True, "action": "PLACED_NEW", "order_id": res.get("data", {}).get("id"), "stopPrice": desired_stop_price}
+            # No existing stop: place new stop directly (with brief retry for broker position indexing settlement)
+            for attempt in range(5):
+                res = self.place_stop_order(ticker, quantity=-abs(qty), stop_price=desired_stop_price, time_validity=time_validity)
+                if not res.get("success"):
+                    res = self.place_stop_order(ticker, quantity=abs(qty), stop_price=desired_stop_price, time_validity=time_validity)
+                if res.get("success"):
+                    return {"success": True, "action": "PLACED_NEW", "order_id": res.get("data", {}).get("id"), "stopPrice": desired_stop_price}
+                if "selling-equity-not-owned" in str(res.get("error", "")):
+                    time.sleep(0.75)
+                    continue
+                break
             return {"success": False, "error": res.get("error")}
         except Exception as e:
             return {"success": False, "error": str(e)}

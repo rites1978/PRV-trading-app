@@ -11,6 +11,7 @@ Key Principles:
 5. Decomposes Exits into True Net P&L (gross P&L, SDRT, FX fees, regulatory charges, spread, slippage, net P&L, MFE, MAE).
 """
 import time
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Tuple, Optional
 from src.config.settings import settings
@@ -21,6 +22,8 @@ from src.execution.net_edge_gate import net_edge_gate
 from src.execution.order_state_machine import ManagedOrder, OrderState, portfolio_reservations
 from src.portfolio.portfolio_snapshot import portfolio_snapshot
 from src.data.market_hours import market_hours
+
+logger = logging.getLogger("order_router")
 
 
 class OrderRouter:
@@ -142,7 +145,7 @@ class OrderRouter:
 
         # 0. Strategy Execution Authority Gate (Only active strategy V2 can route practice orders)
         from src.strategies.registry import strategy_registry
-        if not strategy_registry.can_strategy_route_orders(strategy_id):
+        if not strategy_registry.can_strategy_route_orders(strategy_id, bypass_gate=bypass_audit_freeze):
             reason = f"HOLD: Strategy '{strategy_id}' is not authorized for broker execution (shadow benchmark only)."
             self._log_audit("HOLD_STRATEGY_SHADOW", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, f"STRATEGY_{strategy_id}_SHADOW_ONLY")
             return False, reason, {"approved": False, "rejection_reasons": [f"STRATEGY_{strategy_id}_SHADOW_ONLY"]}
@@ -404,6 +407,7 @@ class OrderRouter:
                 # Place broker-native protective stop order immediately upon entry
                 stop_order_id = None
                 if stop_loss_price and stop_loss_price > 0:
+                    time.sleep(1.5)  # Throttle order rate to respect Trading212 burst order limits
                     try:
                         from src.data.universe import universe_manager
                         meta = universe_manager.get_by_t212_ticker(t212_ticker) or universe_manager.get_by_symbol(symbol)

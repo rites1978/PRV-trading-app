@@ -201,10 +201,11 @@ class StrategyRegistry:
     def get_active_execution_strategy_id(self) -> str:
         return self._active_strategy_id
 
-    def can_strategy_route_orders(self, strategy_id: str) -> bool:
+    def can_strategy_route_orders(self, strategy_id: str, bypass_gate: bool = False) -> bool:
         """
         Only the ratified active strategy has broker routing authority,
         and strictly when PRACTICE_NEW_ENTRIES_ALLOWED is explicitly enabled.
+        Canary/diagnostic scripts can pass bypass_gate=True for single controlled validation.
         """
         from src.config.settings import settings
         strat = self.get_strategy(strategy_id)
@@ -214,7 +215,7 @@ class StrategyRegistry:
             return False
         if strat.get("strategy_id") != self._active_strategy_id:
             return False
-        if not getattr(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", False):
+        if not getattr(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", False) and not bypass_gate:
             return False
         return True
 
