@@ -175,16 +175,17 @@ class UniverseManager:
 
     def validate_universe_fail_closed(self) -> List[Dict[str, Any]]:
         """Returns only assets validated against the authoritative Trading212 instrument directory."""
+        current_universe = self.get_all()
         try:
             from scripts.hydrate_trading212_instruments import instrument_registry
             validated = []
-            for item in self.universe:
+            for item in current_universe:
                 tick = item.get("t212_ticker", "")
                 if instrument_registry.is_valid_ticker(tick):
                     validated.append(item)
             return validated
         except Exception:
-            return self.universe
+            return current_universe
 
 universe_manager = UniverseManager()
 
