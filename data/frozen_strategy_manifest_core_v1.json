@@ -1,0 +1,104 @@
+{
+  "manifest_version": "PRV_CORE_COMPOUNDING_V1_FROZEN_MANIFEST",
+  "sealed_timestamp_utc": "2026-09-08T10:45:10.835810+00:00",
+  "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+  "architecture_class": "PRV_CORE_COMPOUNDING_ENGINE",
+  "strategy_file": "src/research/strategies/prv_core_compounding_v1.py",
+  "strategy_file_sha256": "9f4942f11bd56a87cd2c651a24eff2f64a528d46f9ba95be7bb33b7589189929",
+  "frozen_universe": [
+    "CSP1_L",
+    "EQQQ_L",
+    "IWDA_L",
+    "ISF_L",
+    "EMIM_L",
+    "SGLN_L",
+    "IGLT_L"
+  ],
+  "frozen_universe_sha256": "d8b857e9961412310e7d4a962a186144154dbef6cc94a92bbe16a3c362a4204c",
+  "frozen_parameters": {
+    "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+    "architecture_class": "PRV_CORE_COMPOUNDING_ENGINE",
+    "mom_lookback_bars": 20,
+    "vol_lookback_bars": 20,
+    "rebalance_days": 10,
+    "position_size_gbp": 40000.0,
+    "max_concurrent_positions": 1,
+    "stop_loss_pct": 0.02,
+    "use_sharpe_metric": true,
+    "regime_sma_lookback": 200,
+    "execution_time_bst": "08:00:00",
+    "cost_model": "TRADING212_UK_ETF_ZERO_SDRT_ZERO_FX",
+    "slippage_model": "SQUARE_ROOT_IMPACT_2BPS_BASE"
+  },
+  "frozen_parameters_sha256": "2762a8009389a79d8ecbc38ed0f9251a2345206a8628d3c80f54901e89bfe0b2",
+  "pre_registered_gates": [
+    {
+      "gate_id": "GATE_01_NET_PNL_POSITIVE",
+      "name": "Net Cumulative P&L > \u00a30",
+      "description": "Total net realised P&L after all Trading212 frictions must be positive.",
+      "threshold": "> \u00a30.00"
+    },
+    {
+      "gate_id": "GATE_02_PROFIT_FACTOR_GE_130",
+      "name": "Profit Factor >= 1.30",
+      "description": "Gross profits divided by gross losses must be >= 1.30.",
+      "threshold": ">= 1.30"
+    },
+    {
+      "gate_id": "GATE_03_EXPECTANCY_POSITIVE",
+      "name": "Expectancy Per Trade > \u00a30",
+      "description": "Net dollar expectancy per closed execution must be > \u00a30.00.",
+      "threshold": "> \u00a30.00"
+    },
+    {
+      "gate_id": "GATE_04_COST_STRESS_15X_POSITIVE",
+      "name": "1.5x Cost-Stress Expectancy > \u00a30",
+      "description": "Expectancy with 50% adverse spread and slippage penalty must remain positive.",
+      "threshold": "> \u00a30.00"
+    },
+    {
+      "gate_id": "GATE_05_COST_STRESS_20X_SURVIVAL",
+      "name": "2.0x Cost-Stress Survival",
+      "description": "Double friction stress must not produce economic catastrophe (Net P&L >= \u00a30).",
+      "threshold": "Net P&L >= \u00a30.00"
+    },
+    {
+      "gate_id": "GATE_06_MAX_DRAWDOWN_LE_10PCT",
+      "name": "Maximum Equity Drawdown <= 10.0%",
+      "description": "Peak-to-trough equity drawdown must not breach 10.0%.",
+      "threshold": "<= 10.0%"
+    },
+    {
+      "gate_id": "GATE_07_CAUSAL_AUDIT_ZERO_VIOLATIONS",
+      "name": "Independent Causal Audit Zero Violations",
+      "description": "CausalAuditor must certify 0 lookahead, timing, or negative duration violations.",
+      "threshold": "0 Violations"
+    },
+    {
+      "gate_id": "GATE_08_OUTLIER_RESILIENCE_TOP1_REMOVAL",
+      "name": "Best Trade Removal Net P&L > \u00a30",
+      "description": "Cumulative net P&L must remain positive after removing the single largest winner.",
+      "threshold": "Net P&L > \u00a30.00"
+    },
+    {
+      "gate_id": "GATE_09_ASSET_DIVERSIFICATION",
+      "name": "Asset Diversification (No Asset > 80% P&L)",
+      "description": "No single ETF ticker may contribute > 80.0% of total cumulative positive P&L.",
+      "threshold": "<= 80.0%"
+    },
+    {
+      "gate_id": "GATE_10_BENCHMARK_NON_INFERIORITY",
+      "name": "Benchmark Non-Inferiority (Return/Drawdown)",
+      "description": "Strategy Return-to-Drawdown ratio must match or exceed S&P 500 Buy & Hold.",
+      "threshold": "Return/MaxDD >= Benchmark"
+    }
+  ],
+  "pre_registered_gates_sha256": "8392cc4381cb18b16bfc6276a6fc230f383783e4603809d8af726b497c357a8f",
+  "oos_partition": {
+    "start_date": "2025-07-01",
+    "end_date": "2026-08-31",
+    "duration_months": 14
+  },
+  "operating_mandate": "CORE_COMPOUNDING_ENGINE_ONLY (Opportunity Engine decoupled)",
+  "master_manifest_sha256": "e5026d52086a5cdf5597cccbba96233a3f263411d84dea8bd3e36891d60be361"
+}

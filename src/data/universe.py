@@ -126,7 +126,103 @@ INSTITUTIONAL_UNIVERSE: List[Dict[str, Any]] = [
     {"symbol": "EQQQ", "name": "Invesco EQQQ Nasdaq-100 UCITS ETF", "yf_ticker": "EQQQ.L", "t212_ticker": "EQQQl_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": True, "instrument_type": "ETF"}
 ]
 
-# Authoritative Production Universe: Model B GBP SDRT-Exempt ETFs
+# Authoritative Production Universe: PRV Core Compounding Engine (7 Multi-Asset SDRT-Exempt ETFs)
+PRV_CORE_COMPOUNDING_UNIVERSE: List[Dict[str, Any]] = [
+    {
+        "symbol": "CSP1",
+        "name": "iShares Core S&P 500 UCITS ETF",
+        "yf_ticker": "CSP1.L",
+        "t212_ticker": "CSP1_EQ",
+        "isin": "IE00B5BMR087",
+        "sector": "US Equities",
+        "country": "UK",
+        "currency": "GBX",
+        "is_uk_pence": True,
+        "instrument_type": "ETF",
+        "sdrt_exempt": True
+    },
+    {
+        "symbol": "EQQQ",
+        "name": "Invesco EQQQ Nasdaq-100 UCITS ETF",
+        "yf_ticker": "EQQQ.L",
+        "t212_ticker": "EQQQl_EQ",
+        "isin": "IE0032077012",
+        "sector": "US Tech",
+        "country": "UK",
+        "currency": "GBX",
+        "is_uk_pence": True,
+        "instrument_type": "ETF",
+        "sdrt_exempt": True
+    },
+    {
+        "symbol": "IWDA",
+        "name": "iShares Core MSCI World UCITS ETF",
+        "yf_ticker": "IWDA.L",
+        "t212_ticker": "SWDAl_EQ",
+        "t212_ticker_alt": "IWDAl_EQ",
+        "isin": "IE00B4L5Y983",
+        "sector": "Global Developed Equities",
+        "country": "UK",
+        "currency": "GBX",
+        "is_uk_pence": True,
+        "instrument_type": "ETF",
+        "sdrt_exempt": True
+    },
+    {
+        "symbol": "ISF",
+        "name": "iShares Core FTSE 100 UCITS ETF",
+        "yf_ticker": "ISF.L",
+        "t212_ticker": "ISFl_EQ",
+        "isin": "IE0005042456",
+        "sector": "UK Equities",
+        "country": "UK",
+        "currency": "GBX",
+        "is_uk_pence": True,
+        "instrument_type": "ETF",
+        "sdrt_exempt": True
+    },
+    {
+        "symbol": "EMIM",
+        "name": "iShares Core MSCI EM IMI UCITS ETF",
+        "yf_ticker": "EMIM.L",
+        "t212_ticker": "EMIMl_EQ",
+        "isin": "IE00BKM4GZ66",
+        "sector": "Emerging Market Equities",
+        "country": "UK",
+        "currency": "GBX",
+        "is_uk_pence": True,
+        "instrument_type": "ETF",
+        "sdrt_exempt": True
+    },
+    {
+        "symbol": "SGLN",
+        "name": "iShares Physical Gold ETC",
+        "yf_ticker": "SGLN.L",
+        "t212_ticker": "SGLNl_EQ",
+        "isin": "IE00B4ND3602",
+        "sector": "Commodities (Gold Safe Haven)",
+        "country": "UK",
+        "currency": "GBX",
+        "is_uk_pence": True,
+        "instrument_type": "ETF",
+        "sdrt_exempt": True
+    },
+    {
+        "symbol": "IGLT",
+        "name": "iShares Core UK Gilts UCITS ETF",
+        "yf_ticker": "IGLT.L",
+        "t212_ticker": "IGLTl_EQ",
+        "isin": "IE00B1FZSB30",
+        "sector": "Fixed Income (Gilts)",
+        "country": "UK",
+        "currency": "GBP",
+        "is_uk_pence": False,
+        "instrument_type": "ETF",
+        "sdrt_exempt": True
+    }
+]
+
+# Authoritative Production Universe: Model B GBP SDRT-Exempt ETFs (Legacy)
 ETF_HIT_AND_RUN_UNIVERSE: List[Dict[str, Any]] = [
     {"symbol": "CSP1", "name": "iShares Core S&P 500 UCITS ETF", "yf_ticker": "CSP1.L", "t212_ticker": "CSP1_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": True, "instrument_type": "ETF"},
     {"symbol": "ISF", "name": "iShares Core FTSE 100 UCITS ETF", "yf_ticker": "ISF.L", "t212_ticker": "ISFl_EQ", "sector": "Index ETF", "country": "UK", "currency": "GBP", "is_uk_pence": True, "instrument_type": "ETF"},
@@ -142,24 +238,31 @@ class UniverseManager:
         try:
             from src.strategies.registry import strategy_registry
             active_id = strategy_registry.get_active_execution_strategy_id()
+            if str(active_id).upper() in ("PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1", "CORE_V1"):
+                return list(PRV_CORE_COMPOUNDING_UNIVERSE)
             if str(active_id).upper() in ("ETF_V1", "PRV_HIT_AND_RUN_ETF_V1"):
                 return list(ETF_HIT_AND_RUN_UNIVERSE)
         except Exception:
             pass
         return self.universe
 
-    def get_by_t212_ticker(self, t212_ticker: str) -> Dict[str, Any]:
-        return next((item for item in self.universe if item["t212_ticker"] == t212_ticker), None)
+    def get_by_t212_ticker(self, t212_ticker: str) -> Optional[Dict[str, Any]]:
+        t = t212_ticker.upper()
+        return next((item for item in self.get_all() if item["t212_ticker"].upper() == t or item.get("t212_ticker_alt", "").upper() == t), None)
 
-    def get_by_symbol(self, symbol: str) -> Dict[str, Any]:
-        return next((item for item in self.universe if item["symbol"] == symbol), None)
+    def get_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+        s = symbol.upper()
+        return next((item for item in self.get_all() if item["symbol"].upper() == s), None)
 
-    def get_by_ticker(self, ticker: str) -> Dict[str, Any]:
+    def get_by_ticker(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Lookup by t212_ticker, symbol, or yf_ticker."""
         t = ticker.upper()
         return next((
-            item for item in self.universe
-            if item["t212_ticker"].upper() == t or item["symbol"].upper() == t or item.get("yf_ticker", "").upper() == t
+            item for item in self.get_all()
+            if item["t212_ticker"].upper() == t
+            or item.get("t212_ticker_alt", "").upper() == t
+            or item["symbol"].upper() == t
+            or item.get("yf_ticker", "").upper() == t
         ), None)
 
     def filter_by_sector(self, sector: str) -> List[Dict[str, Any]]:

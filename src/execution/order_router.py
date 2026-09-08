@@ -193,12 +193,20 @@ class OrderRouter:
         # 2a. Permanent Production Invariant: Ratified Universe Enforcement
         from src.strategies.registry import strategy_registry
         active_strat = strategy_registry.get_active_execution_strategy_id()
-        if str(active_strat).upper() in ("ETF_V1", "PRV_HIT_AND_RUN_ETF_V1"):
+        if str(active_strat).upper() in ("PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1", "CORE_V1"):
+            from src.data.universe import PRV_CORE_COMPOUNDING_UNIVERSE
+            allowed_tickers = {e["t212_ticker"] for e in PRV_CORE_COMPOUNDING_UNIVERSE}
+            allowed_symbols = {e["symbol"] for e in PRV_CORE_COMPOUNDING_UNIVERSE}
+            if t212_ticker not in allowed_tickers and symbol not in allowed_symbols:
+                reason = f"HOLD CAPITAL: Unauthorized instrument {symbol} ({t212_ticker}). Strategy {active_strat} permits ONLY ratified Core Compounding ETF instruments."
+                self._log_audit("HOLD_UNAUTHORIZED_UNIVERSE", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "REJECTED_UNAUTHORIZED_INSTRUMENT")
+                return False, reason, {"approved": False, "rejection_reasons": ["UNAUTHORIZED_INSTRUMENT_CLASS"]}
+        elif str(active_strat).upper() in ("ETF_V1", "PRV_HIT_AND_RUN_ETF_V1"):
             from src.data.universe import ETF_HIT_AND_RUN_UNIVERSE
             allowed_tickers = {e["t212_ticker"] for e in ETF_HIT_AND_RUN_UNIVERSE}
             allowed_symbols = {e["symbol"] for e in ETF_HIT_AND_RUN_UNIVERSE}
             if t212_ticker not in allowed_tickers and symbol not in allowed_symbols:
-                reason = f"HOLD CAPITAL: Unauthorized instrument {symbol} ({t212_ticker}). Production strategy {active_strat} permits ONLY ratified ETF instruments."
+                reason = f"HOLD CAPITAL: Unauthorized instrument {symbol} ({t212_ticker}). Strategy {active_strat} permits ONLY ratified ETF instruments."
                 self._log_audit("HOLD_UNAUTHORIZED_UNIVERSE", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "REJECTED_UNAUTHORIZED_INSTRUMENT")
                 return False, reason, {"approved": False, "rejection_reasons": ["UNAUTHORIZED_INSTRUMENT_CLASS"]}
 

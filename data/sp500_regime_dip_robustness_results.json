@@ -1,0 +1,1294 @@
+{
+  "candidate": "PRV_CAUSAL_SP500_REGIME_DIP_V1",
+  "evaluation_date": "2026-09-08",
+  "partitions": {
+    "train": "2021-01-01 to 2024-06-30",
+    "validation": "2024-07-01 to 2025-06-30",
+    "sealed_oos": "2025-07-01 to 2026-08-31 (UNTOUCHED)"
+  },
+  "phase1_outlier_dependence": {
+    "train": {
+      "baseline": {
+        "total_trades": 97,
+        "wins": 45,
+        "losses": 52,
+        "win_rate_pct": 46.4,
+        "gross_pnl_gbp": 5400.59,
+        "total_friction_gbp": 2718.16,
+        "net_pnl_gbp": 2682.43,
+        "expectancy_per_trade_gbp": 27.65,
+        "profit_factor": 1.28,
+        "payoff_ratio": 1.48,
+        "avg_winner_gbp": 268.97,
+        "avg_loser_gbp": 181.18,
+        "largest_losing_trade_gbp": -714.2,
+        "largest_losing_day_gbp": -714.2,
+        "max_drawdown_gbp": 3084.33,
+        "max_drawdown_pct": 5.65,
+        "avg_holding_days": 2.1,
+        "median_holding_days": 2.0,
+        "days_ge_100": 37,
+        "days_1_to_99": 8,
+        "flat_days": 782,
+        "negative_days": 52,
+        "top_1pct_pnl_share": 27.7,
+        "top_5pct_pnl_share": 99.3,
+        "top_10pct_pnl_share": 199.5
+      },
+      "removal_scenarios": {
+        "best_1_removed": {
+          "net_pnl_gbp": 1940.68,
+          "profit_factor": 1.21,
+          "expectancy_gbp": 20.22,
+          "trades": 96
+        },
+        "best_2_removed": {
+          "net_pnl_gbp": 1272.42,
+          "profit_factor": 1.14,
+          "expectancy_gbp": 13.39,
+          "trades": 95
+        },
+        "best_5pct_removed": {
+          "net_pnl_gbp": -583.38,
+          "profit_factor": 0.94,
+          "expectancy_gbp": -6.34,
+          "trades": 92,
+          "n_removed": 5
+        },
+        "best_10pct_removed": {
+          "net_pnl_gbp": -3096.15,
+          "profit_factor": 0.67,
+          "expectancy_gbp": -35.59,
+          "trades": 87,
+          "n_removed": 10
+        },
+        "worst_1_removed": {
+          "net_pnl_gbp": 3396.63,
+          "profit_factor": 1.39,
+          "expectancy_gbp": 35.38,
+          "trades": 96
+        },
+        "worst_5pct_removed": {
+          "net_pnl_gbp": 5331.77,
+          "profit_factor": 1.79,
+          "expectancy_gbp": 57.95,
+          "trades": 92,
+          "n_removed": 5
+        }
+      },
+      "bootstrap_and_trimmed": {
+        "median_trade": -29.05,
+        "trimmed_mean_10pct": 25.74,
+        "trimmed_mean_20pct": 16.93,
+        "bootstrap_ci_95": [
+          -28.32,
+          84.59
+        ],
+        "bootstrap_prob_exp_gt_0": 83.1,
+        "bootstrap_prob_pf_gt_1": 83.1
+      }
+    },
+    "validation": {
+      "baseline": {
+        "total_trades": 23,
+        "wins": 13,
+        "losses": 10,
+        "win_rate_pct": 56.5,
+        "gross_pnl_gbp": 130.36,
+        "total_friction_gbp": 644.03,
+        "net_pnl_gbp": -513.67,
+        "expectancy_per_trade_gbp": -22.33,
+        "profit_factor": 0.81,
+        "payoff_ratio": 0.62,
+        "avg_winner_gbp": 164.37,
+        "avg_loser_gbp": 265.04,
+        "largest_losing_trade_gbp": -766.34,
+        "largest_losing_day_gbp": -766.34,
+        "max_drawdown_gbp": 1681.99,
+        "max_drawdown_pct": 3.3,
+        "avg_holding_days": 1.8,
+        "median_holding_days": 2.0,
+        "days_ge_100": 8,
+        "days_1_to_99": 5,
+        "flat_days": 230,
+        "negative_days": 10,
+        "top_1pct_pnl_share": 0.0,
+        "top_5pct_pnl_share": 0.0,
+        "top_10pct_pnl_share": 0.0
+      },
+      "removal_scenarios": {
+        "best_1_removed": {
+          "net_pnl_gbp": -939.55,
+          "profit_factor": 0.65,
+          "expectancy_gbp": -42.71,
+          "trades": 22
+        },
+        "best_2_removed": {
+          "net_pnl_gbp": -1231.53,
+          "profit_factor": 0.54,
+          "expectancy_gbp": -58.64,
+          "trades": 21
+        },
+        "best_5pct_removed": {
+          "net_pnl_gbp": -1231.53,
+          "profit_factor": 0.54,
+          "expectancy_gbp": -58.64,
+          "trades": 21,
+          "n_removed": 2
+        },
+        "best_10pct_removed": {
+          "net_pnl_gbp": -1478.01,
+          "profit_factor": 0.44,
+          "expectancy_gbp": -73.9,
+          "trades": 20,
+          "n_removed": 3
+        },
+        "worst_1_removed": {
+          "net_pnl_gbp": 252.67,
+          "profit_factor": 1.13,
+          "expectancy_gbp": 11.48,
+          "trades": 22
+        },
+        "worst_5pct_removed": {
+          "net_pnl_gbp": 686.8,
+          "profit_factor": 1.47,
+          "expectancy_gbp": 32.7,
+          "trades": 21,
+          "n_removed": 2
+        }
+      },
+      "bootstrap_and_trimmed": {
+        "median_trade": 52.44,
+        "trimmed_mean_10pct": -8.25,
+        "trimmed_mean_20pct": -1.63,
+        "bootstrap_ci_95": [
+          -135.15,
+          82.52
+        ],
+        "bootstrap_prob_exp_gt_0": 36.0,
+        "bootstrap_prob_pf_gt_1": 36.0
+      }
+    }
+  },
+  "phase2_walk_forward": {
+    "semesters": [
+      {
+        "window": "2021_H1",
+        "partition": "TRAIN",
+        "start": "2021-01-01",
+        "end": "2021-06-30",
+        "trades": 12,
+        "wins": 7,
+        "losses": 5,
+        "win_rate_pct": 58.3,
+        "net_pnl_gbp": 1856.51,
+        "expectancy_gbp": 154.71,
+        "profit_factor": 2.92,
+        "max_drawdown_pct": 1.43,
+        "is_positive": true
+      },
+      {
+        "window": "2021_H2",
+        "partition": "TRAIN",
+        "start": "2021-07-01",
+        "end": "2021-12-31",
+        "trades": 19,
+        "wins": 13,
+        "losses": 6,
+        "win_rate_pct": 68.4,
+        "net_pnl_gbp": 2475.44,
+        "expectancy_gbp": 130.29,
+        "profit_factor": 3.44,
+        "max_drawdown_pct": 1.33,
+        "is_positive": true
+      },
+      {
+        "window": "2022_H1",
+        "partition": "TRAIN",
+        "start": "2022-01-01",
+        "end": "2022-06-30",
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "win_rate_pct": 50.0,
+        "net_pnl_gbp": -253.38,
+        "expectancy_gbp": -126.69,
+        "profit_factor": 0.02,
+        "max_drawdown_pct": 1.4,
+        "is_positive": false
+      },
+      {
+        "window": "2022_H2",
+        "partition": "TRAIN",
+        "start": "2022-07-01",
+        "end": "2022-12-31",
+        "trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate_pct": 0.0,
+        "net_pnl_gbp": 0.0,
+        "expectancy_gbp": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "is_positive": false
+      },
+      {
+        "window": "2023_H1",
+        "partition": "TRAIN",
+        "start": "2023-01-01",
+        "end": "2023-06-30",
+        "trades": 11,
+        "wins": 2,
+        "losses": 9,
+        "win_rate_pct": 18.2,
+        "net_pnl_gbp": -820.44,
+        "expectancy_gbp": -74.59,
+        "profit_factor": 0.53,
+        "max_drawdown_pct": 2.94,
+        "is_positive": false
+      },
+      {
+        "window": "2023_H2",
+        "partition": "TRAIN",
+        "start": "2023-07-01",
+        "end": "2023-12-31",
+        "trades": 14,
+        "wins": 5,
+        "losses": 9,
+        "win_rate_pct": 35.7,
+        "net_pnl_gbp": -703.22,
+        "expectancy_gbp": -50.23,
+        "profit_factor": 0.6,
+        "max_drawdown_pct": 3.56,
+        "is_positive": false
+      },
+      {
+        "window": "2024_H1",
+        "partition": "TRAIN",
+        "start": "2024-01-01",
+        "end": "2024-06-30",
+        "trades": 18,
+        "wins": 9,
+        "losses": 9,
+        "win_rate_pct": 50.0,
+        "net_pnl_gbp": 611.14,
+        "expectancy_gbp": 33.95,
+        "profit_factor": 1.57,
+        "max_drawdown_pct": 1.79,
+        "is_positive": true
+      },
+      {
+        "window": "2024_H2",
+        "partition": "VALIDATION",
+        "start": "2024-07-01",
+        "end": "2024-12-31",
+        "trades": 13,
+        "wins": 9,
+        "losses": 4,
+        "win_rate_pct": 69.2,
+        "net_pnl_gbp": 31.34,
+        "expectancy_gbp": 2.41,
+        "profit_factor": 1.02,
+        "max_drawdown_pct": 1.93,
+        "is_positive": true
+      },
+      {
+        "window": "2025_H1",
+        "partition": "VALIDATION",
+        "start": "2025-01-01",
+        "end": "2025-06-30",
+        "trades": 5,
+        "wins": 2,
+        "losses": 3,
+        "win_rate_pct": 40.0,
+        "net_pnl_gbp": -797.77,
+        "expectancy_gbp": -159.55,
+        "profit_factor": 0.1,
+        "max_drawdown_pct": 1.96,
+        "is_positive": false
+      }
+    ],
+    "rolling_12m": [
+      {
+        "window": "Roll_2021_01_to_2021_12",
+        "partition": "TRAIN",
+        "start": "2021-01-01",
+        "end": "2021-12-31",
+        "trades": 36,
+        "net_pnl_gbp": 4447.47,
+        "expectancy_gbp": 123.54,
+        "profit_factor": 2.95,
+        "max_drawdown_pct": 1.43,
+        "is_positive": true
+      },
+      {
+        "window": "Roll_2021_07_to_2022_06",
+        "partition": "TRAIN",
+        "start": "2021-07-01",
+        "end": "2022-06-30",
+        "trades": 23,
+        "net_pnl_gbp": 1365.06,
+        "expectancy_gbp": 59.35,
+        "profit_factor": 1.64,
+        "max_drawdown_pct": 2.96,
+        "is_positive": true
+      },
+      {
+        "window": "Roll_2022_01_to_2022_12",
+        "partition": "TRAIN",
+        "start": "2022-01-01",
+        "end": "2022-12-31",
+        "trades": 2,
+        "net_pnl_gbp": -253.38,
+        "expectancy_gbp": -126.69,
+        "profit_factor": 0.02,
+        "max_drawdown_pct": 1.4,
+        "is_positive": false
+      },
+      {
+        "window": "Roll_2022_07_to_2023_06",
+        "partition": "TRAIN",
+        "start": "2022-07-01",
+        "end": "2023-06-30",
+        "trades": 12,
+        "net_pnl_gbp": -1030.9,
+        "expectancy_gbp": -85.91,
+        "profit_factor": 0.47,
+        "max_drawdown_pct": 2.99,
+        "is_positive": false
+      },
+      {
+        "window": "Roll_2023_01_to_2023_12",
+        "partition": "TRAIN",
+        "start": "2023-01-01",
+        "end": "2023-12-31",
+        "trades": 34,
+        "net_pnl_gbp": -878.9,
+        "expectancy_gbp": -25.85,
+        "profit_factor": 0.79,
+        "max_drawdown_pct": 3.57,
+        "is_positive": false
+      },
+      {
+        "window": "Roll_2023_07_to_2024_06",
+        "partition": "TRAIN",
+        "start": "2023-07-01",
+        "end": "2024-06-30",
+        "trades": 36,
+        "net_pnl_gbp": -268.52,
+        "expectancy_gbp": -7.46,
+        "profit_factor": 0.92,
+        "max_drawdown_pct": 4.27,
+        "is_positive": false
+      },
+      {
+        "window": "Roll_2024_01_to_2024_12",
+        "partition": "TRAIN+VAL",
+        "start": "2024-01-01",
+        "end": "2024-12-31",
+        "trades": 35,
+        "net_pnl_gbp": -1132.65,
+        "expectancy_gbp": -32.36,
+        "profit_factor": 0.75,
+        "max_drawdown_pct": 4.73,
+        "is_positive": false
+      },
+      {
+        "window": "Roll_2024_07_to_2025_06",
+        "partition": "VAL_FULL",
+        "start": "2024-07-01",
+        "end": "2025-06-30",
+        "trades": 23,
+        "net_pnl_gbp": -513.67,
+        "expectancy_gbp": -22.33,
+        "profit_factor": 0.81,
+        "max_drawdown_pct": 3.3,
+        "is_positive": false
+      }
+    ]
+  },
+  "phase3_parameter_plateau": {
+    "plateau_positive_cell_pct": 8.3,
+    "median_neighbour_expectancy": -22.33,
+    "worst_neighbour_expectancy": -145.63,
+    "best_neighbour_expectancy": 46.94,
+    "grid": [
+      {
+        "test_name": "Baseline",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -513.67,
+        "val_pf": 0.81,
+        "val_win_rate": 56.5,
+        "val_expectancy": -22.33,
+        "val_max_dd": 3.3,
+        "train_net_pnl": 2682.43,
+        "train_pf": 1.28,
+        "train_expectancy": 27.65,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "SMA_150",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 150,
+          "bench_sma_len": 150,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -513.67,
+        "val_pf": 0.81,
+        "val_win_rate": 56.5,
+        "val_expectancy": -22.33,
+        "val_max_dd": 3.3,
+        "train_net_pnl": 3068.39,
+        "train_pf": 1.34,
+        "train_expectancy": 32.3,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "SMA_180",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 180,
+          "bench_sma_len": 180,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -513.67,
+        "val_pf": 0.81,
+        "val_win_rate": 56.5,
+        "val_expectancy": -22.33,
+        "val_max_dd": 3.3,
+        "train_net_pnl": 2941.41,
+        "train_pf": 1.32,
+        "train_expectancy": 30.64,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "SMA_220",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 220,
+          "bench_sma_len": 220,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -513.67,
+        "val_pf": 0.81,
+        "val_win_rate": 56.5,
+        "val_expectancy": -22.33,
+        "val_max_dd": 3.3,
+        "train_net_pnl": 2892.89,
+        "train_pf": 1.31,
+        "train_expectancy": 30.13,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "SMA_250",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 250,
+          "bench_sma_len": 250,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -513.67,
+        "val_pf": 0.81,
+        "val_win_rate": 56.5,
+        "val_expectancy": -22.33,
+        "val_max_dd": 3.3,
+        "train_net_pnl": 3187.64,
+        "train_pf": 1.35,
+        "train_expectancy": 33.2,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Dip_10pct",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.01,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 25,
+        "val_net_pnl": -803.22,
+        "val_pf": 0.73,
+        "val_win_rate": 52.0,
+        "val_expectancy": -32.13,
+        "val_max_dd": 3.32,
+        "train_net_pnl": 2325.32,
+        "train_pf": 1.22,
+        "train_expectancy": 22.58,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Dip_12pct",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.012,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 24,
+        "val_net_pnl": -792.91,
+        "val_pf": 0.73,
+        "val_win_rate": 54.2,
+        "val_expectancy": -33.04,
+        "val_max_dd": 3.32,
+        "train_net_pnl": 2256.47,
+        "train_pf": 1.22,
+        "train_expectancy": 22.56,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Dip_18pct",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.018,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -513.67,
+        "val_pf": 0.81,
+        "val_win_rate": 56.5,
+        "val_expectancy": -22.33,
+        "val_max_dd": 3.3,
+        "train_net_pnl": 2466.15,
+        "train_pf": 1.26,
+        "train_expectancy": 25.96,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Dip_20pct",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.02,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -513.67,
+        "val_pf": 0.81,
+        "val_win_rate": 56.5,
+        "val_expectancy": -22.33,
+        "val_max_dd": 3.3,
+        "train_net_pnl": 2416.4,
+        "train_pf": 1.27,
+        "train_expectancy": 26.55,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Tgt08_Stp06",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.008,
+          "stop_pct": 0.006,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -805.4,
+        "val_pf": 0.71,
+        "val_win_rate": 47.8,
+        "val_expectancy": -35.02,
+        "val_max_dd": 3.45,
+        "train_net_pnl": 1812.38,
+        "train_pf": 1.19,
+        "train_expectancy": 17.94,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Tgt12_Stp08",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.012,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -139.37,
+        "val_pf": 0.95,
+        "val_win_rate": 56.5,
+        "val_expectancy": -6.06,
+        "val_max_dd": 3.27,
+        "train_net_pnl": 3177.55,
+        "train_pf": 1.35,
+        "train_expectancy": 33.45,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Tgt12_Stp10",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.012,
+          "stop_pct": 0.01,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -460.49,
+        "val_pf": 0.86,
+        "val_win_rate": 60.9,
+        "val_expectancy": -20.02,
+        "val_max_dd": 3.9,
+        "train_net_pnl": 3031.11,
+        "train_pf": 1.33,
+        "train_expectancy": 32.59,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Tgt14_Stp10",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.014,
+          "stop_pct": 0.01,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -460.49,
+        "val_pf": 0.86,
+        "val_win_rate": 60.9,
+        "val_expectancy": -20.02,
+        "val_max_dd": 3.9,
+        "train_net_pnl": 2315.11,
+        "train_pf": 1.24,
+        "train_expectancy": 24.89,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Tgt15_Stp08",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.015,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -139.37,
+        "val_pf": 0.95,
+        "val_win_rate": 56.5,
+        "val_expectancy": -6.06,
+        "val_max_dd": 3.27,
+        "train_net_pnl": 2740.86,
+        "train_pf": 1.28,
+        "train_expectancy": 28.85,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Hold_1d",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 1,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 26,
+        "val_net_pnl": -1497.22,
+        "val_pf": 0.56,
+        "val_win_rate": 42.3,
+        "val_expectancy": -57.59,
+        "val_max_dd": 3.68,
+        "train_net_pnl": 1194.75,
+        "train_pf": 1.12,
+        "train_expectancy": 10.86,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Hold_3d",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 3,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -416.14,
+        "val_pf": 0.84,
+        "val_win_rate": 52.2,
+        "val_expectancy": -18.09,
+        "val_max_dd": 3.5,
+        "train_net_pnl": 4003.3,
+        "train_pf": 1.44,
+        "train_expectancy": 43.99,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Hold_4d",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 4,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 23,
+        "val_net_pnl": -304.18,
+        "val_pf": 0.88,
+        "val_win_rate": 56.5,
+        "val_expectancy": -13.23,
+        "val_max_dd": 3.13,
+        "train_net_pnl": 3900.29,
+        "train_pf": 1.41,
+        "train_expectancy": 44.32,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Hold_5d",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 5,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 22,
+        "val_net_pnl": -378.85,
+        "val_pf": 0.86,
+        "val_win_rate": 54.5,
+        "val_expectancy": -17.22,
+        "val_max_dd": 3.12,
+        "train_net_pnl": 3176.15,
+        "train_pf": 1.34,
+        "train_expectancy": 37.81,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Vol_12pct",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.12,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 16,
+        "val_net_pnl": -785.76,
+        "val_pf": 0.66,
+        "val_win_rate": 50.0,
+        "val_expectancy": -49.11,
+        "val_max_dd": 2.9,
+        "train_net_pnl": 2975.38,
+        "train_pf": 1.34,
+        "train_expectancy": 34.2,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Vol_14pct",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.14,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 17,
+        "val_net_pnl": -837.05,
+        "val_pf": 0.65,
+        "val_win_rate": 52.9,
+        "val_expectancy": -49.24,
+        "val_max_dd": 3.07,
+        "train_net_pnl": 3063.0,
+        "train_pf": 1.32,
+        "train_expectancy": 31.58,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Vol_18pct",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.18,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 27,
+        "val_net_pnl": 1267.31,
+        "val_pf": 1.55,
+        "val_win_rate": 63.0,
+        "val_expectancy": 46.94,
+        "val_max_dd": 1.91,
+        "train_net_pnl": 1706.01,
+        "train_pf": 1.17,
+        "train_expectancy": 16.25,
+        "is_val_positive": true
+      },
+      {
+        "test_name": "Vol_20pct",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.2,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "NONE"
+        },
+        "val_trades": 27,
+        "val_net_pnl": 827.74,
+        "val_pf": 1.34,
+        "val_win_rate": 59.3,
+        "val_expectancy": 30.66,
+        "val_max_dd": 2.15,
+        "train_net_pnl": 1854.47,
+        "train_pf": 1.17,
+        "train_expectancy": 17.33,
+        "is_val_positive": true
+      },
+      {
+        "test_name": "Confirm_RSI40",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "RSI_OVERSOLD"
+        },
+        "val_trades": 2,
+        "val_net_pnl": -238.9,
+        "val_pf": 0.45,
+        "val_win_rate": 50.0,
+        "val_expectancy": -119.45,
+        "val_max_dd": 1.18,
+        "train_net_pnl": 938.51,
+        "train_pf": 17.36,
+        "train_expectancy": 234.63,
+        "is_val_positive": false
+      },
+      {
+        "test_name": "Confirm_BelowSMA20",
+        "params": {
+          "name": "SP500_Regime_Dip_Baseline",
+          "target_pct": 0.01,
+          "stop_pct": 0.008,
+          "time_cap_days": 2,
+          "position_size_gbp": 35000.0,
+          "vol_threshold": 0.16,
+          "dip_threshold": -0.015,
+          "rvol_threshold": 1.15,
+          "regime_sma_len": 200,
+          "bench_sma_len": 200,
+          "entry_confirmation": "BELOW_SMA20"
+        },
+        "val_trades": 3,
+        "val_net_pnl": -436.89,
+        "val_pf": 0.31,
+        "val_win_rate": 33.3,
+        "val_expectancy": -145.63,
+        "val_max_dd": 1.58,
+        "train_net_pnl": 1345.53,
+        "train_pf": 2.29,
+        "train_expectancy": 149.5,
+        "is_val_positive": false
+      }
+    ]
+  },
+  "phase4_instrument_dependence": {
+    "configurations": [
+      {
+        "configuration": "Combined_CSP1_VUSA",
+        "symbols": [
+          "CSP1_L",
+          "VUSA_L"
+        ],
+        "val_trades": 23,
+        "val_net_pnl": -513.67,
+        "val_pf": 0.81,
+        "val_win_rate": 56.5,
+        "val_expectancy": -22.33,
+        "val_max_dd": 3.3,
+        "train_trades": 97,
+        "train_net_pnl": 2682.43,
+        "train_pf": 1.28,
+        "train_win_rate": 46.4,
+        "train_expectancy": 27.65,
+        "train_max_dd": 5.65
+      },
+      {
+        "configuration": "CSP1_Only",
+        "symbols": [
+          "CSP1_L"
+        ],
+        "val_trades": 19,
+        "val_net_pnl": 465.63,
+        "val_pf": 1.31,
+        "val_win_rate": 57.9,
+        "val_expectancy": 24.51,
+        "val_max_dd": 1.65,
+        "train_trades": 65,
+        "train_net_pnl": 1320.03,
+        "train_pf": 1.21,
+        "train_win_rate": 46.2,
+        "train_expectancy": 20.31,
+        "train_max_dd": 4.39
+      },
+      {
+        "configuration": "VUSA_Only",
+        "symbols": [
+          "VUSA_L"
+        ],
+        "val_trades": 16,
+        "val_net_pnl": -350.45,
+        "val_pf": 0.83,
+        "val_win_rate": 62.5,
+        "val_expectancy": -21.9,
+        "val_max_dd": 1.92,
+        "train_trades": 60,
+        "train_net_pnl": 3491.07,
+        "train_pf": 1.64,
+        "train_win_rate": 51.7,
+        "train_expectancy": 58.18,
+        "train_max_dd": 4.2
+      },
+      {
+        "configuration": "Leave_CSP1_Out",
+        "symbols": [
+          "VUSA_L"
+        ],
+        "val_trades": 16,
+        "val_net_pnl": -350.45,
+        "val_pf": 0.83,
+        "val_win_rate": 62.5,
+        "val_expectancy": -21.9,
+        "val_max_dd": 1.92,
+        "train_trades": 60,
+        "train_net_pnl": 3491.07,
+        "train_pf": 1.64,
+        "train_win_rate": 51.7,
+        "train_expectancy": 58.18,
+        "train_max_dd": 4.2
+      },
+      {
+        "configuration": "Leave_VUSA_Out",
+        "symbols": [
+          "CSP1_L"
+        ],
+        "val_trades": 19,
+        "val_net_pnl": 465.63,
+        "val_pf": 1.31,
+        "val_win_rate": 57.9,
+        "val_expectancy": 24.51,
+        "val_max_dd": 1.65,
+        "train_trades": 65,
+        "train_net_pnl": 1320.03,
+        "train_pf": 1.21,
+        "train_win_rate": 46.2,
+        "train_expectancy": 20.31,
+        "train_max_dd": 4.39
+      }
+    ]
+  },
+  "phase5_passive_benchmark": {
+    "Train": {
+      "buy_and_hold": {
+        "net_pnl_gbp": 32336.72,
+        "return_pct": 64.67,
+        "max_drawdown_pct": 15.66,
+        "max_drawdown_gbp": 10177.94,
+        "capital_utilisation_pct": 100.0,
+        "turnover_gbp": 50000.0,
+        "return_per_risk": 3.18
+      },
+      "cash_control": {
+        "net_pnl_gbp": 0.0,
+        "return_pct": 0.0,
+        "max_drawdown_pct": 0.0,
+        "max_drawdown_gbp": 0.0,
+        "capital_utilisation_pct": 0.0,
+        "turnover_gbp": 0.0,
+        "return_per_risk": 0.0
+      },
+      "sma200_switch": {
+        "net_pnl_gbp": 15831.74,
+        "return_pct": 31.66,
+        "max_drawdown_pct": 23.72,
+        "max_drawdown_gbp": 15452.43,
+        "trades": 29,
+        "return_per_risk": 1.02
+      },
+      "active_strategy": {
+        "net_pnl_gbp": 2682.43,
+        "return_pct": 5.36,
+        "max_drawdown_pct": 5.65,
+        "max_drawdown_gbp": 3084.33,
+        "trades": 97,
+        "capital_utilisation_pct": 22.8,
+        "turnover_gbp": 3394985.0,
+        "downside_deviation": 151.97,
+        "return_per_risk": 0.87
+      }
+    },
+    "Validation": {
+      "buy_and_hold": {
+        "net_pnl_gbp": 2797.39,
+        "return_pct": 5.59,
+        "max_drawdown_pct": 20.77,
+        "max_drawdown_gbp": 11885.9,
+        "capital_utilisation_pct": 100.0,
+        "turnover_gbp": 50000.0,
+        "return_per_risk": 0.24
+      },
+      "cash_control": {
+        "net_pnl_gbp": 0.0,
+        "return_pct": 0.0,
+        "max_drawdown_pct": 0.0,
+        "max_drawdown_gbp": 0.0,
+        "capital_utilisation_pct": 0.0,
+        "turnover_gbp": 0.0,
+        "return_per_risk": 0.0
+      },
+      "sma200_switch": {
+        "net_pnl_gbp": 2385.68,
+        "return_pct": 4.77,
+        "max_drawdown_pct": 9.88,
+        "max_drawdown_gbp": 5686.2,
+        "trades": 5,
+        "return_per_risk": 0.42
+      },
+      "active_strategy": {
+        "net_pnl_gbp": -513.67,
+        "return_pct": -1.03,
+        "max_drawdown_pct": 3.3,
+        "max_drawdown_gbp": 1681.99,
+        "trades": 23,
+        "capital_utilisation_pct": 16.2,
+        "turnover_gbp": 804999.94,
+        "downside_deviation": 214.99,
+        "return_per_risk": -0.31
+      }
+    }
+  },
+  "phase6_objective_reality_check": {
+    "Train": {
+      "total_trading_days": 879,
+      "days_ge_100": 37,
+      "days_ge_100_pct": 4.2,
+      "days_50_to_99": 2,
+      "days_1_to_49": 6,
+      "days_flat": 782,
+      "days_flat_pct": 89.0,
+      "days_negative": 52,
+      "days_negative_pct": 5.9,
+      "longest_sequence_without_100_day": 292,
+      "median_days_between_100_days": 6.5
+    },
+    "Validation": {
+      "total_trading_days": 253,
+      "days_ge_100": 8,
+      "days_ge_100_pct": 3.2,
+      "days_50_to_99": 4,
+      "days_1_to_49": 1,
+      "days_flat": 230,
+      "days_flat_pct": 90.9,
+      "days_negative": 10,
+      "days_negative_pct": 4.0,
+      "longest_sequence_without_100_day": 118,
+      "median_days_between_100_days": 4.0
+    }
+  },
+  "oos_eligibility_gates": {
+    "gate_1_best_2_removed_positive": {
+      "required": "Validation Exp > \u00a30 with top 2 removed",
+      "actual": "Exp = \u00a3-58.64, Net = \u00a3-1231.53",
+      "passed": false
+    },
+    "gate_2_validation_pf_gt_120": {
+      "required": "Validation PF > 1.20",
+      "actual": "PF = 0.81",
+      "passed": false
+    },
+    "gate_3_cost_15x_expectancy_gt_0": {
+      "required": "1.5x Cost Exp > \u00a30",
+      "actual": "Exp = \u00a3-36.34, PF = 0.7",
+      "passed": false
+    },
+    "gate_4_parameter_plateau_stable": {
+      "required": "Neighbourhood > 70% positive cells",
+      "actual": "Positive cells = 8.3%, Median Exp = \u00a3-22.33",
+      "passed": false
+    },
+    "gate_5_walk_forward_stability": {
+      "required": "Recurring edge across windows (>=5 of 9 semesters positive)",
+      "actual": "4 of 9 semesters positive",
+      "passed": false
+    },
+    "gate_6_instrument_independence": {
+      "required": "Neither ETF accounts for >85% of edge",
+      "actual": "CSP1 Val = \u00a3465.63, VUSA Val = \u00a3-350.45, Combined = \u00a3-513.67",
+      "passed": false
+    },
+    "gate_7_bootstrap_prob_positive": {
+      "required": "Bootstrap P(Exp > 0) >= 80%",
+      "actual": "P(Exp > 0) = 36.0% (95% CI: [-135.15, 82.52])",
+      "passed": false
+    },
+    "gate_8_trade_frequency_for_objective": {
+      "required": "Frequency >= 5.0 trades/month",
+      "actual": "1.9 trades/month (29 trades in 12m)",
+      "passed": false
+    },
+    "gate_9_causal_temporal_zero_violations": {
+      "required": "0 causal violations",
+      "actual": "0 violations",
+      "passed": true
+    }
+  },
+  "overall_oos_eligible": false,
+  "verdict": "REJECTED_KEEP_OOS_SEALED"
+}

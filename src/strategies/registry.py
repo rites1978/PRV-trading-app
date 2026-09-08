@@ -31,7 +31,7 @@ class StrategyRegistry:
         if getattr(self, "_initialized", False):
             return
 
-        self._active_strategy_id = "PRV_HIT_AND_RUN_ETF_V1"
+        self._active_strategy_id = "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
         self._strategies: Dict[str, Dict[str, Any]] = {}
         self._init_strategies()
         self._initialized = True
@@ -116,35 +116,17 @@ class StrategyRegistry:
             "net_profit_per_pound_friction": 0.0
         }
 
-        # 3. PRV HIT-AND-RUN ETF V1 (Winning Model B Challenger, Frozen OOS Verified)
-        etf_rules = {
-            "universe": ["CSP1.L", "ISF.L", "VUSA.L", "EQQQ.L"],
-            "target_pct": 0.008,
-            "stop_pct": 0.008,
-            "rvol_threshold": 1.20,
-            "position_size_gbp": 35000.0,
-            "max_concurrent_positions": 1,
-            "time_cap_days": 3,
-            "daily_stop_enabled": True,
-            "daily_stop_threshold_gbp": 100.0,
-            "jurisdiction": "UK",
-            "instrument_class": "ETF",
-            "nominal_stop_risk_gbp": 280.00,
-            "gap_stress_loss_gbp": 875.00,
-            "overnight_policy": "ALLOWED_WITH_GTC_STOP"
-        }
-        etf_hash = "3ee18df44ac71eaacbcc5496047ab51dc2956d890b7ad755fa10a5a25d0f800a"
-
+        # 3. Legacy Challenger: PRV HIT-AND-RUN ETF V1 (Decommissioned Lookahead Halt)
         etf_entry = {
             "strategy_id": "PRV_HIT_AND_RUN_ETF_V1",
             "version": "PRV_HIT_AND_RUN_ETF_V1",
-            "name": "GBP SDRT-Exempt Index ETF Hit-and-Run",
-            "status": "ACTIVE_PRODUCTION_CHALLENGER",
-            "execution_mode": "PRACTICE",
-            "config_hash": etf_hash,
-            "rules": etf_rules,
+            "name": "GBP SDRT-Exempt Index ETF Hit-and-Run (Decommissioned)",
+            "status": "DECOMMISSIONED_LOOKAHEAD_HALT",
+            "execution_mode": "SHADOW",
+            "config_hash": "3ee18df44ac71eaacbcc5496047ab51dc2956d890b7ad755fa10a5a25d0f800a",
+            "rules": {},
             "activation_timestamp": "2026-09-08T00:00:00Z",
-            "deactivation_timestamp": None,
+            "deactivation_timestamp": "2026-09-08T09:30:00Z",
             "broker_trades": 0,
             "realised_net_pnl": 0.0,
             "banked_profit": 0.0,
@@ -163,6 +145,53 @@ class StrategyRegistry:
         self._strategies["ETF_V1"] = etf_entry
         self._strategies["PRV_HIT_AND_RUN_ETF_V1"] = etf_entry
 
+        # 4. Ratified Core Compounding Engine: PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1
+        core_rules = {
+            "universe": ["CSP1.L", "EQQQ.L", "IWDA.L", "ISF.L", "EMIM.L", "SGLN.L", "IGLT.L"],
+            "mom_lookback_bars": 20,
+            "vol_lookback_bars": 20,
+            "rebalance_days": 10,
+            "position_size_gbp": 40000.0,
+            "max_concurrent_positions": 1,
+            "stop_loss_pct": 0.02,
+            "use_sharpe_metric": True,
+            "regime_sma_lookback": 200,
+            "execution_time_bst": "08:00:00",
+            "cost_model": "TRADING212_UK_ETF_ZERO_SDRT_ZERO_FX",
+            "slippage_model": "SQUARE_ROOT_IMPACT_2BPS_BASE"
+        }
+        core_manifest_hash = "e5026d52086a5cdf5597cccbba96233a3f263411d84dea8bd3e36891d60be361"
+        core_code_hash = "9f4942f11bd56a87cd2c651a24eff2f64a528d46f9ba95be7bb33b7589189929"
+
+        core_entry = {
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "version": "PRV_CORE_COMPOUNDING_V1",
+            "name": "London Multi-Asset SDRT-Exempt ETF Cross-Sectional Compounding Engine",
+            "status": "RATIFIED_FOR_PRACTICE_PRODUCTION_INTEGRATION",
+            "execution_mode": "PRACTICE",
+            "config_hash": core_manifest_hash,
+            "code_hash": core_code_hash,
+            "rules": core_rules,
+            "activation_timestamp": "2026-09-08T12:00:00Z",
+            "deactivation_timestamp": None,
+            "broker_trades": 0,
+            "realised_net_pnl": 0.0,
+            "banked_profit": 0.0,
+            "number_of_trades": 0,
+            "winners": 0,
+            "losers": 0,
+            "win_rate": 0.0,
+            "expectancy": 0.0,
+            "profit_factor": 0.0,
+            "max_drawdown": 0.0,
+            "total_costs": 0.0,
+            "capital_utilisation": 0.0,
+            "average_holding_time_days": 0.0,
+            "net_profit_per_pound_friction": 0.0
+        }
+        self._strategies["CORE_V1"] = core_entry
+        self._strategies["PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"] = core_entry
+
     def get_strategy(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         return self._strategies.get(strategy_id.upper())
 
@@ -174,15 +203,20 @@ class StrategyRegistry:
 
     def can_strategy_route_orders(self, strategy_id: str) -> bool:
         """
-        Only the active strategy (V2) has broker routing authority.
-        V1 is frozen benchmark (shadow only).
+        Only the ratified active strategy has broker routing authority,
+        and strictly when PRACTICE_NEW_ENTRIES_ALLOWED is explicitly enabled.
         """
+        from src.config.settings import settings
         strat = self.get_strategy(strategy_id)
         if not strat:
             return False
-        if strat.get("execution_mode") == "SHADOW" or strat.get("status") == "FROZEN_BENCHMARK":
+        if strat.get("execution_mode") != "PRACTICE" or strat.get("status") != "RATIFIED_FOR_PRACTICE_PRODUCTION_INTEGRATION":
             return False
-        return strat.get("strategy_id") == self._active_strategy_id
+        if strat.get("strategy_id") != self._active_strategy_id:
+            return False
+        if not getattr(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", False):
+            return False
+        return True
 
     def record_trade_result(self, strategy_id: str, net_pnl: float, costs: float = 0.0, is_winner: bool = None, holding_time_days: float = 0.0):
         strat = self.get_strategy(strategy_id)

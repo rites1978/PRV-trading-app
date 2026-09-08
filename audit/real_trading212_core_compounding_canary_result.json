@@ -1,0 +1,18 @@
+{
+  "timestamp_utc": "2026-09-08T11:29:11.083243+00:00",
+  "canary_passed": true,
+  "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+  "ticker": "IGLTl_EQ",
+  "isin": "IE00B1FZSB30",
+  "shares": 1.0,
+  "broker_order_id": 54650651072,
+  "order_status_confirmed": "NEW",
+  "cancellation_confirmed": true,
+  "pre_flight_cash_gbp": 49897.38,
+  "post_flight_cash_gbp": 49897.38,
+  "post_flight_nav_gbp": 49897.38,
+  "orphan_orders_count": 0,
+  "orphan_positions_count": 0,
+  "cash_invariant_preserved": true,
+  "autonomous_entries_locked": true
+}

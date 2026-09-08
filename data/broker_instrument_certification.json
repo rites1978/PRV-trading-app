@@ -1,0 +1,135 @@
+{
+  "timestamp_utc": "2026-09-08T11:26:48.666283+00:00",
+  "verdict": "BROKER_INSTRUMENTS_CERTIFIED",
+  "all_passed": true,
+  "broker_live_state": {
+    "environment": "demo",
+    "available_cash_gbp": 49897.38,
+    "open_positions_count": 0,
+    "open_orders_count": 0,
+    "sync_timestamp": "2026-09-08 11:26:47"
+  },
+  "scorecard": [
+    {
+      "symbol": "CSP1",
+      "t212_ticker": "CSP1_EQ",
+      "isin": "IE00B5BMR087",
+      "expected_currency": "GBX",
+      "actual_currency": "GBX",
+      "is_pence": true,
+      "currency_match": true,
+      "isin_match": true,
+      "type_match": true,
+      "tradable": true,
+      "max_open_quantity": 6704.0,
+      "certified": true
+    },
+    {
+      "symbol": "EQQQ",
+      "t212_ticker": "EQQQl_EQ",
+      "isin": "IE0032077012",
+      "expected_currency": "GBX",
+      "actual_currency": "GBX",
+      "is_pence": true,
+      "currency_match": true,
+      "isin_match": true,
+      "type_match": true,
+      "tradable": true,
+      "max_open_quantity": 50000000.0,
+      "certified": true
+    },
+    {
+      "symbol": "IWDA",
+      "t212_ticker": "SWDAl_EQ",
+      "isin": "IE00B4L5Y983",
+      "expected_currency": "GBX",
+      "actual_currency": "GBX",
+      "is_pence": true,
+      "currency_match": true,
+      "isin_match": true,
+      "type_match": true,
+      "tradable": true,
+      "max_open_quantity": 37136.0,
+      "certified": true
+    },
+    {
+      "symbol": "ISF",
+      "t212_ticker": "ISFl_EQ",
+      "isin": "IE0005042456",
+      "expected_currency": "GBX",
+      "actual_currency": "GBX",
+      "is_pence": true,
+      "currency_match": true,
+      "isin_match": true,
+      "type_match": true,
+      "tradable": true,
+      "max_open_quantity": 354479.0,
+      "certified": true
+    },
+    {
+      "symbol": "EMIM",
+      "t212_ticker": "EMIMl_EQ",
+      "isin": "IE00BKM4GZ66",
+      "expected_currency": "GBX",
+      "actual_currency": "GBX",
+      "is_pence": true,
+      "currency_match": true,
+      "isin_match": true,
+      "type_match": true,
+      "tradable": true,
+      "max_open_quantity": 98557.0,
+      "certified": true
+    },
+    {
+      "symbol": "SGLN",
+      "t212_ticker": "SGLNl_EQ",
+      "isin": "IE00B4ND3602",
+      "expected_currency": "GBX",
+      "actual_currency": "GBX",
+      "is_pence": true,
+      "currency_match": true,
+      "isin_match": true,
+      "type_match": true,
+      "tradable": true,
+      "max_open_quantity": 50000000.0,
+      "certified": true
+    },
+    {
+      "symbol": "IGLT",
+      "t212_ticker": "IGLTl_EQ",
+      "isin": "IE00B1FZSB30",
+      "expected_currency": "GBP",
+      "actual_currency": "GBP",
+      "is_pence": false,
+      "currency_match": true,
+      "isin_match": true,
+      "type_match": true,
+      "tradable": true,
+      "max_open_quantity": 374416.0,
+      "certified": true
+    }
+  ],
+  "firewall_isolation": {
+    "universe_size": 7,
+    "expected_size": 7,
+    "legacy_equities_blocked": true,
+    "active_symbols": [
+      "CSP1",
+      "EQQQ",
+      "IWDA",
+      "ISF",
+      "EMIM",
+      "SGLN",
+      "IGLT"
+    ],
+    "active_t212_tickers": [
+      "CSP1_EQ",
+      "EQQQl_EQ",
+      "SWDAl_EQ",
+      "ISFl_EQ",
+      "EMIMl_EQ",
+      "SGLNl_EQ",
+      "IGLTl_EQ"
+    ]
+  }
+}

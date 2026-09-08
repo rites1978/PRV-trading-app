@@ -60,8 +60,12 @@ class TradingSettings(BaseModel):
     MAX_NORMAL_DEPLOYABLE_CAPITAL: float = 49897.38
     
     # Permanent Invariants & Strategy Governance
-    RATIFIED_STRATEGY_ID: str = "PRV_HIT_AND_RUN_ETF_V1"
+    RATIFIED_STRATEGY_ID: str = "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
     RATIFIED_COMMIT_SHA: str = "auto"
+    FROZEN_MANIFEST_SHA256: str = "e5026d52086a5cdf5597cccbba96233a3f263411d84dea8bd3e36891d60be361"
+    FROZEN_CODE_SHA256: str = "9f4942f11bd56a87cd2c651a24eff2f64a528d46f9ba95be7bb33b7589189929"
+    CORE_COMPOUNDING_V1_FORWARD_BASELINE_NAV: float = 49897.38
+    CORE_COMPOUNDING_V1_STRATEGY_PNL_AT_LAUNCH: float = 0.00
 
     # Corridor Policy & £100 Realised-Net Governor:
     # +£100 Bankable Net Target -> Lock new entries (WATCH MODE)

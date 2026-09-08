@@ -69,7 +69,8 @@ def health_check():
             git_commit = "UNKNOWN"
 
     from src.strategies.registry import strategy_registry
-    exec_authority = "HOLD" if not settings.PRACTICE_NEW_ENTRIES_ALLOWED else strategy_registry.get_active_execution_strategy_id()
+    active_strat = strategy_registry.get_active_execution_strategy_id()
+    exec_authority = "HOLD" if not settings.PRACTICE_NEW_ENTRIES_ALLOWED else active_strat
 
     return {
         "status": "healthy",
@@ -78,7 +79,8 @@ def health_check():
         "environment": broker.env,
         "git_commit": git_commit,
         "new_entries_allowed": settings.PRACTICE_NEW_ENTRIES_ALLOWED,
-        "execution_authority": exec_authority
+        "execution_authority": exec_authority,
+        "active_strategy_id": active_strat
     }
 
 @app.get("/api/system/memory")
