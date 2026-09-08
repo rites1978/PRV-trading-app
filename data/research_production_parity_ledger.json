@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-09-08T16:20:58.664316+00:00",
+  "timestamp_utc": "2026-09-08T16:24:36.112767+00:00",
   "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
   "evaluation_partition": "2025-07-01 to 2026-08-31",
   "verdict": "PARITY_CERTIFIED_PASS",

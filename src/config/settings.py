@@ -18,7 +18,7 @@ class TradingSettings(BaseModel):
     ACCOUNT_MODE: str = "PRACTICE"
     PRACTICE_TRADING_ENABLED: bool = True
     PRACTICE_NEW_ENTRIES_ALLOWED: bool = Field(
-        default_factory=lambda: os.getenv("PRACTICE_NEW_ENTRIES_ALLOWED", "false").lower() in ("true", "1", "yes")
+        default_factory=lambda: os.getenv("PRACTICE_NEW_ENTRIES_ALLOWED", "true").lower() in ("true", "1", "yes")
     )
     REAL_MONEY_TRADING_ENABLED: bool = False
     REAL_MONEY_NEW_ENTRIES_ALLOWED: bool = False
