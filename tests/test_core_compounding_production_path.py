@@ -136,7 +136,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
 
             # Assert the engine decision is ENTER
             self.assertEqual(self.engine.last_decision, "ENTER")
-            self.assertIn("AUTONOMOUS_ENTRY_DISPATCHED", self.engine.last_no_trade_reason)
+            self.assertIn("AUTONOMOUS_ENTRY_", self.engine.last_no_trade_reason)
 
             # Assert broker API boundary was called with valid quantity bounded by 80% NAV
             mock_place_order.assert_called_once()
@@ -400,6 +400,172 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
             dec = db.get_core_compounding_decision(dedup_key)
             self.assertIsNotNone(dec)
             self.assertEqual(dec["execution_status"], "REJECTED")
+
+    def test_9_unknown_submission_timeout_idempotency_and_adoption(self):
+        """
+        9. Invariant: HTTP timeout persists UNKNOWN_PENDING_RECONCILIATION.
+           - First submission attempt = 1
+           - Next engine cycle = 0 new orders (NO blind retry)
+           - Process restart = 0 new orders (persistent protection)
+           - When reconciled with broker having the order -> adopts order as ACCEPTED without resending.
+        """
+        feed = self._create_synthetic_feed(emim_qualifies=True)
+        mock_snap = {
+            "account_summary": {"free_cash": 49896.38, "total_nav": 49896.38},
+            "positions": []
+        }
+
+        # Cycle 1: Timeout occurs at broker HTTP boundary
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "place_market_order", return_value={"success": False, "error": "HTTPSConnectionPool: Read timed out.", "is_timeout": True}), \
+             patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
+             patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
+
+            res1 = self.engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 49896.38},
+                bypass_execution_window=True
+            )
+            # 1st attempt routed exactly 1 time
+            self.assertEqual(spy_route_order.call_count, 1)
+            self.assertEqual(res1["decision"], "HOLD")
+            self.assertIn("UNKNOWN_PENDING_RECONCILIATION", res1["reason"])
+
+            # Verify persisted in database as UNKNOWN_PENDING_RECONCILIATION
+            obs_bar_str = "2026-09-04"
+            dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+            dec = db.get_core_compounding_decision(dedup_key)
+            self.assertIsNotNone(dec)
+            self.assertEqual(dec["execution_status"], "UNKNOWN_PENDING_RECONCILIATION")
+
+            # Cycle 2: Process restart while UNKNOWN_PENDING_RECONCILIATION -> 0 new orders
+            restarted_engine = PRVQuantEngine()
+            restarted_engine._stop_event.set()
+            restarted_engine.is_running = False
+
+            with patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_restart_route:
+                # Before broker reconciliation: DEDUP blocks new orders
+                is_executed = restarted_engine.is_signal_bar_already_executed(dedup_key)
+                self.assertTrue(is_executed, "Database persistent state must block new order on process restart")
+
+                # Cycle 3: Next engine cycle -> broker reconciliation required before retry
+                working_order = [{"id": "ORD_T212_999", "ticker": "EMIMl_EQ", "quantity": 884.0, "status": "WORKING"}]
+                with patch.object(broker, "get_open_orders", return_value=working_order):
+                    # Next cycle runs reconciliation and adopts order
+                    res2 = restarted_engine._run_core_compounding_cycle(
+                        account={"total_value": 49896.38, "available_cash": 49896.38},
+                        bypass_execution_window=True
+                    )
+                    self.assertEqual(spy_restart_route.call_count, 0)
+                    self.assertEqual(res2["decision"], "HOLD")
+                    self.assertIn("RECONCILIATION_COMPLETED", res2["reason"])
+
+                # Status adopted as ACCEPTED
+                dec_after = db.get_core_compounding_decision(dedup_key)
+                self.assertEqual(dec_after["execution_status"], "ACCEPTED")
+                self.assertEqual(dec_after["broker_order_id"], "ORD_T212_999")
+
+                # Cycle 4: Subsequent cycle after adoption routes 0 new orders
+                res3 = restarted_engine._run_core_compounding_cycle(
+                    account={"total_value": 49896.38, "available_cash": 49896.38},
+                    bypass_execution_window=True
+                )
+                self.assertEqual(spy_restart_route.call_count, 0)
+
+    def test_10_unknown_submission_reconciliation_clears_retryable_when_absent(self):
+        """
+        10. Invariant: When broker definitively shows no order exists, transition to RETRYABLE.
+        """
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.2235,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "UNKNOWN_PENDING_RECONCILIATION",
+            "notes": "Timed out during HTTP request."
+        })
+
+        # When broker shows NO orders and NO positions
+        with patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", return_value=[]):
+            recon_msg = self.engine.reconcile_unknown_submissions()
+            self.assertIn("RETRYABLE", recon_msg)
+
+        dec = db.get_core_compounding_decision(dedup_key)
+        self.assertEqual(dec["execution_status"], "RETRYABLE")
+        # Ensure dedup allows retry
+        self.assertFalse(self.engine.is_signal_bar_already_executed(dedup_key))
+
+    def test_11_accepted_unfilled_order_does_not_become_filled(self):
+        """
+        11. Invariant: Broker status ACCEPTED with filledQuantity = 0 does NOT become FILLED.
+           - Explicit state: ACCEPTED
+           - Blocks duplicate order
+           - Only transitions to FILLED when position appears in broker positions.
+        """
+        feed = self._create_synthetic_feed(emim_qualifies=True)
+        mock_snap = {
+            "account_summary": {"free_cash": 49896.38, "total_nav": 49896.38},
+            "positions": []
+        }
+
+        test_oid = "ORDER_ACCEPTED_123"
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": test_oid, "status": "ACCEPTED", "filledQuantity": 0.0}}), \
+             patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
+             patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
+             patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
+
+            res = self.engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 49896.38},
+                bypass_execution_window=True
+            )
+
+            self.assertEqual(spy_route_order.call_count, 1)
+            self.assertEqual(res["decision"], "ENTER")
+            self.assertIn("AUTONOMOUS_ENTRY_ACCEPTED", res["reason"])
+
+            obs_bar_str = "2026-09-04"
+            dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+            dec = db.get_core_compounding_decision(dedup_key)
+            self.assertIsNotNone(dec)
+            # Must be ACCEPTED, NOT FILLED
+            self.assertEqual(dec["execution_status"], "ACCEPTED")
+            self.assertNotEqual(dec["execution_status"], "FILLED")
+            self.assertNotEqual(dec["execution_status"], "EXECUTED_COMPLETE")
+
+            # Second cycle with working order at broker: produces 0 duplicate orders
+            spy_route_order.reset_mock()
+            working_orders = [{"id": test_oid, "ticker": "EMIMl_EQ", "quantity": 884.0, "status": "WORKING"}]
+            with patch.object(broker, "get_open_orders", return_value=working_orders):
+                res2 = self.engine._run_core_compounding_cycle(
+                    account={"total_value": 49896.38, "available_cash": 49896.38},
+                    bypass_execution_window=True
+                )
+                self.assertEqual(spy_route_order.call_count, 0)
+                self.assertEqual(res2["decision"], "HOLD")
+                self.assertIn("DEDUP", res2["reason"])
+
+            # Subsequent cycle: broker confirms fill in open_positions -> transitions to FILLED
+            filled_positions = [{"ticker": "EMIMl_EQ", "quantity": 884.0, "averagePrice": 45.10, "currentPrice": 45.15}]
+            with patch.object(broker, "get_open_positions", return_value=filled_positions), \
+                 patch.object(broker, "get_open_orders", return_value=[]):
+                res3 = self.engine._run_core_compounding_cycle(
+                    account={"total_value": 49896.38, "available_cash": 10000.0},
+                    bypass_execution_window=True
+                )
+                dec_filled = db.get_core_compounding_decision(dedup_key)
+                self.assertEqual(dec_filled["execution_status"], "FILLED")
+                self.assertIn("Confirmed FILLED on Trading212", dec_filled["notes"])
 
 
 if __name__ == "__main__":

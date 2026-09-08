@@ -105,7 +105,7 @@ class PRVQuantEngine:
         # Check database persistent state for core compounding decisions across process restarts
         try:
             core_dec = db.get_core_compounding_decision(dedup_key)
-            if core_dec and core_dec.get("execution_status") in ("DISPATCHED", "FILLED"):
+            if core_dec and core_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "FILLED", "UNKNOWN_PENDING_RECONCILIATION"):
                 if not hasattr(self, "_executed_signals"):
                     self._executed_signals = set()
                 self._executed_signals.add(dedup_key)
@@ -689,6 +689,60 @@ class PRVQuantEngine:
             # Otherwise, the expected completed session is the preceding trading day
             return self.get_previous_valid_lse_session(cur_d.strftime("%Y-%m-%d"))
 
+    def reconcile_unknown_submissions(
+        self,
+        open_positions: Optional[List[Dict[str, Any]]] = None,
+        open_orders: Optional[List[Dict[str, Any]]] = None
+    ) -> Optional[str]:
+        """
+        Reconciles decisions in UNKNOWN_PENDING_RECONCILIATION with live broker state.
+        - If working order exists at broker -> Adopt broker order (ACCEPTED)
+        - If position exists at broker -> Adopt position (FILLED)
+        - If broker definitively shows NO order and NO position -> Transition to RETRYABLE
+        """
+        pending_dec = db.get_pending_reconciliation_decision()
+        if not pending_dec:
+            return None
+
+        target_ticker = pending_dec.get("target_instrument")
+        dedup_key = pending_dec.get("dedup_key")
+
+        if open_positions is None:
+            open_positions = broker.get_open_positions(force_refresh=True) or []
+        if open_orders is None:
+            open_orders = broker.get_open_orders(force_refresh=True) or []
+
+        order_match = next((o for o in open_orders if o.get("ticker") == target_ticker), None)
+        pos_match = next((p for p in open_positions if p.get("ticker") == target_ticker), None)
+
+        if order_match:
+            b_oid = order_match.get("id") or "ADOPTED_BROKER_ORDER"
+            db.update_core_compounding_decision_status(
+                dedup_key=dedup_key,
+                status="ACCEPTED",
+                broker_order_id=str(b_oid),
+                notes=f"Broker reconciliation: adopted existing working order {b_oid}."
+            )
+            return f"Adopted broker working order {b_oid} for {target_ticker} -> ACCEPTED"
+        elif pos_match:
+            qty = float(pos_match.get("quantity", 0))
+            avg_p = float(pos_match.get("averagePrice", 0))
+            db.update_core_compounding_decision_status(
+                dedup_key=dedup_key,
+                status="FILLED",
+                notes=f"Broker reconciliation: confirmed position filled on broker ({qty} shares @ £{avg_p:.4f})."
+            )
+            return f"Confirmed position filled for {target_ticker} ({qty} shares) -> FILLED"
+        else:
+            db.update_core_compounding_decision_status(
+                dedup_key=dedup_key,
+                status="RETRYABLE",
+                notes="Broker reconciliation: verified order not present at broker. Transitioned to RETRYABLE."
+            )
+            if hasattr(self, "_executed_signals") and dedup_key in self._executed_signals:
+                self._executed_signals.remove(dedup_key)
+            return f"Verified order absent at broker for {target_ticker} -> RETRYABLE"
+
     def get_core_compounding_session_context(self, dt: Optional[datetime] = None) -> Dict[str, Any]:
         """
         Computes authoritative LSE session context, 08:00 BST execution window,
@@ -763,6 +817,7 @@ class PRVQuantEngine:
             df = market_data.fetch_history(yf_t, period="2y", interval="1d")
             if df.empty:
                 continue
+            df = df.copy()
             if inst.get("is_uk_pence", True):
                 for col in ["Open", "High", "Low", "Close"]:
                     if col in df.columns:
@@ -838,6 +893,20 @@ class PRVQuantEngine:
         open_positions = broker.get_open_positions(force_refresh=True) or []
         open_orders = broker.get_open_orders(force_refresh=True) or []
 
+        # 0. Broker Reconciliation for in-flight / unknown submissions
+        recon_msg = self.reconcile_unknown_submissions(open_positions=open_positions, open_orders=open_orders)
+        if recon_msg:
+            logger.info(f"CORE_RECONCILIATION: {recon_msg}")
+            self.last_decision = "HOLD"
+            self.last_no_trade_reason = f"RECONCILIATION_COMPLETED: {recon_msg}"
+            self.last_scan_completed_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            return {
+                "success": True,
+                "decision": "HOLD",
+                "reason": f"RECONCILIATION_COMPLETED: {recon_msg}",
+                "executed_trades": []
+            }
+
         session_ctx = self.get_core_compounding_session_context()
         now_uk = session_ctx["now_uk"]
         cur_d_str = session_ctx["cur_date_str"]
@@ -867,9 +936,9 @@ class PRVQuantEngine:
             avg_price = float(held_pos.get("averagePrice", 0))
             cur_price = float(held_pos.get("currentPrice", avg_price))
 
-            # Update any DISPATCHED decision in DB to FILLED
+            # Update any DISPATCHED / ACCEPTED decision in DB to FILLED
             latest_dec = db.get_latest_core_compounding_decision()
-            if latest_dec and latest_dec.get("target_instrument") == held_ticker and latest_dec.get("execution_status") == "DISPATCHED":
+            if latest_dec and latest_dec.get("target_instrument") == held_ticker and latest_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "UNKNOWN_PENDING_RECONCILIATION"):
                 try:
                     db.update_core_compounding_decision_status(
                         dedup_key=latest_dec["dedup_key"],
@@ -990,31 +1059,50 @@ class PRVQuantEngine:
                         )
 
                         if success:
-                            broker_order_id = trade_res.get("broker_order_id") or trade_res.get("order_id") or "TRADING212_ORDER"
+                            broker_order_id = trade_res.get("broker_order_id") or trade_res.get("order_id") or trade_res.get("id") or "TRADING212_ORDER"
+                            lifecycle_status = trade_res.get("lifecycle_status", "ACCEPTED")
                             self.mark_signal_bar_executed(dedup_key)
                             try:
                                 db.update_core_compounding_decision_status(
                                     dedup_key=dedup_key,
-                                    status="DISPATCHED",
+                                    status=lifecycle_status,
                                     broker_order_id=broker_order_id,
-                                    notes=f"Order DISPATCHED to Trading212 ({broker_order_id}). Waiting for fill confirmation."
+                                    notes=f"Order {lifecycle_status} on Trading212 ({broker_order_id})."
                                 )
                             except Exception:
                                 pass
                             executed_trades.append(selected_ticker)
                             decision = "ENTER"
-                            reason = f"AUTONOMOUS_ENTRY_DISPATCHED: {order_qty} shares of {selected_ticker} ({selected_symbol}) routed to Trading212 ({broker_order_id})."
+                            reason = f"AUTONOMOUS_ENTRY_{lifecycle_status}: {order_qty} shares of {selected_ticker} ({selected_symbol}) routed to Trading212 ({broker_order_id})."
                         else:
-                            try:
-                                db.update_core_compounding_decision_status(
-                                    dedup_key=dedup_key,
-                                    status="REJECTED",
-                                    notes=f"Routing rejected: {route_msg}"
-                                )
-                            except Exception:
-                                pass
-                            decision = "HOLD"
-                            reason = f"ORDER_ROUTING_REJECTED: {route_msg}"
+                            is_timeout = (
+                                trade_res.get("is_timeout", False)
+                                or trade_res.get("status") == "UNKNOWN_PENDING_RECONCILIATION"
+                                or "timeout" in str(route_msg).lower()
+                            )
+                            if is_timeout:
+                                self.mark_signal_bar_executed(dedup_key)
+                                try:
+                                    db.update_core_compounding_decision_status(
+                                        dedup_key=dedup_key,
+                                        status="UNKNOWN_PENDING_RECONCILIATION",
+                                        notes=f"Order submission timeout. Awaiting broker reconciliation: {route_msg}"
+                                    )
+                                except Exception:
+                                    pass
+                                decision = "HOLD"
+                                reason = f"UNKNOWN_PENDING_RECONCILIATION: {route_msg}"
+                            else:
+                                try:
+                                    db.update_core_compounding_decision_status(
+                                        dedup_key=dedup_key,
+                                        status="REJECTED",
+                                        notes=f"Routing rejected: {route_msg}"
+                                    )
+                                except Exception:
+                                    pass
+                                decision = "HOLD"
+                                reason = f"ORDER_ROUTING_REJECTED: {route_msg}"
             else:
                 decision = "HOLD"
                 reason = sig.get("reason") or "No ETF in certified universe met dual criteria (Close > 200-day SMA AND 20d Sharpe Momentum > 0.0). Preserving capital in cash."

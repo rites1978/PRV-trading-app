@@ -330,10 +330,15 @@ class OrderRouter:
                 broker_order_data = res.get("data", {})
                 broker_order_id = broker_order_data.get("id", trade_id)
                 broker_status = str(broker_order_data.get("status", "SUBMITTED")).upper()
-                if broker_status == "FILLED":
+                filled_qty = float(broker_order_data.get("filledQuantity") or 0.0)
+                
+                # Explicitly distinguish ACCEPTED/WORKING from FILLED
+                if broker_status == "FILLED" or (filled_qty >= quantity and quantity > 0):
                     managed_order.transition_to(OrderState.FILLED, f"Broker executed fill {broker_order_id}")
+                    lifecycle_status = "FILLED"
                 else:
                     managed_order.transition_to(OrderState.ACKNOWLEDGED, f"Broker accepted order {broker_order_id}")
+                    lifecycle_status = "ACCEPTED"
                 fill_price = float(broker_order_data.get("fillPrice") or price)
                 slippage_bps = round(((fill_price - price) / max(0.001, price)) * 10000.0, 1)
 
@@ -441,13 +446,39 @@ class OrderRouter:
                         return False, f"FAIL-CLOSED: Exception placing stop ({stop_err}). Position flattened and engine halted.", {"approved": False, "halt": True}
 
                 self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, f"{trade_reason} | StopID: {stop_order_id}", True, quantity, audit_tag)
-                return True, f"✅ Order Executed ({settings.ACCOUNT_MODE}): {quantity} shares of {symbol} at £{fill_price:.2f} (Broker ID: {broker_order_id}, Stop ID: {stop_order_id})", res["data"]
+                res_data = dict(res.get("data", {}))
+                res_data["lifecycle_status"] = lifecycle_status
+                res_data["broker_order_id"] = broker_order_id
+                res_data["filled_quantity"] = filled_qty
+                return True, f"✅ Order Executed ({settings.ACCOUNT_MODE} - {lifecycle_status}): {quantity} shares of {symbol} at £{fill_price:.2f} (Broker ID: {broker_order_id}, Stop ID: {stop_order_id})", res_data
             else:
-                managed_order.transition_to(OrderState.FAILED, res.get("error", "Broker order rejected"))
-                portfolio_reservations.release(managed_order.client_order_id)
                 err_msg = res.get("error", "Unknown broker error")
-                self._log_audit("EXECUTION_FAILED", symbol, market_regime, agent_votes, confidence_score, err_msg, True, quantity, "BROKER_REJECTED")
-                return False, f"❌ Broker order rejected: {err_msg}", res
+                is_timeout = (
+                    res.get("is_timeout", False)
+                    or "timeout" in str(err_msg).lower()
+                    or "connection" in str(err_msg).lower()
+                    or "timed out" in str(err_msg).lower()
+                )
+                if is_timeout:
+                    managed_order.transition_to(OrderState.FAILED, "Timeout - Pending Reconciliation")
+                    portfolio_reservations.release(managed_order.client_order_id)
+                    self._log_audit("EXECUTION_TIMEOUT", symbol, market_regime, agent_votes, confidence_score, err_msg, True, quantity, "UNKNOWN_PENDING_RECONCILIATION")
+                    return False, f"⚠️ SUBMISSION_STATUS=UNKNOWN_PENDING_RECONCILIATION: {err_msg}", {
+                        "approved": False,
+                        "is_timeout": True,
+                        "status": "UNKNOWN_PENDING_RECONCILIATION",
+                        "error": err_msg
+                    }
+                else:
+                    managed_order.transition_to(OrderState.FAILED, res.get("error", "Broker order rejected"))
+                    portfolio_reservations.release(managed_order.client_order_id)
+                    self._log_audit("EXECUTION_FAILED", symbol, market_regime, agent_votes, confidence_score, err_msg, True, quantity, "BROKER_REJECTED")
+                    return False, f"❌ Broker order rejected: {err_msg}", {
+                        "approved": False,
+                        "is_timeout": False,
+                        "status": "REJECTED",
+                        "error": err_msg
+                    }
         else:
             # Paper execution with implementation shortfall simulation
             managed_order.transition_to(OrderState.FILLED, "Simulated fill")

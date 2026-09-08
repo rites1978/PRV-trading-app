@@ -376,7 +376,19 @@ class Trading212Broker:
                     return {"success": True, "data": res.json()}
                 return {"success": False, "error": f"HTTP {res.status_code}: {res.text}"}
             except Exception as e:
-                return {"success": False, "error": str(e)}
+                err_str = str(e).lower()
+                is_timeout = (
+                    isinstance(e, (requests.Timeout, requests.ConnectionError))
+                    or "timeout" in err_str
+                    or "timed out" in err_str
+                    or "connection" in err_str
+                )
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "is_timeout": is_timeout,
+                    "timeout": is_timeout
+                }
 
     def place_limit_order(self, ticker: str, quantity: float, limit_price: float, time_validity: str = "GOOD_TILL_CANCEL") -> Dict[str, Any]:
         """Execute broker limit order."""
