@@ -631,13 +631,61 @@ class PRVQuantEngine:
 
         return closed_trades, active_positions_returns
 
+    def get_next_valid_lse_session(self, bar_date_str: str) -> str:
+        """Returns the immediately following valid LSE trading session date string (YYYY-MM-DD)."""
+        from datetime import datetime, timedelta
+        from src.data.exchange_calendar import exchange_calendar
+        d = datetime.strptime(bar_date_str[:10], "%Y-%m-%d").date()
+        next_d = d + timedelta(days=1)
+        while next_d.weekday() >= 5 or exchange_calendar.get_uk_holiday_name(next_d) is not None:
+            next_d += timedelta(days=1)
+        return next_d.strftime("%Y-%m-%d")
+
+    def get_previous_valid_lse_session(self, date_str: str) -> str:
+        """Returns the immediately preceding valid LSE trading session date string (YYYY-MM-DD)."""
+        from datetime import datetime, timedelta
+        from src.data.exchange_calendar import exchange_calendar
+        d = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+        prev_d = d - timedelta(days=1)
+        while prev_d.weekday() >= 5 or exchange_calendar.get_uk_holiday_name(prev_d) is not None:
+            prev_d -= timedelta(days=1)
+        return prev_d.strftime("%Y-%m-%d")
+
+    def get_expected_latest_completed_session(self, dt: Optional[datetime] = None) -> str:
+        """
+        Determines the expected latest completed LSE trading session date string (YYYY-MM-DD)
+        relative to the given or current Europe/London time.
+        """
+        from zoneinfo import ZoneInfo
+        from datetime import time as dtime
+        from src.data.exchange_calendar import exchange_calendar
+
+        tz_london = ZoneInfo("Europe/London")
+        now_uk = dt if dt else datetime.now(tz_london)
+        if now_uk.tzinfo is None:
+            now_uk = now_uk.replace(tzinfo=tz_london)
+        else:
+            now_uk = now_uk.astimezone(tz_london)
+
+        cur_d = now_uk.date()
+        is_weekend = cur_d.weekday() >= 5
+        is_holiday = exchange_calendar.get_uk_holiday_name(cur_d) is not None
+        is_trading_day = not is_weekend and not is_holiday
+
+        # If today is a trading day and after 16:30 BST, today is the completed session
+        if is_trading_day and now_uk.time() >= dtime(16, 30):
+            return cur_d.strftime("%Y-%m-%d")
+        else:
+            # Otherwise, the expected completed session is the preceding trading day
+            return self.get_previous_valid_lse_session(cur_d.strftime("%Y-%m-%d"))
+
     def get_core_compounding_session_context(self, dt: Optional[datetime] = None) -> Dict[str, Any]:
         """
         Computes authoritative LSE session context, 08:00 BST execution window,
         and intended execution session for Core Compounding Engine.
         """
         from zoneinfo import ZoneInfo
-        from datetime import time as dtime, timedelta
+        from datetime import time as dtime
         from src.data.exchange_calendar import exchange_calendar
 
         tz_london = ZoneInfo("Europe/London")
@@ -665,11 +713,9 @@ class PRVQuantEngine:
         if is_trading_day and cur_t <= window_end:
             intended_session = cur_d.strftime("%Y-%m-%d")
         else:
-            # Next valid LSE trading day
-            next_d = cur_d + timedelta(days=1)
-            while next_d.weekday() >= 5 or exchange_calendar.get_uk_holiday_name(next_d) is not None:
-                next_d += timedelta(days=1)
-            intended_session = next_d.strftime("%Y-%m-%d")
+            intended_session = self.get_next_valid_lse_session(cur_d.strftime("%Y-%m-%d"))
+
+        expected_completed = self.get_expected_latest_completed_session(now_uk)
 
         return {
             "current_uk_time": now_uk.strftime("%Y-%m-%d %H:%M:%S %Z"),
@@ -680,6 +726,7 @@ class PRVQuantEngine:
             "is_trading_day": is_trading_day,
             "is_execution_window": is_window,
             "intended_execution_session": intended_session,
+            "expected_completed_session": expected_completed,
             "intended_execution_window": "08:00:00-08:05:00 BST"
         }
 
@@ -687,7 +734,7 @@ class PRVQuantEngine:
         """
         Evaluates point-in-time signal and cross-sectional ranking across the 7 certified ETFs.
         Strictly observes completed Day T-1 close data with ZERO lookahead.
-        Fails closed if the 7-asset universe is incomplete.
+        Fails closed if the 7-asset universe is incomplete or if feeds are stale.
         """
         from src.strategies.core_compounding_v1 import core_compounding_strategy
         from zoneinfo import ZoneInfo
@@ -746,12 +793,49 @@ class PRVQuantEngine:
             current_bar = target_ts
         elif str(dates[-1])[:10] == today_date_str and now_uk.time() < dtime(16, 30):
             # Today's bar is incomplete intraday; observe completed bar T-1
-            prev_bar = dates[-2]
+            prev_bar = dates[-2] if len(dates) >= 2 else dates[-1]
             current_bar = dates[-1]
         else:
             # Last bar in feed is completed
             prev_bar = dates[-1]
             current_bar = pd.Timestamp(now_uk.strftime("%Y-%m-%d"))
+
+        # DATA FRESHNESS VERIFICATION (Fail-closed on stale feed)
+        # When evaluating live without an explicit observation_date override:
+        if not observation_date:
+            expected_completed = self.get_expected_latest_completed_session(now_uk)
+            stale_instruments = []
+            for inst in core_compounding_strategy.CERTIFIED_UNIVERSE:
+                sym = inst["symbol"]
+                df_inst = data.get(f"{sym}_L")
+                if df_inst is None or df_inst.empty:
+                    stale_instruments.append(f"{sym}: empty")
+                    continue
+                if str(df_inst.index[-1])[:10] == today_date_str and now_uk.time() < dtime(16, 30):
+                    inst_completed = str(df_inst.index[-2])[:10] if len(df_inst) >= 2 else str(df_inst.index[-1])[:10]
+                else:
+                    inst_completed = str(df_inst.index[-1])[:10]
+
+                if inst_completed != expected_completed:
+                    stale_instruments.append(f"{sym}(completed {inst_completed} != expected {expected_completed})")
+
+            if stale_instruments:
+                msg = f"DATA_FEED_STALE_FAIL_CLOSED: {len(stale_instruments)}/7 ETFs stale. Expected completed session {expected_completed}. Stale: {', '.join(stale_instruments)}"
+                logger.warning(msg)
+                return {
+                    "strategy_id": core_compounding_strategy.STRATEGY_ID,
+                    "decision": "HOLD_CASH",
+                    "selected_symbol": None,
+                    "selected_ticker": None,
+                    "selected_score": 0.0,
+                    "reason": msg,
+                    "rankings": [],
+                    "eligible_candidates_count": 0,
+                    "as_of_date": now_uk.strftime("%Y-%m-%d"),
+                    "timestamp": now_uk.strftime("%Y-%m-%d %H:%M:%S"),
+                    "is_feed_fresh": False,
+                    "expected_completed_session": expected_completed
+                }
 
         # Ensure current_bar is present in df index for signal evaluator
         for k in data:
@@ -766,9 +850,9 @@ class PRVQuantEngine:
         """
         Production execution cycle for PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1:
         - Evaluates completed Day T-1 close data across 7-ETF universe.
-        - Persists pending decisions with exact session & window metadata.
-        - Evaluates position lifecycle (-2% stop loss, 10-day rebalance).
-        - Executes genuine entry at 08:00 BST LSE Market Open window.
+        - Strictly binds signal execution session to immediately following valid LSE trading day.
+        - Enforces exactly-once execution and full lifecycle: PENDING -> DISPATCHED -> FILLED.
+        - Fails closed if data is stale or if execution window has elapsed.
         """
         from src.strategies.core_compounding_v1 import core_compounding_strategy
         from datetime import time as dtime
@@ -780,22 +864,30 @@ class PRVQuantEngine:
 
         session_ctx = self.get_core_compounding_session_context()
         now_uk = session_ctx["now_uk"]
-        intended_session = session_ctx["intended_execution_session"]
+        cur_d_str = session_ctx["cur_date_str"]
+        cur_t = now_uk.time()
 
-        # 1. Evaluate PIT Signal & Cross-Sectional Ranking
+        # 1. Invalidate any stale pending decisions in SQLite whose execution opportunity has elapsed
+        try:
+            db.invalidate_pending_core_decisions(reason=f"SESSION_WINDOW_ELAPSED_CHECK_{cur_d_str}")
+        except Exception:
+            pass
+
+        # 2. Evaluate PIT Signal & Cross-Sectional Ranking
         sig = self.evaluate_core_compounding_live_state()
         full_rankings = sig.get("rankings", [])
         selected_symbol = sig.get("selected_symbol")
         selected_ticker = sig.get("selected_t212_ticker")
         selected_score = sig.get("selected_score", 0.0)
-        as_of_date = sig.get("as_of_date", now_uk.strftime("%Y-%m-%d"))
+        as_of_date = sig.get("as_of_date", cur_d_str)
         obs_bar_str = sig.get("previous_timestamp", as_of_date)[:10]
 
         decision = "HOLD"
         reason = ""
         executed_trades = []
+        intended_session = session_ctx["intended_execution_session"]
 
-        # 2. Position Lifecycle Management
+        # 3. Position Lifecycle Management
         etf_tickers = {inst["t212_ticker"] for inst in core_compounding_strategy.CERTIFIED_UNIVERSE}
         held_pos = next((p for p in open_positions if p.get("ticker") in etf_tickers), None)
 
@@ -804,6 +896,18 @@ class PRVQuantEngine:
             qty = float(held_pos.get("quantity", 0))
             avg_price = float(held_pos.get("averagePrice", 0))
             cur_price = float(held_pos.get("currentPrice", avg_price))
+
+            # Update any DISPATCHED decision in DB to FILLED
+            latest_dec = db.get_latest_core_compounding_decision()
+            if latest_dec and latest_dec.get("target_instrument") == held_ticker and latest_dec.get("execution_status") == "DISPATCHED":
+                try:
+                    db.update_core_compounding_decision_status(
+                        dedup_key=latest_dec["dedup_key"],
+                        status="FILLED",
+                        notes=f"Confirmed FILLED on Trading212: holding {qty} shares @ £{avg_price:.4f}."
+                    )
+                except Exception:
+                    pass
 
             # Check 2% stop loss
             stop_price = round(avg_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
@@ -828,124 +932,141 @@ class PRVQuantEngine:
                 decision = "HOLD"
                 reason = f"HOLDING_ACTIVE_POSITION: Holding {qty} shares of {held_ticker} @ £{avg_price:.4f} (Cur £{cur_price:.4f}, Stop £{stop_price:.4f}). Next rebalance check pending."
         else:
-            # 3. No Open Position: Evaluate Entry Signal
+            # 4. No Open Position: Evaluate Entry Signal
             raw_decision = sig.get("decision", "HOLD_CASH")
-            if raw_decision == "ENTER" and selected_symbol and selected_ticker:
-                dedup_key = f"CORE_{selected_ticker}_{intended_session}"
+            if raw_decision == "HOLD_CASH" and "FAIL_CLOSED" in sig.get("reason", ""):
+                decision = "HOLD"
+                reason = sig.get("reason", "FAIL_CLOSED")
+            elif raw_decision == "ENTER" and selected_symbol and selected_ticker:
+                # Strictly bind execution session to immediately following valid LSE trading day
+                permitted_session = self.get_next_valid_lse_session(obs_bar_str)
 
-                # Check Deduplication (Requirement 4)
-                is_dedup = (
-                    self.is_signal_bar_already_executed(dedup_key)
-                    or db.is_core_decision_executed(dedup_key)
-                    or any(o.get("ticker") == selected_ticker for o in open_orders)
+                # Check if signal has expired (past 08:05 BST of permitted_session)
+                is_signal_expired = (
+                    cur_d_str > permitted_session
+                    or (cur_d_str == permitted_session and cur_t > dtime(8, 5, 0))
                 )
 
-                # Persist Pending Decision if not already executed (Requirement 3)
-                if not is_dedup:
-                    pending_record = {
-                        "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
-                        "dedup_key": dedup_key,
-                        "signal_bar_date": obs_bar_str,
-                        "signal_generated_at": datetime.now(timezone.utc).isoformat(),
-                        "target_instrument": selected_ticker,
-                        "target_score": selected_score,
-                        "intended_execution_session": intended_session,
-                        "intended_execution_window": session_ctx["intended_execution_window"],
-                        "execution_status": "PENDING",
-                        "notes": f"Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}, Close > SMA200)."
-                    }
-                    try:
-                        db.save_core_compounding_decision(pending_record)
-                    except Exception as db_err:
-                        logger.warning(f"Error persisting core compounding decision: {db_err}")
-
-                if is_dedup:
+                if is_signal_expired:
                     decision = "HOLD"
-                    reason = f"DEDUP: Signal for {selected_symbol} on session {intended_session} already executed/dispatched. Exactly-once invariant preserved."
-                elif not settings.PRACTICE_NEW_ENTRIES_ALLOWED:
-                    decision = "HOLD"
-                    reason = f"PRACTICE_NEW_ENTRIES_ALLOWED=False: Signal {selected_symbol} generated (Sharpe {selected_score:+.4f}), but new entries are locked."
-                elif settings.REAL_MONEY_NEW_ENTRIES_ALLOWED:
-                    decision = "HOLD"
-                    reason = "FAIL_CLOSED: REAL_MONEY_NEW_ENTRIES_ALLOWED must be False."
-                elif not session_ctx["is_execution_window"]:
-                    # Outside 08:00 - 08:05 BST Execution Window (Requirement 5)
-                    cur_t = now_uk.time()
-                    if cur_t < dtime(8, 0, 0) and session_ctx["is_trading_day"]:
-                        decision = "HOLD"
-                        reason = f"ARMED_FOR_OPEN: Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}, Close > 200 SMA). Awaiting 08:00 BST LSE Market Open window on {intended_session}."
-                    else:
-                        decision = "HOLD"
-                        reason = f"HOLD_PENDING_NEXT_SESSION: Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}, Close > 200 SMA). Execution window elapsed; armed for {intended_session} 08:00 BST LSE Market Open."
+                    reason = f"STALE_SIGNAL_EXPIRED: Signal from observation bar {obs_bar_str} was only valid for execution on {permitted_session} at 08:00-08:05 BST. Cannot execute on {cur_d_str}. Roll-forward prohibited by frozen research."
+                    db.invalidate_pending_core_decisions(reason=f"EXPIRED_FOR_SESSION_{permitted_session}")
                 else:
-                    # 4. INSIDE 08:00:00 - 08:05:00 BST EXECUTION WINDOW: DISPATCH ENTRY (Requirement 1 & 2)
-                    selected_rec = next((r for r in full_rankings if r["symbol"] == selected_symbol), None)
-                    cur_price = float(selected_rec["close_t_minus_1"]) if selected_rec else 0.0
+                    intended_session = permitted_session
+                    dedup_key = f"CORE_{selected_ticker}_{intended_session}"
 
-                    if cur_price <= 0:
-                        decision = "HOLD"
-                        reason = f"FAIL_CLOSED: Invalid quote price (£{cur_price:.4f}) for target {selected_symbol}."
-                    elif available_cash < 1000.0:
-                        decision = "HOLD"
-                        reason = f"FAIL_CLOSED: Insufficient cash balance (£{available_cash:.2f}) to deploy position."
-                    else:
-                        order_qty = core_compounding_strategy.calculate_order_shares(
-                            entry_price_gbp=cur_price,
-                            available_cash_gbp=available_cash
-                        )
-                        stop_price = round(cur_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                    # Check Deduplication
+                    is_dedup = (
+                        self.is_signal_bar_already_executed(dedup_key)
+                        or db.is_core_decision_executed(dedup_key)
+                        or any(o.get("ticker") == selected_ticker for o in open_orders)
+                    )
 
-                        logger.info(f"DISPATCHING_CORE_ENTRY: {order_qty} shares of {selected_ticker} ({selected_symbol}) @ £{cur_price:.4f} (Stop £{stop_price:.4f})")
+                    # Persist Pending Decision if not already executed/dispatched
+                    if not is_dedup:
+                        pending_record = {
+                            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+                            "dedup_key": dedup_key,
+                            "signal_bar_date": obs_bar_str,
+                            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+                            "target_instrument": selected_ticker,
+                            "target_score": selected_score,
+                            "intended_execution_session": intended_session,
+                            "intended_execution_window": "08:00:00-08:05:00 BST",
+                            "execution_status": "PENDING",
+                            "notes": f"Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}, Close > SMA200)."
+                        }
                         try:
-                            db.update_core_compounding_decision_status(dedup_key, "DISPATCHING", notes="Calling order_router")
-                        except Exception:
-                            pass
+                            db.save_core_compounding_decision(pending_record)
+                        except Exception as db_err:
+                            logger.warning(f"Error persisting core compounding decision: {db_err}")
 
-                        success, route_msg, trade_res = order_router.route_entry_order(
-                            symbol=selected_symbol,
-                            t212_ticker=selected_ticker,
-                            quantity=order_qty,
-                            price=cur_price,
-                            target_price=round(cur_price * 1.10, 4),
-                            stop_loss_price=stop_price,
-                            sector="ETF",
-                            confidence_score=max(0.5, min(1.0, selected_score + 0.5)),
-                            market_regime="CROSS_SECTIONAL_MOMENTUM",
-                            agent_votes={"CORE_COMPOUNDING": "BUY"},
-                            risk_approved=True,
-                            is_paper=self.paper_mode,
-                            instrument_type="ETF",
-                            decision_price=cur_price,
-                            bypass_market_hours=False,
-                            strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
-                        )
-
-                        if success:
-                            broker_order_id = trade_res.get("broker_order_id") or trade_res.get("order_id") or "TRADING212_ORDER"
-                            self.mark_signal_bar_executed(dedup_key)
-                            try:
-                                db.update_core_compounding_decision_status(
-                                    dedup_key=dedup_key,
-                                    status="EXECUTED",
-                                    broker_order_id=broker_order_id,
-                                    notes=f"Executed live on Trading212: {route_msg}"
-                                )
-                            except Exception:
-                                pass
-                            executed_trades.append(selected_ticker)
-                            decision = "ENTER"
-                            reason = f"AUTONOMOUS_ENTRY_EXECUTED: {order_qty} shares of {selected_ticker} ({selected_symbol}) routed to Trading212 ({broker_order_id})."
-                        else:
-                            try:
-                                db.update_core_compounding_decision_status(
-                                    dedup_key=dedup_key,
-                                    status="ROUTING_FAILED",
-                                    notes=f"Routing failed: {route_msg}"
-                                )
-                            except Exception:
-                                pass
+                    if is_dedup:
+                        decision = "HOLD"
+                        reason = f"DEDUP: Signal for {selected_symbol} on session {intended_session} already executed/dispatched. Exactly-once invariant preserved."
+                    elif not settings.PRACTICE_NEW_ENTRIES_ALLOWED:
+                        decision = "HOLD"
+                        reason = f"PRACTICE_NEW_ENTRIES_ALLOWED=False: Signal {selected_symbol} generated (Sharpe {selected_score:+.4f}), but new entries are locked."
+                    elif settings.REAL_MONEY_NEW_ENTRIES_ALLOWED:
+                        decision = "HOLD"
+                        reason = "FAIL_CLOSED: REAL_MONEY_NEW_ENTRIES_ALLOWED must be False."
+                    elif not (session_ctx["is_execution_window"] and cur_d_str == intended_session):
+                        # Outside 08:00 - 08:05 BST Execution Window
+                        if cur_d_str == intended_session and cur_t < dtime(8, 0, 0):
                             decision = "HOLD"
-                            reason = f"ORDER_ROUTING_FAILED: {route_msg}"
+                            reason = f"ARMED_FOR_OPEN: Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}, Close > 200 SMA). Awaiting 08:00 BST LSE Market Open window on {intended_session}."
+                        else:
+                            decision = "HOLD"
+                            reason = f"HOLD_PENDING_NEXT_SESSION: Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}, Close > 200 SMA). Armed for {intended_session} 08:00 BST LSE Market Open."
+                    else:
+                        # INSIDE 08:00:00 - 08:05:00 BST OF PERMITTED SESSION: DISPATCH ENTRY
+                        selected_rec = next((r for r in full_rankings if r["symbol"] == selected_symbol), None)
+                        cur_price = float(selected_rec["close_t_minus_1"]) if selected_rec else 0.0
+
+                        if cur_price <= 0:
+                            decision = "HOLD"
+                            reason = f"FAIL_CLOSED: Invalid quote price (£{cur_price:.4f}) for target {selected_symbol}."
+                        elif available_cash < 1000.0:
+                            decision = "HOLD"
+                            reason = f"FAIL_CLOSED: Insufficient cash balance (£{available_cash:.2f}) to deploy position."
+                        else:
+                            order_qty = core_compounding_strategy.calculate_order_shares(
+                                entry_price_gbp=cur_price,
+                                available_cash_gbp=available_cash
+                            )
+                            stop_price = round(cur_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+
+                            logger.info(f"DISPATCHING_CORE_ENTRY: {order_qty} shares of {selected_ticker} ({selected_symbol}) @ £{cur_price:.4f} (Stop £{stop_price:.4f})")
+                            try:
+                                db.update_core_compounding_decision_status(dedup_key, "DISPATCHING", notes="Calling order_router")
+                            except Exception:
+                                pass
+
+                            success, route_msg, trade_res = order_router.route_entry_order(
+                                symbol=selected_symbol,
+                                t212_ticker=selected_ticker,
+                                quantity=order_qty,
+                                price=cur_price,
+                                target_price=round(cur_price * 1.10, 4),
+                                stop_loss_price=stop_price,
+                                sector="ETF",
+                                confidence_score=max(0.5, min(1.0, selected_score + 0.5)),
+                                market_regime="CROSS_SECTIONAL_MOMENTUM",
+                                agent_votes={"CORE_COMPOUNDING": "BUY"},
+                                risk_approved=True,
+                                is_paper=self.paper_mode,
+                                instrument_type="ETF",
+                                decision_price=cur_price,
+                                bypass_market_hours=False,
+                                strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
+                            )
+
+                            if success:
+                                broker_order_id = trade_res.get("broker_order_id") or trade_res.get("order_id") or "TRADING212_ORDER"
+                                self.mark_signal_bar_executed(dedup_key)
+                                try:
+                                    db.update_core_compounding_decision_status(
+                                        dedup_key=dedup_key,
+                                        status="DISPATCHED",
+                                        broker_order_id=broker_order_id,
+                                        notes=f"Order DISPATCHED to Trading212 ({broker_order_id}). Waiting for fill confirmation."
+                                    )
+                                except Exception:
+                                    pass
+                                executed_trades.append(selected_ticker)
+                                decision = "ENTER"
+                                reason = f"AUTONOMOUS_ENTRY_DISPATCHED: {order_qty} shares of {selected_ticker} ({selected_symbol}) routed to Trading212 ({broker_order_id}). Waiting for fill confirmation."
+                            else:
+                                try:
+                                    db.update_core_compounding_decision_status(
+                                        dedup_key=dedup_key,
+                                        status="REJECTED",
+                                        notes=f"Routing rejected: {route_msg}"
+                                    )
+                                except Exception:
+                                    pass
+                                decision = "HOLD"
+                                reason = f"ORDER_ROUTING_REJECTED: {route_msg}"
             else:
                 decision = "HOLD"
                 reason = "No ETF in certified universe met dual criteria (Close > 200-day SMA AND 20d Sharpe Momentum > 0.0). Preserving capital in cash."

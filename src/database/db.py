@@ -2352,7 +2352,7 @@ class Database:
                     intended_execution_session = excluded.intended_execution_session,
                     intended_execution_window = excluded.intended_execution_window,
                     execution_status = CASE 
-                        WHEN core_compounding_decisions.execution_status IN ('EXECUTED', 'DISPATCHED') 
+                        WHEN core_compounding_decisions.execution_status IN ('FILLED', 'DISPATCHED', 'ACCEPTED', 'EXECUTED') 
                         THEN core_compounding_decisions.execution_status 
                         ELSE excluded.execution_status 
                     END,
@@ -2417,9 +2417,21 @@ class Database:
                 "SELECT execution_status FROM core_compounding_decisions WHERE dedup_key = ?", (dedup_key,)
             )
             row = cur.fetchone()
-            if row and row["execution_status"] in ("EXECUTED", "DISPATCHED", "PENDING_EXECUTION"):
+            if row and row["execution_status"] in ("FILLED", "DISPATCHED", "ACCEPTED", "EXECUTED"):
                 return True
             return False
+
+    def invalidate_pending_core_decisions(self, reason: str = "EXPIRED_STALE_SIGNAL") -> int:
+        """Mark any pending decisions whose execution window has passed as EXPIRED."""
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE core_compounding_decisions 
+                SET execution_status = 'EXPIRED', notes = COALESCE(notes, '') || ' [' || ? || ']', updated_at = CURRENT_TIMESTAMP
+                WHERE execution_status = 'PENDING'
+            """, (reason,))
+            conn.commit()
+            return cur.rowcount
 
 db = Database()
 
