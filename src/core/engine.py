@@ -33,6 +33,13 @@ from src.analytics.trajectory_service import trajectory_service
 from telegram_notifier import TelegramNotifier
 
 class PRVQuantEngine:
+    # ── Explicit strategy routing families for open-position management ──
+    # A strategy id MUST match exactly one family. Anything unrecognised fails
+    # closed rather than inheriting legacy V1 swing stop semantics.
+    CORE_STRATEGY_IDS = ("PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1", "CORE_V1")
+    V2_STRATEGY_IDS = ("V2", "ETF_V1", "PRV_HIT_AND_RUN_ETF_V1")
+    LEGACY_STRATEGY_IDS = ("V1",)
+
     _instance = None
     _lock = threading.Lock()
 
@@ -327,6 +334,36 @@ class PRVQuantEngine:
         except Exception:
             pass
 
+    def _monitor_core_position_watchdog(
+        self,
+        t212_ticker: str,
+        qty: float,
+        avg_price: float,
+        cur_price: float,
+        peak_price: float
+    ) -> None:
+        """
+        Core Compounding open-position watchdog: OBSERVE ONLY.
+
+        Broker-native protective stop ownership for PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1
+        belongs exclusively to _run_core_compounding_cycle. This path therefore performs
+        NO broker mutation whatsoever: it must never place, cancel, replace, tighten or
+        loosen a stop, must never source settings.DEFAULT_STOP_LOSS_PCT, and must never
+        emit a DAY-validity stop.
+
+        Rationale: this watchdog runs every 15 seconds outside the Core cycle. Routing
+        Core positions into the legacy V1 branch previously overwrote a correct Core
+        GOOD_TILL_CANCEL stop with a legacy 2.5% DAY stop.
+        """
+        self.core_watchdog_observations = getattr(self, "core_watchdog_observations", 0) + 1
+        self.last_core_watchdog_ticker = t212_ticker
+        self.last_core_watchdog_peak = peak_price
+        logger.debug(
+            f"CORE_WATCHDOG_OBSERVE_ONLY: {t212_ticker} qty={qty} avg={avg_price} "
+            f"cur={cur_price} peak={peak_price}. Stop lifecycle owned by Core cycle."
+        )
+        return None
+
     def monitor_open_positions(self, open_positions: Optional[List[Dict[str, Any]]] = None) -> Tuple[List[str], Dict[str, Any]]:
         """
         Lightweight continuous position & risk management watchdog:
@@ -377,9 +414,18 @@ class PRVQuantEngine:
             active_positions_returns[yf_ticker] = snap.get("recent_returns", [])
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # STRATEGY EXECUTION ROUTING: V2 ROTATION VS V1 BENCHMARK
+            # STRATEGY EXECUTION ROUTING: CORE VS V2 ROTATION VS V1 BENCHMARK
+            # Explicit families only. No implicit fallthrough to legacy.
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            if str(active_strategy_id).upper() in ("V2", "ETF_V1", "PRV_HIT_AND_RUN_ETF_V1"):
+            strategy_key = str(active_strategy_id).upper()
+
+            if strategy_key in self.CORE_STRATEGY_IDS:
+                # Core positions are managed exclusively by _run_core_compounding_cycle.
+                # Observe-only here: never apply legacy stop semantics to a Core position.
+                self._monitor_core_position_watchdog(t212_ticker, qty, avg_price, cur_price, peak_p)
+                continue
+
+            if strategy_key in self.V2_STRATEGY_IDS:
                 is_uk = t212_ticker.endswith("l_EQ") or ".L" in yf_ticker
                 # In Trading212, UK LSE equities are quoted in pence (GBX).
                 # Normalize prices to GBP for internal capital accounting and order routing.
@@ -521,7 +567,7 @@ class PRVQuantEngine:
                         except Exception:
                             pass
 
-            else:
+            elif strategy_key in self.LEGACY_STRATEGY_IDS:
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 # LEGACY V1 SWING STRATEGY (UNCHANGED BENCHMARK)
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -638,6 +684,17 @@ class PRVQuantEngine:
                             )
                         except Exception:
                             pass
+
+            else:
+                # FAIL CLOSED: an unrecognised strategy id must never inherit legacy
+                # V1 swing stop semantics. Observe nothing, mutate nothing, move on.
+                self.unknown_strategy_skips = getattr(self, "unknown_strategy_skips", 0) + 1
+                logger.critical(
+                    f"UNKNOWN_STRATEGY_ROUTING_FAIL_CLOSED: strategy_id='{active_strategy_id}' "
+                    f"is not a recognised CORE/V2/LEGACY family. Position {t212_ticker} left "
+                    "untouched; no broker mutation performed."
+                )
+                continue
 
         return closed_trades, active_positions_returns
 
