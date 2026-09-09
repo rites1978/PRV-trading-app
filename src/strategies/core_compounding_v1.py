@@ -342,7 +342,10 @@ class CoreCompoundingStrategy:
         meta = self.get_instrument_metadata(symbol) if symbol else {"broker_allowed_precision": 3, "broker_allowed_increment": 0.001}
         precision = int(meta.get("broker_allowed_precision", 3))
         increment = float(meta.get("broker_allowed_increment", 0.001))
-        return self.floor_to_broker_increment(raw_qty, increment=increment, precision=precision)
+        floored = self.floor_to_broker_increment(raw_qty, increment=increment, precision=precision)
+        while floored * entry_price_gbp > deployable and floored > 0:
+            floored = round(floored - increment, precision)
+        return max(0.0, floored)
 
 
 core_compounding_strategy = CoreCompoundingStrategy()

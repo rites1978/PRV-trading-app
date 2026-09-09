@@ -41,6 +41,27 @@ class MarketDataProvider:
                 return self._cache[yf_ticker][1].copy()
             return pd.DataFrame()
 
+    def get_current_executable_price(self, yf_ticker: str, is_uk_pence: bool = True) -> Optional[float]:
+        """
+        Authoritative current executable price lookup immediately before broker submission.
+        Returns price in GBP (normalized if UK pence), or None if unavailable/invalid.
+        Never returns 0.0 or negative prices. Never falls back to stale history.
+        """
+        try:
+            stock = yf.Ticker(yf_ticker)
+            fast = stock.fast_info
+            price = getattr(fast, "last_price", None)
+            if price is None or np.isnan(price) or price <= 0:
+                df = stock.history(period="1d", interval="1m")
+                if not df.empty:
+                    price = float(df["Close"].iloc[-1])
+            if price is not None and not np.isnan(price) and price > 0:
+                return float(price / 100.0 if is_uk_pence else price)
+            return None
+        except Exception as e:
+            print(f"[MarketData Warning] Failed to fetch current executable price for {yf_ticker}: {e}")
+            return None
+
     def compute_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Compute full quantitative technical indicators suite."""
         if df.empty or len(df) < 15:

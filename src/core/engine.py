@@ -929,6 +929,7 @@ class PRVQuantEngine:
         reason = ""
         executed_trades = []
         intended_session = session_ctx["intended_execution_session"]
+        raw_decision = sig.get("decision", "HOLD_CASH")
 
         # 3. Position Lifecycle Management
         etf_tickers = {inst["t212_ticker"] for inst in core_compounding_strategy.CERTIFIED_UNIVERSE}
@@ -1008,26 +1009,20 @@ class PRVQuantEngine:
                 else:
                     # Valid Execution Opportunity: dispatch to order_router
                     selected_rec = next((r for r in full_rankings if r["symbol"] == selected_symbol), None)
-                    cur_price = float(selected_rec["close_t_minus_1"]) if selected_rec else 0.0
+                    signal_price = float(selected_rec["close_t_minus_1"]) if selected_rec else 0.0
 
-                    if cur_price <= 0:
+                    if signal_price <= 0:
                         decision = "HOLD"
-                        reason = f"FAIL_CLOSED: Invalid quote price (£{cur_price:.4f}) for target {selected_symbol}."
+                        reason = f"FAIL_CLOSED: Invalid quote price (£{signal_price:.4f}) for target {selected_symbol}."
                     elif available_cash < 1000.0:
                         decision = "HOLD"
                         reason = f"FAIL_CLOSED: Insufficient cash balance (£{available_cash:.2f}) to deploy position."
-                    else:
-                        order_qty = core_compounding_strategy.calculate_order_shares(
-                            entry_price_gbp=cur_price,
-                            available_cash_gbp=available_cash,
-                            total_nav_gbp=total_nav,
-                            symbol=selected_symbol
-                        )
-                        stop_price = round(cur_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-
-                        logger.info(f"DISPATCHING_CORE_ENTRY: {order_qty} shares of {selected_ticker} ({selected_symbol}) @ £{cur_price:.4f} (Stop £{stop_price:.4f})")
-
-                        # Persist decision log
+                    elif selected_symbol == "IWDA" or selected_ticker in ("SWDAl_EQ", "IWDAl_EQ"):
+                        # IWDA is blocked from execution pending unit-normalisation remediation
+                        self.mark_signal_bar_executed(dedup_key)
+                        decision = "HOLD"
+                        reason = "REJECT_NON_RETRYABLE: IWDA is blocked from execution pending unit-normalisation remediation."
+                        logger.error(reason)
                         try:
                             db.save_core_compounding_decision({
                                 "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
@@ -1038,78 +1033,154 @@ class PRVQuantEngine:
                                 "target_score": selected_score,
                                 "intended_execution_session": signal_execution_session,
                                 "intended_execution_window": "08:00:00-08:05:00 BST",
-                                "execution_status": "DISPATCHING",
-                                "notes": f"Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}, Close > SMA200)."
+                                "execution_status": "REJECTED_NON_RETRYABLE_FOR_SIGNAL",
+                                "notes": reason
                             })
                         except Exception:
                             pass
+                    else:
+                        # Authoritative live executable price lookup immediately before submission
+                        inst_meta = core_compounding_strategy.get_instrument_metadata(selected_symbol)
+                        yf_ticker = inst_meta.get("yf_ticker", f"{selected_symbol}.L")
+                        is_uk_pence = inst_meta.get("is_uk_pence", True)
 
-                        success, route_msg, trade_res = order_router.route_entry_order(
-                            symbol=selected_symbol,
-                            t212_ticker=selected_ticker,
-                            quantity=order_qty,
-                            price=cur_price,
-                            target_price=round(cur_price * 1.10, 4),
-                            stop_loss_price=stop_price,
-                            sector="ETF",
-                            confidence_score=0.0,
-                            market_regime="CROSS_SECTIONAL_MOMENTUM",
-                            agent_votes={"CORE_COMPOUNDING": "BUY"},
-                            risk_approved=True,
-                            is_paper=self.paper_mode,
-                            instrument_type="ETF",
-                            decision_price=cur_price,
-                            bypass_market_hours=bypass_execution_window,
-                            strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
-                        )
+                        live_exec_price = market_data.get_current_executable_price(yf_ticker, is_uk_pence=is_uk_pence)
 
-                        if success:
-                            broker_order_id = trade_res.get("broker_order_id") or trade_res.get("order_id") or trade_res.get("id") or "TRADING212_ORDER"
-                            lifecycle_status = trade_res.get("lifecycle_status", "ACCEPTED")
+                        if live_exec_price is None or live_exec_price <= 0:
                             self.mark_signal_bar_executed(dedup_key)
+                            decision = "HOLD"
+                            reason = f"REJECT_NON_RETRYABLE: EXECUTION_SIZING_PRICE_UNAVAILABLE for {selected_symbol} ({yf_ticker}). Live executable price unavailable immediately before submission."
+                            logger.error(reason)
                             try:
-                                db.update_core_compounding_decision_status(
-                                    dedup_key=dedup_key,
-                                    status=lifecycle_status,
-                                    broker_order_id=broker_order_id,
-                                    notes=f"Order {lifecycle_status} on Trading212 ({broker_order_id})."
-                                )
+                                db.save_core_compounding_decision({
+                                    "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+                                    "dedup_key": dedup_key,
+                                    "signal_bar_date": obs_bar_str,
+                                    "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+                                    "target_instrument": selected_ticker,
+                                    "target_score": selected_score,
+                                    "intended_execution_session": signal_execution_session,
+                                    "intended_execution_window": "08:00:00-08:05:00 BST",
+                                    "execution_status": "REJECTED_NON_RETRYABLE_FOR_SIGNAL",
+                                    "notes": reason
+                                })
                             except Exception:
                                 pass
-                            executed_trades.append(selected_ticker)
-                            decision = "ENTER"
-                            reason = f"AUTONOMOUS_ENTRY_{lifecycle_status}: {order_qty} shares of {selected_ticker} ({selected_symbol}) routed to Trading212 ({broker_order_id})."
                         else:
-                            is_timeout = (
-                                trade_res.get("is_timeout", False)
-                                or trade_res.get("status") == "UNKNOWN_PENDING_RECONCILIATION"
-                                or "timeout" in str(route_msg).lower()
+                            # Sizing against maximum permitted fill price (10 bps collar ceiling)
+                            limit_offset_pct = settings.MARKETABLE_LIMIT_SLIPPAGE_BPS / 10000.0  # 10 bps
+                            max_permitted_fill_price = round(live_exec_price * (1.0 + limit_offset_pct), 4)
+                            sizing_price = max_permitted_fill_price
+
+                            order_qty = core_compounding_strategy.calculate_order_shares(
+                                entry_price_gbp=sizing_price,
+                                available_cash_gbp=available_cash,
+                                total_nav_gbp=total_nav,
+                                symbol=selected_symbol
                             )
-                            if is_timeout:
-                                self.mark_signal_bar_executed(dedup_key)
-                                try:
-                                    db.update_core_compounding_decision_status(
-                                        dedup_key=dedup_key,
-                                        status="UNKNOWN_PENDING_RECONCILIATION",
-                                        notes=f"Order submission timeout. Awaiting broker reconciliation: {route_msg}"
-                                    )
-                                except Exception:
-                                    pass
+                            stop_price = round(live_exec_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                            target_price = round(live_exec_price * 1.10, 4)
+
+                            # Enforce before submission: broker_qty * sizing_price <= deployable
+                            deployable = min(
+                                core_compounding_strategy.POSITION_SIZE_GBP,
+                                available_cash,
+                                (total_nav * 0.80 - 15.0) if total_nav is not None else core_compounding_strategy.POSITION_SIZE_GBP
+                            )
+                            precision = int(inst_meta.get("broker_allowed_precision", 3))
+                            increment = float(inst_meta.get("broker_allowed_increment", 0.001))
+                            while order_qty * sizing_price > deployable and order_qty > 0:
+                                order_qty = round(order_qty - increment, precision)
+
+                            if order_qty <= 0:
                                 decision = "HOLD"
-                                reason = f"UNKNOWN_PENDING_RECONCILIATION: {route_msg}"
+                                reason = f"FAIL_CLOSED: Sized quantity 0 for {selected_symbol} at sizing price £{sizing_price:.4f} (deployable £{deployable:.2f})."
                             else:
-                                self.mark_signal_bar_executed(dedup_key)
-                                rejection_status = trade_res.get("status", "REJECTED_NON_RETRYABLE_FOR_SIGNAL")
+                                logger.info(f"DISPATCHING_CORE_ENTRY: {order_qty} shares of {selected_ticker} ({selected_symbol}) @ Live £{live_exec_price:.4f} (Sizing/Collar £{sizing_price:.4f}, Signal £{signal_price:.4f}, Stop £{stop_price:.4f})")
+
+                                # Persist decision log
                                 try:
-                                    db.update_core_compounding_decision_status(
-                                        dedup_key=dedup_key,
-                                        status=rejection_status,
-                                        notes=f"Routing rejected non-retryable: {route_msg}"
-                                    )
+                                    db.save_core_compounding_decision({
+                                        "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+                                        "dedup_key": dedup_key,
+                                        "signal_bar_date": obs_bar_str,
+                                        "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+                                        "target_instrument": selected_ticker,
+                                        "target_score": selected_score,
+                                        "intended_execution_session": signal_execution_session,
+                                        "intended_execution_window": "08:00:00-08:05:00 BST",
+                                        "execution_status": "DISPATCHING",
+                                        "notes": f"Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}). Signal £{signal_price:.4f}, Live £{live_exec_price:.4f}, Sizing £{sizing_price:.4f}."
+                                    })
                                 except Exception:
                                     pass
-                                decision = "HOLD"
-                                reason = f"ORDER_ROUTING_REJECTED: {route_msg}"
+
+                                success, route_msg, trade_res = order_router.route_entry_order(
+                                    symbol=selected_symbol,
+                                    t212_ticker=selected_ticker,
+                                    quantity=order_qty,
+                                    price=live_exec_price,
+                                    target_price=target_price,
+                                    stop_loss_price=stop_price,
+                                    sector="ETF",
+                                    confidence_score=0.0,
+                                    market_regime="CROSS_SECTIONAL_MOMENTUM",
+                                    agent_votes={"CORE_COMPOUNDING": "BUY"},
+                                    risk_approved=True,
+                                    is_paper=self.paper_mode,
+                                    instrument_type="ETF",
+                                    decision_price=signal_price,
+                                    bypass_market_hours=bypass_execution_window,
+                                    strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
+                                )
+
+                                if success:
+                                    broker_order_id = trade_res.get("broker_order_id") or trade_res.get("order_id") or trade_res.get("id") or "TRADING212_ORDER"
+                                    lifecycle_status = trade_res.get("lifecycle_status", "ACCEPTED")
+                                    self.mark_signal_bar_executed(dedup_key)
+                                    try:
+                                        db.update_core_compounding_decision_status(
+                                            dedup_key=dedup_key,
+                                            status=lifecycle_status,
+                                            broker_order_id=broker_order_id,
+                                            notes=f"Order {lifecycle_status} on Trading212 ({broker_order_id})."
+                                        )
+                                    except Exception:
+                                        pass
+                                    executed_trades.append(selected_ticker)
+                                    decision = "ENTER"
+                                    reason = f"AUTONOMOUS_ENTRY_{lifecycle_status}: {order_qty} shares of {selected_ticker} ({selected_symbol}) routed to Trading212 ({broker_order_id})."
+                                else:
+                                    is_timeout = (
+                                        trade_res.get("is_timeout", False)
+                                        or trade_res.get("status") == "UNKNOWN_PENDING_RECONCILIATION"
+                                        or "timeout" in str(route_msg).lower()
+                                    )
+                                    if is_timeout:
+                                        self.mark_signal_bar_executed(dedup_key)
+                                        try:
+                                            db.update_core_compounding_decision_status(
+                                                dedup_key=dedup_key,
+                                                status="UNKNOWN_PENDING_RECONCILIATION",
+                                                notes=f"Order submission timeout. Awaiting broker reconciliation: {route_msg}"
+                                            )
+                                        except Exception:
+                                            pass
+                                        decision = "HOLD"
+                                        reason = f"UNKNOWN_PENDING_RECONCILIATION: {route_msg}"
+                                    else:
+                                        self.mark_signal_bar_executed(dedup_key)
+                                        rejection_status = trade_res.get("status", "REJECTED")
+                                        try:
+                                            db.update_core_compounding_decision_status(
+                                                dedup_key=dedup_key,
+                                                status=rejection_status,
+                                                notes=f"Routing rejected non-retryable: {route_msg}"
+                                            )
+                                        except Exception:
+                                            pass
+                                        decision = "HOLD"
+                                        reason = f"ORDER_ROUTING_REJECTED: {route_msg}"
             else:
                 decision = "HOLD"
                 reason = sig.get("reason") or "No ETF in certified universe met dual criteria (Close > 200-day SMA AND 20d Sharpe Momentum > 0.0). Preserving capital in cash."

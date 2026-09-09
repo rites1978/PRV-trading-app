@@ -177,7 +177,19 @@ class OrderRouter:
         nominal_value = quantity * price
         dec_price = decision_price or price
 
-        # 0. Fail-Closed Broker Ticker Validation Gate
+        # 0a. Hard Block on Unvalidated Unit Normalisation (IWDA)
+        if symbol == "IWDA" or t212_ticker in ("SWDAl_EQ", "IWDAl_EQ"):
+            reason = "HOLD CAPITAL PRESERVATION: IWDA is blocked from execution pending unit-normalisation remediation."
+            self._log_audit("HOLD_BLOCKED_INSTRUMENT", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "IWDA_UNIT_MISMATCH_BLOCKED")
+            return False, reason, {"approved": False, "status": "REJECTED_NON_RETRYABLE_FOR_SIGNAL", "rejection_reasons": ["IWDA_UNIT_MISMATCH_BLOCKED"]}
+
+        # 0b. Fail-Closed Executable Price Validation Gate
+        if price <= 0:
+            reason = "REJECT_NON_RETRYABLE: EXECUTION_SIZING_PRICE_UNAVAILABLE. Price must be strictly positive."
+            self._log_audit("HOLD_INVALID_PRICE", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "EXECUTION_SIZING_PRICE_UNAVAILABLE")
+            return False, reason, {"approved": False, "status": "REJECTED_NON_RETRYABLE_FOR_SIGNAL", "rejection_reasons": ["EXECUTION_SIZING_PRICE_UNAVAILABLE"]}
+
+        # 0c. Fail-Closed Broker Ticker Validation Gate
         if not is_internal_sim:
             from src.data.universe import universe_manager
             if not universe_manager.is_broker_supported(t212_ticker):

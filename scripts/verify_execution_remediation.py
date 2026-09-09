@@ -258,7 +258,8 @@ class ExecutionRemediationTest(unittest.TestCase):
              patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True), \
              patch.object(settings, "REAL_MONEY_NEW_ENTRIES_ALLOWED", False), \
              patch("src.database.db.db.get_core_compounding_decision", return_value=None), \
-             patch("src.database.db.db.get_trades", return_value=[]):
+             patch("src.database.db.db.get_trades", return_value=[]), \
+             patch("src.data.market_data.market_data.get_current_executable_price", return_value=41.6925):
 
             mock_place.return_value = {
                 "success": True,
@@ -266,7 +267,7 @@ class ExecutionRemediationTest(unittest.TestCase):
                     "id": unique_replay_id,
                     "status": "FILLED",
                     "fillPrice": 41.6925,
-                    "filledQuantity": 959.045
+                    "filledQuantity": 958.087
                 }
             }
             mock_stop.return_value = {"success": True, "data": {"id": "REPLAY_STOP_EMIM_001"}}
@@ -308,7 +309,10 @@ class ExecutionRemediationTest(unittest.TestCase):
 
                 submitted_ticker, submitted_qty = mock_place.call_args[0]
                 self.assertEqual(submitted_ticker, "EMIMl_EQ")
-                self.assertEqual(submitted_qty, 959.045)  # 50k NAV * 0.80 - 15 = 39985.0 / 41.6925 = 959.045
+                # Sizing price with 10 bps collar ceiling: round(41.6925 * 1.0010, 4) = 41.7342
+                # Deployable = 50k NAV * 0.80 - 15 = 39985.0 / 41.7342 = 958.087 shares
+                self.assertEqual(submitted_qty, 958.087)
+                self.assertLessEqual(submitted_qty * 41.7342, 39985.0)
                 print(f"  ✅ Replay Cycle 1: ENTER executed, submitted_qty={submitted_qty}, mock_place call count=1")
 
                 # Cycle 2: Same signal -> Must be DEDUP with ZERO broker calls
