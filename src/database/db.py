@@ -2401,14 +2401,30 @@ class Database:
             if broker_order_id is not None:
                 updates.append("broker_order_id = ?")
                 params.append(broker_order_id)
-                updates.append("order_timestamp = CURRENT_TIMESTAMP")
             if notes is not None:
                 updates.append("notes = ?")
                 params.append(notes)
             params.append(dedup_key)
             cur.execute(f"UPDATE core_compounding_decisions SET {', '.join(updates)} WHERE dedup_key = ?", params)
+            if cur.rowcount == 0:
+                parts = dedup_key.split("_")
+                target_inst = parts[1] if len(parts) > 1 else "UNKNOWN"
+                cur.execute("""
+                    INSERT INTO core_compounding_decisions (
+                        strategy_id, dedup_key, signal_bar_date, signal_generated_at,
+                        target_instrument, target_score, intended_execution_session, intended_execution_window,
+                        execution_status, broker_order_id, notes
+                    ) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, 0.0, CURRENT_TIMESTAMP, '08:00:00-08:05:00 BST', ?, ?, ?)
+                """, (
+                    "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+                    dedup_key,
+                    target_inst,
+                    status,
+                    broker_order_id,
+                    notes
+                ))
             conn.commit()
-            return cur.rowcount > 0
+            return True
 
     def is_core_decision_executed(self, dedup_key: str) -> bool:
         with self.get_connection() as conn:

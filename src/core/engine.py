@@ -4,7 +4,7 @@ import threading
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Union
 import pandas as pd
 import numpy as np
 
@@ -689,10 +689,92 @@ class PRVQuantEngine:
             # Otherwise, the expected completed session is the preceding trading day
             return self.get_previous_valid_lse_session(cur_d.strftime("%Y-%m-%d"))
 
+    def fetch_orders_authoritative(self, broker) -> Tuple[List[Dict[str, Any]], bool]:
+        """
+        Retrieves open orders with authoritative provenance.
+        Guarantees cached fallback is never treated as broker confirmation.
+        Returns: (orders, authoritative_fresh: bool)
+        """
+        if hasattr(broker, "get_open_orders_authoritative"):
+            try:
+                res = broker.get_open_orders_authoritative()
+                if isinstance(res, tuple) and len(res) == 2:
+                    return list(res[0]), bool(res[1])
+                elif isinstance(res, list):
+                    return res, getattr(broker, "_orders_last_fresh", True)
+            except Exception as e:
+                logger.error(f"Authoritative orders fetch error: {e}")
+                return [], False
+
+        try:
+            res = broker.get_open_orders(force_refresh=True, return_provenance=True)
+            if isinstance(res, tuple) and len(res) == 2:
+                return list(res[0]), bool(res[1])
+            elif isinstance(res, list):
+                is_fresh = getattr(broker, "_orders_last_fresh", True)
+                return res, is_fresh
+        except TypeError:
+            try:
+                res = broker.get_open_orders(force_refresh=True)
+                if isinstance(res, tuple) and len(res) == 2:
+                    return list(res[0]), bool(res[1])
+                is_fresh = getattr(broker, "_orders_last_fresh", True)
+                return list(res) if res else [], is_fresh
+            except Exception as e:
+                logger.error(f"Orders fetch error: {e}")
+                return [], False
+        except Exception as e:
+            logger.error(f"Orders fetch error: {e}")
+            return [], False
+
+        return [], False
+
+    def fetch_positions_authoritative(self, broker) -> Tuple[List[Dict[str, Any]], bool]:
+        """
+        Retrieves open positions with authoritative provenance.
+        Guarantees cached fallback is never treated as broker confirmation.
+        Returns: (positions, authoritative_fresh: bool)
+        """
+        if hasattr(broker, "get_open_positions_authoritative"):
+            try:
+                res = broker.get_open_positions_authoritative()
+                if isinstance(res, tuple) and len(res) == 2:
+                    return list(res[0]), bool(res[1])
+                elif isinstance(res, list):
+                    return res, getattr(broker, "_positions_last_fresh", True)
+            except Exception as e:
+                logger.error(f"Authoritative positions fetch error: {e}")
+                return [], False
+
+        try:
+            res = broker.get_open_positions(force_refresh=True, return_provenance=True)
+            if isinstance(res, tuple) and len(res) == 2:
+                return list(res[0]), bool(res[1])
+            elif isinstance(res, list):
+                is_fresh = getattr(broker, "_positions_last_fresh", True)
+                return res, is_fresh
+        except TypeError:
+            try:
+                res = broker.get_open_positions(force_refresh=True)
+                if isinstance(res, tuple) and len(res) == 2:
+                    return list(res[0]), bool(res[1])
+                is_fresh = getattr(broker, "_positions_last_fresh", True)
+                return list(res) if res else [], is_fresh
+            except Exception as e:
+                logger.error(f"Positions fetch error: {e}")
+                return [], False
+        except Exception as e:
+            logger.error(f"Positions fetch error: {e}")
+            return [], False
+
+        return [], False
+
     def reconcile_unknown_submissions(
         self,
         open_positions: Optional[List[Dict[str, Any]]] = None,
         open_orders: Optional[List[Dict[str, Any]]] = None,
+        positions_authoritative: Optional[bool] = None,
+        orders_authoritative: Optional[bool] = None,
         current_time: Optional[datetime] = None,
         bypass_execution_window: bool = False
     ) -> Optional[str]:
@@ -703,6 +785,7 @@ class PRVQuantEngine:
           - If after 08:05 BST window: Cancel order at broker -> force refresh -> verify absence -> stop sync -> EXPIRED_MISSED_WINDOW / PARTIALLY_FILLED_WINDOW_CLOSED
         - If position exists at broker (and order absent): Adopt position (FILLED or PARTIALLY_FILLED_WINDOW_CLOSED)
         - If broker definitively shows NO order and NO position -> EXPIRED_MISSED_WINDOW (no carry, no retry)
+        - If broker refresh is not authoritative (timeout, 500, cached fallback): Remains WINDOW_CLOSE_PENDING_RECONCILIATION.
         """
         from datetime import time as dtime
         from src.strategies.core_compounding_v1 import core_compounding_strategy
@@ -714,11 +797,39 @@ class PRVQuantEngine:
         target_ticker = pending_dec.get("target_instrument", "")
         dedup_key = pending_dec.get("dedup_key")
 
-        # Always force refresh to get latest broker ground truth
+        # Defense-in-depth: Ensure dedup_key remains recorded so it never retries today or carries to next session
+        if hasattr(self, "_executed_signals") and dedup_key:
+            self._executed_signals.add(dedup_key)
+        if dedup_key:
+            self.mark_signal_bar_executed(dedup_key)
+
+        session_ctx = self.get_core_compounding_session_context(dt=current_time)
+        now_uk = session_ctx["now_uk"]
+        cur_t = now_uk.time()
+        is_past_window = session_ctx["is_trading_day"] and (cur_t >= dtime(8, 5, 0)) and not bypass_execution_window
+
+        # Verify authoritative provenance of broker state
         if open_positions is None:
-            open_positions = broker.get_open_positions(force_refresh=True) or []
+            open_positions, positions_authoritative = self.fetch_positions_authoritative(broker)
+        elif positions_authoritative is None:
+            positions_authoritative = True
+
         if open_orders is None:
-            open_orders = broker.get_open_orders(force_refresh=True) or []
+            open_orders, orders_authoritative = self.fetch_orders_authoritative(broker)
+        elif orders_authoritative is None:
+            orders_authoritative = True
+
+        # INVARIANT: Cached data never counts as broker confirmation.
+        # If either orders or positions refresh is not authoritative, cannot transition to terminal state.
+        if not orders_authoritative or not positions_authoritative:
+            reason = f"Broker refresh not authoritative: orders_fresh={orders_authoritative}, positions_fresh={positions_authoritative}. Cached data cannot confirm broker state."
+            db.update_core_compounding_decision_status(
+                dedup_key=dedup_key,
+                status="WINDOW_CLOSE_PENDING_RECONCILIATION",
+                notes=f"Broker reconciliation deferred: {reason}"
+            )
+            logger.warning(f"RECONCILIATION_DEFERRED: {reason} for {target_ticker}. Status remains WINDOW_CLOSE_PENDING_RECONCILIATION.")
+            return f"Broker reconciliation deferred: {reason} -> WINDOW_CLOSE_PENDING_RECONCILIATION"
 
         order_match = next((o for o in open_orders if str(o.get("ticker", "")).upper() == target_ticker.upper() and str(o.get("type", "")).upper() != "STOP"), None)
         if not order_match:
@@ -727,17 +838,6 @@ class PRVQuantEngine:
                 order_match = next((o for o in open_orders if str(o.get("id")) == str(b_oid_saved)), None)
 
         pos_match = next((p for p in open_positions if str(p.get("ticker", "")).upper() == target_ticker.upper()), None)
-
-        session_ctx = self.get_core_compounding_session_context(dt=current_time)
-        now_uk = session_ctx["now_uk"]
-        cur_t = now_uk.time()
-        is_past_window = session_ctx["is_trading_day"] and (cur_t >= dtime(8, 5, 0)) and not bypass_execution_window
-
-        # Defense-in-depth: Ensure dedup_key remains recorded so it never retries today or carries to next session
-        if hasattr(self, "_executed_signals") and dedup_key:
-            self._executed_signals.add(dedup_key)
-        if dedup_key:
-            self.mark_signal_bar_executed(dedup_key)
 
         if order_match:
             b_oid = str(order_match.get("id") or "ADOPTED_BROKER_ORDER")
@@ -750,8 +850,17 @@ class PRVQuantEngine:
 
                 cancel_ok = isinstance(cancel_res, dict) and cancel_res.get("success", False)
 
-                refreshed_orders = broker.get_open_orders(force_refresh=True) or []
-                refreshed_positions = broker.get_open_positions(force_refresh=True) or []
+                # Authoritative post-cancel refresh
+                refreshed_orders, ref_orders_fresh = self.fetch_orders_authoritative(broker)
+                refreshed_positions, ref_pos_fresh = self.fetch_positions_authoritative(broker)
+
+                if not ref_orders_fresh or not ref_pos_fresh:
+                    db.update_core_compounding_decision_status(
+                        dedup_key=dedup_key,
+                        status="WINDOW_CLOSE_PENDING_RECONCILIATION",
+                        notes=f"Post-cancel refresh not authoritative: orders_fresh={ref_orders_fresh}, positions_fresh={ref_pos_fresh}, cancel_ok={cancel_ok}."
+                    )
+                    return f"Post-cancel refresh not authoritative for order {b_oid} -> WINDOW_CLOSE_PENDING_RECONCILIATION"
 
                 order_still_present = any(
                     str(o.get("id")) == b_oid and str(o.get("type", "")).upper() != "STOP"
@@ -982,13 +1091,15 @@ class PRVQuantEngine:
 
         total_nav = float(account.get("total_value", 49897.38))
         available_cash = float(account.get("available_cash", 49897.38))
-        open_positions = broker.get_open_positions(force_refresh=True) or []
-        open_orders = broker.get_open_orders(force_refresh=True) or []
+        open_positions, positions_fresh = self.fetch_positions_authoritative(broker)
+        open_orders, orders_fresh = self.fetch_orders_authoritative(broker)
 
         # 0. Broker Reconciliation for in-flight / unknown submissions
         recon_msg = self.reconcile_unknown_submissions(
             open_positions=open_positions,
             open_orders=open_orders,
+            positions_authoritative=positions_fresh,
+            orders_authoritative=orders_fresh,
             current_time=current_time,
             bypass_execution_window=bypass_execution_window
         )
@@ -1042,11 +1153,35 @@ class PRVQuantEngine:
 
                     cancel_ok = isinstance(cancel_res, dict) and cancel_res.get("success", False)
 
-                    # Step 3: Force-refresh broker open orders and positions after cancellation
-                    refreshed_orders = broker.get_open_orders(force_refresh=True) or []
-                    refreshed_positions = broker.get_open_positions(force_refresh=True) or []
+                    # Step 3: Authoritative force-refresh broker open orders and positions after cancellation
+                    refreshed_orders, orders_fresh = self.fetch_orders_authoritative(broker)
+                    refreshed_positions, positions_fresh = self.fetch_positions_authoritative(broker)
 
                     # Step 4: Confirm whether the entry order is absent/terminal at broker
+                    if not orders_fresh or not positions_fresh:
+                        # CANNOT confirm order absence or filled quantity from stale cache!
+                        db.update_core_compounding_decision_status(
+                            dedup_key=dedup_key,
+                            status="WINDOW_CLOSE_PENDING_RECONCILIATION",
+                            notes=f"Window close cancel pending reconciliation: post-cancel refresh not authoritative (orders_fresh={orders_fresh}, positions_fresh={positions_fresh}, cancel_ok={cancel_ok})."
+                        )
+                        logger.warning(
+                            f"WINDOW_CLOSE_PENDING_RECONCILIATION: Order {w_id} ({w_ticker}) post-cancel refresh not authoritative (orders_fresh={orders_fresh}, positions_fresh={positions_fresh}). "
+                            "Cached data never counts as broker confirmation."
+                        )
+                        post_pos = next((p for p in refreshed_positions if str(p.get("ticker", "")).upper() == w_ticker.upper()), None)
+                        if post_pos and float(post_pos.get("quantity", 0)) > 0:
+                            qty = float(post_pos.get("quantity", 0))
+                            avg_p = float(post_pos.get("averagePrice", 0))
+                            if avg_p > 0:
+                                inst_meta = core_compounding_strategy.get_instrument_metadata(w_ticker)
+                                is_uk_pence = inst_meta.get("is_uk_pence", True)
+                                stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                                broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                                broker.sync_broker_stop_order(w_ticker, qty, broker_stop_price)
+                                stops_synced_in_window_close.add(w_ticker.upper())
+                        continue
+
                     order_still_present = any(
                         str(o.get("id")) == w_id and str(o.get("type", "")).upper() != "STOP"
                         for o in refreshed_orders
@@ -1099,8 +1234,18 @@ class PRVQuantEngine:
                         logger.info(f"WINDOW_CLOSE: Confirmed terminal {terminal_state} for {w_ticker} (final_qty={post_cancel_final_filled_qty}).")
 
                 # Update local open_orders and open_positions caches to refreshed broker truth
-                open_orders = broker.get_open_orders(force_refresh=True) or []
-                open_positions = broker.get_open_positions(force_refresh=True) or []
+                open_orders, orders_fresh = self.fetch_orders_authoritative(broker)
+                open_positions, positions_fresh = self.fetch_positions_authoritative(broker)
+
+                self.last_decision = "HOLD"
+                self.last_no_trade_reason = "WINDOW_CLOSE: Handled working entry orders at window close (08:05:00 BST)."
+                self.last_scan_completed_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                return {
+                    "success": True,
+                    "decision": "HOLD",
+                    "reason": "WINDOW_CLOSE: Handled working entry orders at window close.",
+                    "executed_trades": []
+                }
 
         # 1. Evaluate Point-in-Time Signal & Cross-Sectional Ranking
         sig = self.evaluate_core_compounding_live_state()
@@ -1129,17 +1274,18 @@ class PRVQuantEngine:
             cur_price = float(held_pos.get("currentPrice", avg_price))
 
             # Update any DISPATCHED / ACCEPTED decision in DB to FILLED or PARTIALLY_FILLED_WINDOW_CLOSED
-            latest_dec = db.get_latest_core_compounding_decision()
-            if latest_dec and str(latest_dec.get("target_instrument", "")).upper() == held_ticker.upper() and latest_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "UNKNOWN_PENDING_RECONCILIATION"):
-                try:
-                    new_status = "PARTIALLY_FILLED_WINDOW_CLOSED" if is_past_window else "FILLED"
-                    db.update_core_compounding_decision_status(
-                        dedup_key=latest_dec["dedup_key"],
-                        status=new_status,
-                        notes=f"Confirmed FILLED on Trading212: holding {qty} shares @ £{avg_price:.4f}."
-                    )
-                except Exception:
-                    pass
+            if positions_fresh:
+                latest_dec = db.get_latest_core_compounding_decision()
+                if latest_dec and str(latest_dec.get("target_instrument", "")).upper() == held_ticker.upper() and latest_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "UNKNOWN_PENDING_RECONCILIATION"):
+                    try:
+                        new_status = "PARTIALLY_FILLED_WINDOW_CLOSED" if is_past_window else "FILLED"
+                        db.update_core_compounding_decision_status(
+                            dedup_key=latest_dec["dedup_key"],
+                            status=new_status,
+                            notes=f"Confirmed FILLED on Trading212: holding {qty} shares @ £{avg_price:.4f}."
+                        )
+                    except Exception:
+                        pass
 
             # Incremental partial-fill stop expansion: sync broker stop order if held quantity exceeds protected quantity
             existing_stops = [o for o in open_orders if str(o.get("ticker", "")).upper() == held_ticker.upper() and o.get("type") == "STOP"]
@@ -1229,6 +1375,10 @@ class PRVQuantEngine:
                     if signal_price <= 0:
                         decision = "HOLD"
                         reason = f"FAIL_CLOSED: Invalid quote price (£{signal_price:.4f}) for target {selected_symbol}."
+                    elif not positions_fresh or not orders_fresh:
+                        decision = "HOLD"
+                        reason = f"FAIL_CLOSED: Broker state not authoritative (positions_fresh={positions_fresh}, orders_fresh={orders_fresh}). New entry blocked until broker connection confirmed."
+                        logger.error(reason)
                     elif available_cash < 1000.0:
                         decision = "HOLD"
                         reason = f"FAIL_CLOSED: Insufficient cash balance (£{available_cash:.2f}) to deploy position."

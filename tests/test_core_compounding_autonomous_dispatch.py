@@ -93,7 +93,7 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
     @patch.object(broker, "get_open_orders", return_value=[])
     def test_friday_signal_to_monday_normal_open(self, mock_orders, mock_positions, mock_route_entry):
         """Invariant 1: Friday completed bar routes order on Monday (status DISPATCHED)."""
-        mock_route_entry.return_value = (True, "Order ACCEPTED by Trading212", {"broker_order_id": "TEST_ORDER_001"})
+        mock_route_entry.return_value = (True, "Order DISPATCHED to Trading212", {"broker_order_id": "TEST_ORDER_001", "lifecycle_status": "DISPATCHED"})
 
         dates = pd.date_range("2026-08-01", "2026-09-07", freq="B")
         mock_data = self._build_mock_7_asset_data(dates, target_sym="EMIM", target_sharpe=0.2235)

@@ -7,7 +7,7 @@ import time
 import threading
 import logging
 import requests
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Union
 from datetime import datetime, timezone
 from src.config.settings import settings
 from src.database.db import db
@@ -38,6 +38,8 @@ class Trading212Broker:
         self._cached_orders: List[Dict[str, Any]] = []
         self._cached_orders_time: float = 0.0
         self._cache_ttl_seconds: float = 2.0
+        self._orders_last_fresh: bool = False
+        self._positions_last_fresh: bool = False
         
         # Last verified live state
         self._last_verified_nav: float = 50000.0
@@ -261,13 +263,26 @@ class Trading212Broker:
                     "from_cache": True
                 }
 
-    def get_open_positions(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
-        """Fetch all active positions with read-through cache and retry protection."""
+    def get_open_positions(
+        self,
+        force_refresh: bool = False,
+        return_provenance: bool = False,
+        require_authoritative: bool = False
+    ) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], bool]]:
+        """
+        Fetch all active positions with read-through cache and retry protection.
+        If return_provenance=True, returns (positions, authoritative_fresh: bool).
+        If require_authoritative=True, raises RuntimeError if broker fetch is not fresh.
+        """
         with self._lock:
             if not force_refresh:
                 if self._cached_positions is not None:
-                    return list(self._cached_positions)
-                return []
+                    data = list(self._cached_positions)
+                else:
+                    data = []
+                if require_authoritative:
+                    raise RuntimeError("Authoritative positions refresh required but force_refresh=False")
+                return (data, False) if return_provenance else data
 
             now = time.time()
             try:
@@ -276,6 +291,7 @@ class Trading212Broker:
                     data = res.json()
                     self._cached_positions = data
                     self._cached_positions_time = now
+                    self._positions_last_fresh = True
                     try:
                         import json, os
                         cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "broker_positions_cache.json")
@@ -284,10 +300,28 @@ class Trading212Broker:
                             json.dump(data, f)
                     except Exception:
                         pass
-                    return list(data)
-                return list(self._cached_positions)
-            except Exception:
-                return list(self._cached_positions)
+                    return (list(data), True) if return_provenance else list(data)
+
+                self._positions_last_fresh = False
+                if require_authoritative:
+                    raise RuntimeError(f"Authoritative positions refresh failed: HTTP status {res.status_code}")
+                fallback = list(self._cached_positions) if self._cached_positions is not None else []
+                return (fallback, False) if return_provenance else fallback
+            except Exception as e:
+                self._positions_last_fresh = False
+                if require_authoritative:
+                    raise RuntimeError(f"Authoritative positions refresh failed: {str(e)}") from e
+                fallback = list(self._cached_positions) if self._cached_positions is not None else []
+                return (fallback, False) if return_provenance else fallback
+
+    def get_open_positions_authoritative(self) -> Tuple[List[Dict[str, Any]], bool]:
+        """Fetch all active positions returning (data, authoritative_fresh). Never treats cache as fresh."""
+        res = self.get_open_positions(force_refresh=True, return_provenance=True)
+        if isinstance(res, tuple) and len(res) == 2:
+            return res
+        elif isinstance(res, list):
+            return res, True
+        return [], False
 
     def get_position(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get position details for a specific instrument."""
@@ -300,21 +334,52 @@ class Trading212Broker:
             except Exception:
                 return None
 
-    def get_open_orders(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
-        """Fetch all pending/open orders from Trading212 with non-blocking cache."""
+    def get_open_orders(
+        self,
+        force_refresh: bool = False,
+        return_provenance: bool = False,
+        require_authoritative: bool = False
+    ) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], bool]]:
+        """
+        Fetch all pending/open orders from Trading212 with non-blocking cache.
+        If return_provenance=True, returns (orders, authoritative_fresh: bool).
+        If require_authoritative=True, raises RuntimeError if broker fetch is not fresh.
+        """
         with self._lock:
             now = time.time()
             if not force_refresh and self._cached_orders is not None and (now - self._cached_orders_time) < 15.0:
-                return list(self._cached_orders)
+                data = list(self._cached_orders)
+                if require_authoritative:
+                    raise RuntimeError("Authoritative orders refresh required but reading unforced cache")
+                return (data, False) if return_provenance else data
             try:
                 res = self._request_with_retry("GET", "equity/orders")
                 if res.status_code == 200:
                     self._cached_orders = res.json()
                     self._cached_orders_time = now
-                    return list(self._cached_orders)
-                return list(self._cached_orders or [])
-            except Exception:
-                return list(self._cached_orders or [])
+                    self._orders_last_fresh = True
+                    return (list(self._cached_orders), True) if return_provenance else list(self._cached_orders)
+
+                self._orders_last_fresh = False
+                if require_authoritative:
+                    raise RuntimeError(f"Authoritative orders refresh failed: HTTP status {res.status_code}")
+                fallback = list(self._cached_orders or [])
+                return (fallback, False) if return_provenance else fallback
+            except Exception as e:
+                self._orders_last_fresh = False
+                if require_authoritative:
+                    raise RuntimeError(f"Authoritative orders refresh failed: {str(e)}") from e
+                fallback = list(self._cached_orders or [])
+                return (fallback, False) if return_provenance else fallback
+
+    def get_open_orders_authoritative(self) -> Tuple[List[Dict[str, Any]], bool]:
+        """Fetch all open orders returning (data, authoritative_fresh). Never treats cache as fresh."""
+        res = self.get_open_orders(force_refresh=True, return_provenance=True)
+        if isinstance(res, tuple) and len(res) == 2:
+            return res
+        elif isinstance(res, list):
+            return res, True
+        return [], False
 
     def verify_clean_reset_status(self) -> Dict[str, Any]:
         """
