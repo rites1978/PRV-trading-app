@@ -2352,7 +2352,7 @@ class Database:
                     intended_execution_session = excluded.intended_execution_session,
                     intended_execution_window = excluded.intended_execution_window,
                     execution_status = CASE 
-                        WHEN core_compounding_decisions.execution_status IN ('FILLED', 'DISPATCHED', 'SUBMITTING', 'ACCEPTED', 'ACCEPTED/WORKING', 'EXECUTED', 'UNKNOWN_PENDING_RECONCILIATION') 
+                        WHEN core_compounding_decisions.execution_status IN ('FILLED', 'DISPATCHED', 'SUBMITTING', 'ACCEPTED', 'ACCEPTED/WORKING', 'EXECUTED', 'UNKNOWN_PENDING_RECONCILIATION', 'EXPIRED_MISSED_WINDOW', 'PARTIALLY_FILLED_WINDOW_CLOSED', 'REJECTED_NON_RETRYABLE_FOR_SIGNAL') 
                         THEN core_compounding_decisions.execution_status 
                         ELSE excluded.execution_status 
                     END,
@@ -2417,7 +2417,7 @@ class Database:
                 "SELECT execution_status FROM core_compounding_decisions WHERE dedup_key = ?", (dedup_key,)
             )
             row = cur.fetchone()
-            if row and row["execution_status"] in ("FILLED", "DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "EXECUTED", "UNKNOWN_PENDING_RECONCILIATION"):
+            if row and row["execution_status"] in ("FILLED", "DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "EXECUTED", "UNKNOWN_PENDING_RECONCILIATION", "EXPIRED_MISSED_WINDOW", "PARTIALLY_FILLED_WINDOW_CLOSED", "REJECTED_NON_RETRYABLE_FOR_SIGNAL"):
                 return True
             return False
 

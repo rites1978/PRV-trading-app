@@ -514,23 +514,24 @@ class Trading212Broker:
 
             if existing_stop:
                 current_stop = float(existing_stop.get("stopPrice", 0.0))
-                # If existing stop is already at or above desired stop, keep it
-                if current_stop >= desired_stop_price:
-                    return {"success": True, "action": "KEPT_EXISTING", "order_id": existing_stop.get("id"), "stopPrice": current_stop}
+                existing_qty = abs(float(existing_stop.get("quantity", 0.0)))
+                # If existing stop is already at or above desired stop AND covers the full quantity, keep it
+                if current_stop >= desired_stop_price and existing_qty >= abs(quantity):
+                    return {"success": True, "action": "KEPT_EXISTING", "order_id": existing_stop.get("id"), "stopPrice": current_stop, "quantity": existing_qty}
                 
                 old_stop_id = str(existing_stop.get("id"))
 
-                # Strategy 1: Place new higher stop first
+                # Strategy 1: Place new higher/expanded stop first
                 res = self.place_stop_order(ticker, quantity=qty, stop_price=desired_stop_price, time_validity=time_validity)
                 if res.get("success"):
                     self.cancel_order(old_stop_id)
-                    return {"success": True, "action": "PLACED_NEW", "order_id": res.get("data", {}).get("id"), "stopPrice": desired_stop_price}
+                    return {"success": True, "action": "PLACED_NEW", "order_id": res.get("data", {}).get("id"), "stopPrice": desired_stop_price, "quantity": abs(qty)}
 
                 # Strategy 2: If broker prevents overlapping stops, cancel old and immediately place new
                 self.cancel_order(old_stop_id)
                 res_retry = self.place_stop_order(ticker, quantity=qty, stop_price=desired_stop_price, time_validity=time_validity)
                 if res_retry.get("success"):
-                    return {"success": True, "action": "PLACED_NEW", "order_id": res_retry.get("data", {}).get("id"), "stopPrice": desired_stop_price}
+                    return {"success": True, "action": "PLACED_NEW", "order_id": res_retry.get("data", {}).get("id"), "stopPrice": desired_stop_price, "quantity": abs(qty)}
 
                 # Critical Fail-Safe: Reinstate previous protective stop immediately!
                 logger.error(f"CRITICAL: Replacement stop for {ticker} failed ({res_retry.get('error')}). Reinstating previous stop at {current_stop}!")

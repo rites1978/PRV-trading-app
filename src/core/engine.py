@@ -105,7 +105,7 @@ class PRVQuantEngine:
         # Check database persistent state for core compounding decisions across process restarts
         try:
             core_dec = db.get_core_compounding_decision(dedup_key)
-            if core_dec and core_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "FILLED", "UNKNOWN_PENDING_RECONCILIATION", "REJECTED", "REJECTED_NON_RETRYABLE_FOR_SIGNAL"):
+            if core_dec and core_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "FILLED", "UNKNOWN_PENDING_RECONCILIATION", "REJECTED", "REJECTED_NON_RETRYABLE_FOR_SIGNAL", "EXPIRED_MISSED_WINDOW", "PARTIALLY_FILLED_WINDOW_CLOSED"):
                 if not hasattr(self, "_executed_signals"):
                     self._executed_signals = set()
                 self._executed_signals.add(dedup_key)
@@ -692,14 +692,19 @@ class PRVQuantEngine:
     def reconcile_unknown_submissions(
         self,
         open_positions: Optional[List[Dict[str, Any]]] = None,
-        open_orders: Optional[List[Dict[str, Any]]] = None
+        open_orders: Optional[List[Dict[str, Any]]] = None,
+        current_time: Optional[datetime] = None,
+        bypass_execution_window: bool = False
     ) -> Optional[str]:
         """
         Reconciles decisions in UNKNOWN_PENDING_RECONCILIATION with live broker state.
-        - If working order exists at broker -> Adopt broker order (ACCEPTED)
-        - If position exists at broker -> Adopt position (FILLED)
-        - If broker definitively shows NO order and NO position -> Transition to RETRYABLE
+        - If working order exists at broker:
+          - If within 08:00-08:05 BST window: Adopt broker order (ACCEPTED)
+          - If after 08:05 BST window: Cancel order at broker -> EXPIRED_MISSED_WINDOW (or PARTIALLY_FILLED_WINDOW_CLOSED)
+        - If position exists at broker -> Adopt position (FILLED or PARTIALLY_FILLED_WINDOW_CLOSED)
+        - If broker definitively shows NO order and NO position -> EXPIRED_MISSED_WINDOW (no carry, no retry)
         """
+        from datetime import time as dtime
         pending_dec = db.get_pending_reconciliation_decision()
         if not pending_dec:
             return None
@@ -715,33 +720,59 @@ class PRVQuantEngine:
         order_match = next((o for o in open_orders if o.get("ticker") == target_ticker), None)
         pos_match = next((p for p in open_positions if p.get("ticker") == target_ticker), None)
 
+        session_ctx = self.get_core_compounding_session_context(dt=current_time)
+        now_uk = session_ctx["now_uk"]
+        cur_t = now_uk.time()
+        is_past_window = session_ctx["is_trading_day"] and (cur_t >= dtime(8, 5, 0)) and not bypass_execution_window
+
+        # Defense-in-depth: Ensure dedup_key remains recorded so it never retries today or carries to next session
+        if hasattr(self, "_executed_signals") and dedup_key:
+            self._executed_signals.add(dedup_key)
+
         if order_match:
-            b_oid = order_match.get("id") or "ADOPTED_BROKER_ORDER"
-            db.update_core_compounding_decision_status(
-                dedup_key=dedup_key,
-                status="ACCEPTED",
-                broker_order_id=str(b_oid),
-                notes=f"Broker reconciliation: adopted existing working order {b_oid}."
-            )
-            return f"Adopted broker working order {b_oid} for {target_ticker} -> ACCEPTED"
-        elif pos_match:
+            b_oid = str(order_match.get("id") or "ADOPTED_BROKER_ORDER")
+            if is_past_window:
+                broker.cancel_order(b_oid)
+                if pos_match and float(pos_match.get("quantity", 0)) > 0:
+                    qty = float(pos_match.get("quantity", 0))
+                    db.update_core_compounding_decision_status(
+                        dedup_key=dedup_key,
+                        status="PARTIALLY_FILLED_WINDOW_CLOSED",
+                        notes=f"Broker reconciliation after window close: cancelled working remainder {b_oid}. Position retained: {qty} shares."
+                    )
+                    return f"Reconciled order {b_oid} after window close: cancelled remainder, position retained ({qty} shares) -> PARTIALLY_FILLED_WINDOW_CLOSED"
+                else:
+                    db.update_core_compounding_decision_status(
+                        dedup_key=dedup_key,
+                        status="EXPIRED_MISSED_WINDOW",
+                        notes=f"Broker reconciliation after window close: cancelled stale working order {b_oid}. Signal expired (no carry)."
+                    )
+                    return f"Reconciled order {b_oid} after window close: cancelled at broker -> EXPIRED_MISSED_WINDOW"
+            else:
+                db.update_core_compounding_decision_status(
+                    dedup_key=dedup_key,
+                    status="ACCEPTED",
+                    broker_order_id=str(b_oid),
+                    notes=f"Broker reconciliation: adopted existing working order {b_oid}."
+                )
+                return f"Adopted broker working order {b_oid} for {target_ticker} -> ACCEPTED"
+        elif pos_match and float(pos_match.get("quantity", 0)) > 0:
             qty = float(pos_match.get("quantity", 0))
             avg_p = float(pos_match.get("averagePrice", 0))
+            status = "PARTIALLY_FILLED_WINDOW_CLOSED" if is_past_window else "FILLED"
             db.update_core_compounding_decision_status(
                 dedup_key=dedup_key,
-                status="FILLED",
-                notes=f"Broker reconciliation: confirmed position filled on broker ({qty} shares @ £{avg_p:.4f})."
+                status=status,
+                notes=f"Broker reconciliation: confirmed position on broker ({qty} shares @ £{avg_p:.4f})."
             )
-            return f"Confirmed position filled for {target_ticker} ({qty} shares) -> FILLED"
+            return f"Confirmed position for {target_ticker} ({qty} shares) -> {status}"
         else:
             db.update_core_compounding_decision_status(
                 dedup_key=dedup_key,
-                status="RETRYABLE",
-                notes="Broker reconciliation: verified order not present at broker. Transitioned to RETRYABLE."
+                status="EXPIRED_MISSED_WINDOW",
+                notes="Broker reconciliation: verified order absent at broker. Signal expired (no carry)."
             )
-            if hasattr(self, "_executed_signals") and dedup_key in self._executed_signals:
-                self._executed_signals.remove(dedup_key)
-            return f"Verified order absent at broker for {target_ticker} -> RETRYABLE"
+            return f"Verified order absent at broker for {target_ticker} -> EXPIRED_MISSED_WINDOW"
 
     def get_core_compounding_session_context(self, dt: Optional[datetime] = None) -> Dict[str, Any]:
         """
@@ -771,11 +802,11 @@ class PRVQuantEngine:
         # 2. Execution window check: 08:00:00 to 08:05:00 BST
         window_start = dtime(8, 0, 0)
         window_end = dtime(8, 5, 0)
-        is_window = is_trading_day and (window_start <= cur_t <= window_end)
+        is_window = is_trading_day and (window_start <= cur_t < window_end)
 
         # 3. Determine intended execution session
         next_session = self.get_next_valid_lse_session(cur_d.strftime("%Y-%m-%d"))
-        if is_trading_day and cur_t <= window_end:
+        if is_trading_day and cur_t < window_end:
             intended_session = cur_d.strftime("%Y-%m-%d")
         else:
             intended_session = next_session
@@ -879,7 +910,12 @@ class PRVQuantEngine:
         self.latest_core_compounding_signal = sig
         return sig
 
-    def _run_core_compounding_cycle(self, account: Dict[str, Any], bypass_execution_window: bool = False) -> Dict[str, Any]:
+    def _run_core_compounding_cycle(
+        self,
+        account: Dict[str, Any],
+        bypass_execution_window: bool = False,
+        current_time: Optional[datetime] = None
+    ) -> Dict[str, Any]:
         """
         Production execution cycle for PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1:
         - Evaluates completed Day T-1 close data across 7-ETF universe.
@@ -896,7 +932,12 @@ class PRVQuantEngine:
         open_orders = broker.get_open_orders(force_refresh=True) or []
 
         # 0. Broker Reconciliation for in-flight / unknown submissions
-        recon_msg = self.reconcile_unknown_submissions(open_positions=open_positions, open_orders=open_orders)
+        recon_msg = self.reconcile_unknown_submissions(
+            open_positions=open_positions,
+            open_orders=open_orders,
+            current_time=current_time,
+            bypass_execution_window=bypass_execution_window
+        )
         if recon_msg:
             logger.info(f"CORE_RECONCILIATION: {recon_msg}")
             self.last_decision = "HOLD"
@@ -909,10 +950,57 @@ class PRVQuantEngine:
                 "executed_trades": []
             }
 
-        session_ctx = self.get_core_compounding_session_context()
+        session_ctx = self.get_core_compounding_session_context(dt=current_time)
         now_uk = session_ctx["now_uk"]
         cur_d_str = session_ctx["cur_date_str"]
         cur_t = now_uk.time()
+        is_trading_day = session_ctx["is_trading_day"]
+        is_past_window = is_trading_day and (cur_t >= dtime(8, 5, 0)) and not bypass_execution_window
+
+        etf_tickers_upper = {inst["t212_ticker"].upper() for inst in core_compounding_strategy.CERTIFIED_UNIVERSE} | {inst["symbol"].upper() for inst in core_compounding_strategy.CERTIFIED_UNIVERSE}
+
+        # 0b. Strict Window-Close Enforcement: Cancel working limit entry orders if window closed
+        if is_past_window:
+            working_limit_orders = [
+                o for o in open_orders
+                if str(o.get("ticker", "")).upper() in etf_tickers_upper and str(o.get("type", "")).upper() == "LIMIT"
+            ]
+            if working_limit_orders:
+                cancelled_orders = []
+                for w_ord in working_limit_orders:
+                    w_id = str(w_ord.get("id"))
+                    w_ticker = str(w_ord.get("ticker"))
+                    broker.cancel_order(w_id)
+                    cancelled_orders.append(w_id)
+                    logger.info(f"WINDOW_CLOSE: Cancelled working limit order {w_id} for {w_ticker} at broker.")
+
+                    pos = next((p for p in open_positions if str(p.get("ticker", "")).upper() == w_ticker.upper()), None)
+                    actual_filled_qty = float(pos.get("quantity", 0.0)) if pos else 0.0
+                    avg_p = float(pos.get("averagePrice", 0.0)) if pos else 0.0
+
+                    latest_dec = db.get_latest_core_compounding_decision()
+                    dedup_key = latest_dec.get("dedup_key") if latest_dec and str(latest_dec.get("target_instrument", "")).upper() == w_ticker.upper() else f"CORE_{w_ticker}_{cur_d_str}"
+                    self.mark_signal_bar_executed(dedup_key)
+
+                    if actual_filled_qty <= 0:
+                        db.update_core_compounding_decision_status(
+                            dedup_key=dedup_key,
+                            status="EXPIRED_MISSED_WINDOW",
+                            notes=f"Window closed at 08:05:00 BST. Cancelled unfilled limit order {w_id} at broker. Signal expired without fill (no carry)."
+                        )
+                    else:
+                        db.update_core_compounding_decision_status(
+                            dedup_key=dedup_key,
+                            status="PARTIALLY_FILLED_WINDOW_CLOSED",
+                            notes=f"Window closed at 08:05:00 BST. Cancelled unfilled remainder of limit order {w_id} at broker. Position retained: {actual_filled_qty} shares."
+                        )
+                        inst_meta = core_compounding_strategy.get_instrument_metadata(w_ticker)
+                        is_uk_pence = inst_meta.get("is_uk_pence", True)
+                        stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                        broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                        broker.sync_broker_stop_order(w_ticker, actual_filled_qty, broker_stop_price)
+
+                open_orders = [o for o in open_orders if str(o.get("id")) not in cancelled_orders]
 
         # 1. Evaluate Point-in-Time Signal & Cross-Sectional Ranking
         sig = self.evaluate_core_compounding_live_state()
@@ -932,8 +1020,7 @@ class PRVQuantEngine:
         raw_decision = sig.get("decision", "HOLD_CASH")
 
         # 3. Position Lifecycle Management
-        etf_tickers = {inst["t212_ticker"] for inst in core_compounding_strategy.CERTIFIED_UNIVERSE}
-        held_pos = next((p for p in open_positions if p.get("ticker") in etf_tickers), None)
+        held_pos = next((p for p in open_positions if str(p.get("ticker", "")).upper() in etf_tickers_upper), None)
 
         if held_pos:
             held_ticker = held_pos["ticker"]
@@ -941,17 +1028,29 @@ class PRVQuantEngine:
             avg_price = float(held_pos.get("averagePrice", 0))
             cur_price = float(held_pos.get("currentPrice", avg_price))
 
-            # Update any DISPATCHED / ACCEPTED decision in DB to FILLED
+            # Update any DISPATCHED / ACCEPTED decision in DB to FILLED or PARTIALLY_FILLED_WINDOW_CLOSED
             latest_dec = db.get_latest_core_compounding_decision()
-            if latest_dec and latest_dec.get("target_instrument") == held_ticker and latest_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "UNKNOWN_PENDING_RECONCILIATION"):
+            if latest_dec and str(latest_dec.get("target_instrument", "")).upper() == held_ticker.upper() and latest_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "UNKNOWN_PENDING_RECONCILIATION"):
                 try:
+                    new_status = "PARTIALLY_FILLED_WINDOW_CLOSED" if is_past_window else "FILLED"
                     db.update_core_compounding_decision_status(
                         dedup_key=latest_dec["dedup_key"],
-                        status="FILLED",
+                        status=new_status,
                         notes=f"Confirmed FILLED on Trading212: holding {qty} shares @ £{avg_price:.4f}."
                     )
                 except Exception:
                     pass
+
+            # Incremental partial-fill stop expansion: sync broker stop order if held quantity exceeds protected quantity
+            existing_stops = [o for o in open_orders if str(o.get("ticker", "")).upper() == held_ticker.upper() and o.get("type") == "STOP"]
+            protected_qty = sum(abs(float(s.get("quantity", 0.0))) for s in existing_stops)
+            if qty > 0 and protected_qty < qty:
+                inst_meta = core_compounding_strategy.get_instrument_metadata(held_ticker)
+                is_uk_pence = inst_meta.get("is_uk_pence", True)
+                stop_price = round(avg_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                logger.info(f"INCREMENTAL_FILL_DETECTED: Position increased to {qty} shares (was {protected_qty}). Expanding broker stop order to {qty} shares @ {broker_stop_price}.")
+                broker.sync_broker_stop_order(held_ticker, qty, broker_stop_price)
 
             # Check 2% stop loss
             stop_price = round(avg_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
@@ -998,8 +1097,24 @@ class PRVQuantEngine:
                         decision = "HOLD"
                         reason = f"AWAITING_EXECUTION_WINDOW: Signal for {selected_symbol} on bar {obs_bar_str} scheduled for market open at 08:00:00 BST on {signal_execution_session}."
                     else:
+                        self.mark_signal_bar_executed(dedup_key)
                         decision = "HOLD"
                         reason = f"SIGNAL_EXPIRED: 08:00:00-08:05:00 BST market open execution window for session {signal_execution_session} has elapsed. Next execution window opens at 08:00:00 BST on {next_session}."
+                        try:
+                            db.save_core_compounding_decision({
+                                "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+                                "dedup_key": dedup_key,
+                                "signal_bar_date": obs_bar_str,
+                                "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+                                "target_instrument": selected_ticker,
+                                "target_score": selected_score,
+                                "intended_execution_session": signal_execution_session,
+                                "intended_execution_window": "08:00:00-08:05:00 BST",
+                                "execution_status": "EXPIRED_MISSED_WINDOW",
+                                "notes": reason
+                            })
+                        except Exception:
+                            pass
                 elif not settings.PRACTICE_NEW_ENTRIES_ALLOWED:
                     decision = "HOLD"
                     reason = f"PRACTICE_NEW_ENTRIES_ALLOWED=False: Signal {selected_symbol} generated (Sharpe {selected_score:+.4f}), but new entries are locked."

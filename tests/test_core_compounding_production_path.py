@@ -475,7 +475,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
 
     def test_10_unknown_submission_reconciliation_clears_retryable_when_absent(self):
         """
-        10. Invariant: When broker definitively shows no order exists, transition to RETRYABLE.
+        10. Invariant: When broker definitively shows no order exists, transition to EXPIRED_MISSED_WINDOW (no carry).
         """
         obs_bar_str = "2026-09-04"
         dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
@@ -496,12 +496,12 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         with patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]):
             recon_msg = self.engine.reconcile_unknown_submissions()
-            self.assertIn("RETRYABLE", recon_msg)
+            self.assertIn("EXPIRED_MISSED_WINDOW", recon_msg)
 
         dec = db.get_core_compounding_decision(dedup_key)
-        self.assertEqual(dec["execution_status"], "RETRYABLE")
-        # Ensure dedup allows retry
-        self.assertFalse(self.engine.is_signal_bar_already_executed(dedup_key))
+        self.assertEqual(dec["execution_status"], "EXPIRED_MISSED_WINDOW")
+        # Ensure dedup blocks retry (no carry)
+        self.assertTrue(self.engine.is_signal_bar_already_executed(dedup_key))
 
     def test_11_accepted_unfilled_order_does_not_become_filled(self):
         """
