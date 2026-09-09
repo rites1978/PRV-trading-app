@@ -518,10 +518,17 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         # Step 2: Cycle at 08:05:00 BST -> Window closes, order cancelled at broker
         working_order = {"id": "ORD_W1_001", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}
+        active_orders = [working_order]
+        def cancel_side_effect(oid):
+            nonlocal active_orders
+            active_orders = [o for o in active_orders if str(o.get("id")) != str(oid)]
+            return {"success": True}
+        mock_cancel = MagicMock(side_effect=cancel_side_effect)
+
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
              patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[working_order]), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -627,10 +634,17 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         active_stop = {"id": "STOP_W3", "ticker": "EMIMl_EQ", "type": "STOP", "quantity": -400.0, "stopPrice": 4086.60}
         pos_400 = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 41.70, "currentPrice": 41.70}]
 
+        active_orders_w3 = [working_remainder, active_stop]
+        def cancel_w3(oid):
+            nonlocal active_orders_w3
+            active_orders_w3 = [o for o in active_orders_w3 if str(o.get("id")) != str(oid)]
+            return {"success": True}
+        mock_cancel = MagicMock(side_effect=cancel_w3)
+
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
              patch.object(broker, "get_open_positions", return_value=pos_400), \
-             patch.object(broker, "get_open_orders", return_value=[working_remainder, active_stop]), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders_w3)), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -699,11 +713,18 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         # Step 2: At 08:05, window closes. Remainder (356.158) cancelled
         expanded_stop_600 = {"id": "STOP_W4_EXPANDED", "ticker": "EMIMl_EQ", "type": "STOP", "quantity": -600.0, "stopPrice": 4086.60}
+        active_orders_w4 = [working_remainder_356, expanded_stop_600]
+        def cancel_w4(oid):
+            nonlocal active_orders_w4
+            active_orders_w4 = [o for o in active_orders_w4 if str(o.get("id")) != str(oid)]
+            return {"success": True}
+        mock_cancel_w4 = MagicMock(side_effect=cancel_w4)
+
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
              patch.object(broker, "get_open_positions", return_value=pos_600), \
-             patch.object(broker, "get_open_orders", return_value=[working_remainder_356, expanded_stop_600]), \
-             patch.object(broker, "cancel_order", mock_cancel), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders_w4)), \
+             patch.object(broker, "cancel_order", mock_cancel_w4), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
             res_08_05 = self.engine._run_core_compounding_cycle(
@@ -711,7 +732,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
                 bypass_execution_window=False,
                 current_time=t_08_05
             )
-            mock_cancel.assert_called_once_with("ORD_W4_001")
+            mock_cancel_w4.assert_called_once_with("ORD_W4_001")
 
         dec = db.get_latest_core_compounding_decision()
         self.assertEqual(dec["execution_status"], "PARTIALLY_FILLED_WINDOW_CLOSED")
@@ -770,11 +791,17 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         })
 
         working_order = {"id": "ORD_W6_001", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}
+        active_orders_w6 = [working_order]
+        def cancel_w6(oid):
+            nonlocal active_orders_w6
+            active_orders_w6 = [o for o in active_orders_w6 if str(o.get("id")) != str(oid)]
+            return {"success": True}
+        mock_cancel = MagicMock(side_effect=cancel_w6)
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
              patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[working_order]), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders_w6)), \
              patch.object(broker, "cancel_order", mock_cancel):
 
             res = self.engine._run_core_compounding_cycle(
@@ -864,6 +891,12 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         })
 
         stale_order = {"id": "ORD_W8_STALE", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}
+        active_orders_w8 = [stale_order]
+        def cancel_w8(oid):
+            nonlocal active_orders_w8
+            active_orders_w8 = [o for o in active_orders_w8 if str(o.get("id")) != str(oid)]
+            return {"success": True}
+        mock_cancel = MagicMock(side_effect=cancel_w8)
 
         restarted_engine = PRVQuantEngine()
         restarted_engine._stop_event.set()
@@ -872,7 +905,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
              patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[stale_order]), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders_w8)), \
              patch.object(broker, "place_limit_order", mock_limit), \
              patch.object(broker, "cancel_order", mock_cancel):
 
@@ -884,6 +917,476 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
             self.assertEqual(res["decision"], "HOLD")
             mock_cancel.assert_called_once_with("ORD_W8_STALE")
             mock_limit.assert_not_called()
+
+        dec = db.get_latest_core_compounding_decision()
+        self.assertEqual(dec["execution_status"], "EXPIRED_MISSED_WINDOW")
+        self.assertTrue(restarted_engine.is_signal_bar_already_executed(dedup_key))
+
+
+    # =========================================================================
+    # WINDOW-CLOSE CANCELLATION RACE REMEDIATION ADVERSARIAL SUITE (9 SCENARIOS)
+    # =========================================================================
+
+    def test_race_1_cancel_http_500(self):
+        """Race 1: CANCEL_HTTP_500: broker.cancel_order returns HTTP 500 error. Order remains present. Status -> WINDOW_CLOSE_PENDING_RECONCILIATION."""
+        tz = ZoneInfo("Europe/London")
+        t_08_05 = datetime(2026, 9, 7, 8, 5, 0, tzinfo=tz)
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.24,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "ACCEPTED",
+            "notes": "Working order on book"
+        })
+
+        working_order = {"id": "ORD_R1_500", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}
+        active_orders = [working_order]
+        mock_cancel = MagicMock(return_value={"success": False, "error": "HTTP 500 Internal Server Error"})
+        mock_sync_stop = MagicMock()
+
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
+             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "cancel_order", mock_cancel), \
+             patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+
+            res = self.engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 49896.38},
+                bypass_execution_window=False,
+                current_time=t_08_05
+            )
+            self.assertEqual(res["decision"], "HOLD")
+            mock_cancel.assert_called_once_with("ORD_R1_500")
+
+        dec = db.get_latest_core_compounding_decision()
+        self.assertEqual(dec["execution_status"], "WINDOW_CLOSE_PENDING_RECONCILIATION")
+
+        # Invariant Assertions
+        terminal_state = dec["execution_status"]
+        self.assertNotIn(terminal_state, ("EXPIRED_MISSED_WINDOW", "PARTIALLY_FILLED_WINDOW_CLOSED"))
+        self.assertTrue(self.engine.is_signal_bar_already_executed(dedup_key))
+        mock_sync_stop.assert_not_called()
+
+    def test_race_2_cancel_timeout_unknown(self):
+        """Race 2: CANCEL_TIMEOUT_UNKNOWN: broker.cancel_order raises TimeoutError. Order remains present. Status -> WINDOW_CLOSE_PENDING_RECONCILIATION."""
+        tz = ZoneInfo("Europe/London")
+        t_08_05 = datetime(2026, 9, 7, 8, 5, 0, tzinfo=tz)
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.24,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "ACCEPTED",
+            "notes": "Working order on book"
+        })
+
+        working_order = {"id": "ORD_R2_TIMEOUT", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}
+        active_orders = [working_order]
+        mock_cancel = MagicMock(side_effect=TimeoutError("Gateway Timeout"))
+
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
+             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "cancel_order", mock_cancel):
+
+            res = self.engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 49896.38},
+                bypass_execution_window=False,
+                current_time=t_08_05
+            )
+            self.assertEqual(res["decision"], "HOLD")
+
+        dec = db.get_latest_core_compounding_decision()
+        self.assertEqual(dec["execution_status"], "WINDOW_CLOSE_PENDING_RECONCILIATION")
+        self.assertTrue(self.engine.is_signal_bar_already_executed(dedup_key))
+
+    def test_race_3_cancel_rejected(self):
+        """Race 3: CANCEL_REJECTED: broker.cancel_order returns error. Order remains present. Status -> WINDOW_CLOSE_PENDING_RECONCILIATION."""
+        tz = ZoneInfo("Europe/London")
+        t_08_05 = datetime(2026, 9, 7, 8, 5, 0, tzinfo=tz)
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.24,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "ACCEPTED",
+            "notes": "Working order on book"
+        })
+
+        working_order = {"id": "ORD_R3_REJECT", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}
+        active_orders = [working_order]
+        mock_cancel = MagicMock(return_value={"success": False, "error": "Order cannot be cancelled"})
+
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
+             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "cancel_order", mock_cancel):
+
+            res = self.engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 49896.38},
+                bypass_execution_window=False,
+                current_time=t_08_05
+            )
+            self.assertEqual(res["decision"], "HOLD")
+
+        dec = db.get_latest_core_compounding_decision()
+        self.assertEqual(dec["execution_status"], "WINDOW_CLOSE_PENDING_RECONCILIATION")
+        self.assertTrue(self.engine.is_signal_bar_already_executed(dedup_key))
+
+    def test_race_4_fill_occurs_between_pre_cancel_snapshot_and_cancel_ack(self):
+        """Race 4: FILL_OCCURS_BETWEEN_PRE_CANCEL_SNAPSHOT_AND_CANCEL_ACK: 0 shares pre-cancel. Fill occurs before cancel ACK. Post-cancel position = 956.158 shares. Stop synced to exactly 956.158 shares."""
+        tz = ZoneInfo("Europe/London")
+        t_08_05 = datetime(2026, 9, 7, 8, 5, 0, tzinfo=tz)
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.24,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "ACCEPTED",
+            "notes": "Working order on book"
+        })
+
+        working_order = {"id": "ORD_R4_RACE", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}
+        active_orders = [working_order]
+        active_positions = []  # Pre-cancel: 0 shares
+
+        def cancel_race(oid):
+            nonlocal active_orders, active_positions
+            active_orders = []
+            active_positions = [{"ticker": "EMIMl_EQ", "quantity": 956.158, "averagePrice": 41.6900, "currentPrice": 41.6900}]
+            return {"success": True}
+
+        mock_cancel = MagicMock(side_effect=cancel_race)
+        mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_R4"})
+
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
+             patch.object(broker, "get_open_positions", side_effect=lambda **kw: list(active_positions)), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "cancel_order", mock_cancel), \
+             patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+
+            res = self.engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 49896.38},
+                bypass_execution_window=False,
+                current_time=t_08_05
+            )
+            self.assertEqual(res["decision"], "HOLD")
+            mock_cancel.assert_called_once_with("ORD_R4_RACE")
+            mock_sync_stop.assert_called_once()
+            _, s_qty, s_price = mock_sync_stop.call_args[0]
+            self.assertEqual(s_qty, 956.158)
+            self.assertEqual(s_price, 4085.62)
+
+        dec = db.get_latest_core_compounding_decision()
+        self.assertEqual(dec["execution_status"], "PARTIALLY_FILLED_WINDOW_CLOSED")
+        self.assertEqual(s_qty, 956.158)
+        self.assertTrue(self.engine.is_signal_bar_already_executed(dedup_key))
+
+    def test_race_5_partial_fill_increases_during_cancel(self):
+        """Race 5: PARTIAL_FILL_INCREASES_DURING_CANCEL: 400 shares pre-cancel. +200 shares fill during cancel. Post-cancel position = 600.0 shares. Stop synced to exactly 600.0 shares."""
+        tz = ZoneInfo("Europe/London")
+        t_08_05 = datetime(2026, 9, 7, 8, 5, 0, tzinfo=tz)
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.24,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "PARTIALLY_FILLED",
+            "notes": "400 shares filled at 08:02"
+        })
+
+        working_remainder = {"id": "ORD_R5_REM", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 556.158}
+        active_stop = {"id": "STOP_R5_OLD", "ticker": "EMIMl_EQ", "type": "STOP", "quantity": -400.0, "stopPrice": 4086.60}
+        active_orders = [working_remainder, active_stop]
+        active_positions = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 41.7000, "currentPrice": 41.7000}]
+
+        def cancel_race_partial(oid):
+            nonlocal active_orders, active_positions
+            active_orders = [active_stop]
+            active_positions = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 41.7000, "currentPrice": 41.7000}]
+            return {"success": True}
+
+        mock_cancel = MagicMock(side_effect=cancel_race_partial)
+        mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_R5_EXPANDED"})
+
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
+             patch.object(broker, "get_open_positions", side_effect=lambda **kw: list(active_positions)), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "cancel_order", mock_cancel), \
+             patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+
+            res = self.engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 24876.38},
+                bypass_execution_window=False,
+                current_time=t_08_05
+            )
+            self.assertEqual(res["decision"], "HOLD")
+            mock_cancel.assert_called_once_with("ORD_R5_REM")
+            mock_sync_stop.assert_called_once()
+            _, s_qty, s_price = mock_sync_stop.call_args[0]
+            self.assertEqual(s_qty, 600.0)
+            self.assertEqual(s_price, 4086.60)
+
+        dec = db.get_latest_core_compounding_decision()
+        self.assertEqual(dec["execution_status"], "PARTIALLY_FILLED_WINDOW_CLOSED")
+
+    def test_race_6_cancel_success_but_open_order_cache_stale(self):
+        """Race 6: CANCEL_SUCCESS_BUT_OPEN_ORDER_CACHE_STALE: Non-force-refreshed cache had order; force_refresh=True clears it. Terminal status confirmed only after fresh check."""
+        tz = ZoneInfo("Europe/London")
+        t_08_05 = datetime(2026, 9, 7, 8, 5, 0, tzinfo=tz)
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.24,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "ACCEPTED",
+            "notes": "Working order on book"
+        })
+
+        working_order = {"id": "ORD_R6_STALE_CACHE", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}
+        call_count = 0
+        def get_orders_smart(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [working_order]
+            return []
+
+        mock_cancel = MagicMock(return_value={"success": True})
+
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
+             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", side_effect=get_orders_smart), \
+             patch.object(broker, "cancel_order", mock_cancel):
+
+            res = self.engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 49896.38},
+                bypass_execution_window=False,
+                current_time=t_08_05
+            )
+            self.assertEqual(res["decision"], "HOLD")
+            mock_cancel.assert_called_once_with("ORD_R6_STALE_CACHE")
+
+        dec = db.get_latest_core_compounding_decision()
+        self.assertEqual(dec["execution_status"], "EXPIRED_MISSED_WINDOW")
+
+    def test_race_7_cancel_success_and_final_position_greater_than_pre_cancel_position(self):
+        """Race 7: CANCEL_SUCCESS_AND_FINAL_POSITION_GREATER_THAN_PRE_CANCEL_POSITION: Pre-cancel position 100 shares. Post-cancel position 500 shares. Stop covers exactly 500 shares."""
+        tz = ZoneInfo("Europe/London")
+        t_08_05 = datetime(2026, 9, 7, 8, 5, 0, tzinfo=tz)
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.24,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "PARTIALLY_FILLED",
+            "notes": "100 shares filled"
+        })
+
+        working_remainder = {"id": "ORD_R7_REM", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 856.158}
+        active_stop = {"id": "STOP_R7_OLD", "ticker": "EMIMl_EQ", "type": "STOP", "quantity": -100.0, "stopPrice": 4085.62}
+        active_orders = [working_remainder, active_stop]
+        active_positions = [{"ticker": "EMIMl_EQ", "quantity": 100.0, "averagePrice": 41.6900, "currentPrice": 41.6900}]
+
+        def cancel_race_7(oid):
+            nonlocal active_orders, active_positions
+            active_orders = [active_stop]
+            active_positions = [{"ticker": "EMIMl_EQ", "quantity": 500.0, "averagePrice": 41.6900, "currentPrice": 41.6900}]
+            return {"success": True}
+
+        mock_cancel = MagicMock(side_effect=cancel_race_7)
+        mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_R7_EXPANDED"})
+
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
+             patch.object(broker, "get_open_positions", side_effect=lambda **kw: list(active_positions)), \
+             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "cancel_order", mock_cancel), \
+             patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+
+            res = self.engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 29051.38},
+                bypass_execution_window=False,
+                current_time=t_08_05
+            )
+            self.assertEqual(res["decision"], "HOLD")
+            mock_cancel.assert_called_once_with("ORD_R7_REM")
+            mock_sync_stop.assert_called_once()
+            _, s_qty, s_price = mock_sync_stop.call_args[0]
+            self.assertEqual(s_qty, 500.0)
+            self.assertEqual(s_price, 4085.62)
+
+        dec = db.get_latest_core_compounding_decision()
+        self.assertEqual(dec["execution_status"], "PARTIALLY_FILLED_WINDOW_CLOSED")
+
+    def test_race_8_restart_during_cancel_unknown(self):
+        """Race 8: RESTART_DURING_CANCEL_UNKNOWN: Daemon restarts while in WINDOW_CLOSE_PENDING_RECONCILIATION. Post-restart reconciliation detects order absent, syncs stop, transitions to terminal without replacement entry."""
+        tz = ZoneInfo("Europe/London")
+        t_08_06 = datetime(2026, 9, 7, 8, 6, 0, tzinfo=tz)
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.24,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "WINDOW_CLOSE_PENDING_RECONCILIATION",
+            "broker_order_id": "ORD_R8_IN_FLIGHT",
+            "notes": "Cancel pending reconciliation before reboot"
+        })
+
+        pos_600 = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 41.7000, "currentPrice": 41.7000}]
+        mock_limit = MagicMock()
+        mock_cancel = MagicMock()
+        mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_R8_RECON"})
+
+        restarted_engine = PRVQuantEngine()
+        restarted_engine._stop_event.set()
+        restarted_engine.is_running = False
+
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
+             patch.object(broker, "get_open_positions", return_value=pos_600), \
+             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "place_limit_order", mock_limit), \
+             patch.object(broker, "cancel_order", mock_cancel), \
+             patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+
+            res = restarted_engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 24876.38},
+                bypass_execution_window=False,
+                current_time=t_08_06
+            )
+            self.assertEqual(res["decision"], "HOLD")
+            self.assertIn("RECONCILIATION_COMPLETED", res["reason"])
+            mock_limit.assert_not_called()
+            mock_cancel.assert_not_called()
+            mock_sync_stop.assert_called_once()
+            _, s_qty, s_price = mock_sync_stop.call_args[0]
+            self.assertEqual(s_qty, 600.0)
+            self.assertEqual(s_price, 4086.60)
+
+        dec = db.get_latest_core_compounding_decision()
+        self.assertEqual(dec["execution_status"], "PARTIALLY_FILLED_WINDOW_CLOSED")
+        self.assertTrue(restarted_engine.is_signal_bar_already_executed(dedup_key))
+
+    def test_race_9_restart_after_cancel_before_final_reconciliation(self):
+        """Race 9: RESTART_AFTER_CANCEL_BEFORE_FINAL_RECONCILIATION: Cancel succeeded on broker, but daemon restarted before DB status updated to terminal. Post-restart reconciliation completes terminal transition to EXPIRED_MISSED_WINDOW."""
+        tz = ZoneInfo("Europe/London")
+        t_08_06 = datetime(2026, 9, 7, 8, 6, 0, tzinfo=tz)
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+
+        obs_bar_str = "2026-09-04"
+        dedup_key = f"CORE_EMIMl_EQ_{obs_bar_str}"
+        db.save_core_compounding_decision({
+            "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
+            "dedup_key": dedup_key,
+            "signal_bar_date": obs_bar_str,
+            "signal_generated_at": datetime.now(timezone.utc).isoformat(),
+            "target_instrument": "EMIMl_EQ",
+            "target_score": 0.24,
+            "intended_execution_session": "2026-09-07",
+            "intended_execution_window": "08:00:00-08:05:00 BST",
+            "execution_status": "WINDOW_CLOSE_PENDING_RECONCILIATION",
+            "broker_order_id": "ORD_R9_CANCELLED",
+            "notes": "Cancel completed on broker, crashed before terminal DB write"
+        })
+
+        mock_limit = MagicMock()
+        mock_cancel = MagicMock()
+        mock_sync_stop = MagicMock()
+
+        restarted_engine = PRVQuantEngine()
+        restarted_engine._stop_event.set()
+        restarted_engine.is_running = False
+
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+             patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
+             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "place_limit_order", mock_limit), \
+             patch.object(broker, "cancel_order", mock_cancel), \
+             patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+
+            res = restarted_engine._run_core_compounding_cycle(
+                account={"total_value": 49896.38, "available_cash": 49896.38},
+                bypass_execution_window=False,
+                current_time=t_08_06
+            )
+            self.assertEqual(res["decision"], "HOLD")
+            self.assertIn("RECONCILIATION_COMPLETED", res["reason"])
+            mock_limit.assert_not_called()
+            mock_cancel.assert_not_called()
+            mock_sync_stop.assert_not_called()
 
         dec = db.get_latest_core_compounding_decision()
         self.assertEqual(dec["execution_status"], "EXPIRED_MISSED_WINDOW")

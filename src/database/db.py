@@ -2352,7 +2352,7 @@ class Database:
                     intended_execution_session = excluded.intended_execution_session,
                     intended_execution_window = excluded.intended_execution_window,
                     execution_status = CASE 
-                        WHEN core_compounding_decisions.execution_status IN ('FILLED', 'DISPATCHED', 'SUBMITTING', 'ACCEPTED', 'ACCEPTED/WORKING', 'EXECUTED', 'UNKNOWN_PENDING_RECONCILIATION', 'EXPIRED_MISSED_WINDOW', 'PARTIALLY_FILLED_WINDOW_CLOSED', 'REJECTED_NON_RETRYABLE_FOR_SIGNAL') 
+                        WHEN core_compounding_decisions.execution_status IN ('FILLED', 'DISPATCHED', 'SUBMITTING', 'ACCEPTED', 'ACCEPTED/WORKING', 'EXECUTED', 'UNKNOWN_PENDING_RECONCILIATION', 'WINDOW_CLOSE_PENDING_RECONCILIATION', 'EXPIRED_MISSED_WINDOW', 'PARTIALLY_FILLED_WINDOW_CLOSED', 'REJECTED_NON_RETRYABLE_FOR_SIGNAL') 
                         THEN core_compounding_decisions.execution_status 
                         ELSE excluded.execution_status 
                     END,
@@ -2417,14 +2417,14 @@ class Database:
                 "SELECT execution_status FROM core_compounding_decisions WHERE dedup_key = ?", (dedup_key,)
             )
             row = cur.fetchone()
-            if row and row["execution_status"] in ("FILLED", "DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "EXECUTED", "UNKNOWN_PENDING_RECONCILIATION", "EXPIRED_MISSED_WINDOW", "PARTIALLY_FILLED_WINDOW_CLOSED", "REJECTED_NON_RETRYABLE_FOR_SIGNAL"):
+            if row and row["execution_status"] in ("FILLED", "DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "EXECUTED", "UNKNOWN_PENDING_RECONCILIATION", "WINDOW_CLOSE_PENDING_RECONCILIATION", "EXPIRED_MISSED_WINDOW", "PARTIALLY_FILLED_WINDOW_CLOSED", "REJECTED_NON_RETRYABLE_FOR_SIGNAL"):
                 return True
             return False
 
     def get_pending_reconciliation_decision(self) -> Optional[Dict[str, Any]]:
         with self.get_connection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM core_compounding_decisions WHERE execution_status = 'UNKNOWN_PENDING_RECONCILIATION' ORDER BY id DESC LIMIT 1")
+            cur.execute("SELECT * FROM core_compounding_decisions WHERE execution_status IN ('UNKNOWN_PENDING_RECONCILIATION', 'WINDOW_CLOSE_PENDING_RECONCILIATION') ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
             return dict(row) if row else None
 

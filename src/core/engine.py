@@ -105,7 +105,7 @@ class PRVQuantEngine:
         # Check database persistent state for core compounding decisions across process restarts
         try:
             core_dec = db.get_core_compounding_decision(dedup_key)
-            if core_dec and core_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "FILLED", "UNKNOWN_PENDING_RECONCILIATION", "REJECTED", "REJECTED_NON_RETRYABLE_FOR_SIGNAL", "EXPIRED_MISSED_WINDOW", "PARTIALLY_FILLED_WINDOW_CLOSED"):
+            if core_dec and core_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "FILLED", "UNKNOWN_PENDING_RECONCILIATION", "WINDOW_CLOSE_PENDING_RECONCILIATION", "REJECTED", "REJECTED_NON_RETRYABLE_FOR_SIGNAL", "EXPIRED_MISSED_WINDOW", "PARTIALLY_FILLED_WINDOW_CLOSED"):
                 if not hasattr(self, "_executed_signals"):
                     self._executed_signals = set()
                 self._executed_signals.add(dedup_key)
@@ -697,28 +697,36 @@ class PRVQuantEngine:
         bypass_execution_window: bool = False
     ) -> Optional[str]:
         """
-        Reconciles decisions in UNKNOWN_PENDING_RECONCILIATION with live broker state.
+        Reconciles decisions in UNKNOWN_PENDING_RECONCILIATION or WINDOW_CLOSE_PENDING_RECONCILIATION with live broker state.
         - If working order exists at broker:
           - If within 08:00-08:05 BST window: Adopt broker order (ACCEPTED)
-          - If after 08:05 BST window: Cancel order at broker -> EXPIRED_MISSED_WINDOW (or PARTIALLY_FILLED_WINDOW_CLOSED)
-        - If position exists at broker -> Adopt position (FILLED or PARTIALLY_FILLED_WINDOW_CLOSED)
+          - If after 08:05 BST window: Cancel order at broker -> force refresh -> verify absence -> stop sync -> EXPIRED_MISSED_WINDOW / PARTIALLY_FILLED_WINDOW_CLOSED
+        - If position exists at broker (and order absent): Adopt position (FILLED or PARTIALLY_FILLED_WINDOW_CLOSED)
         - If broker definitively shows NO order and NO position -> EXPIRED_MISSED_WINDOW (no carry, no retry)
         """
         from datetime import time as dtime
+        from src.strategies.core_compounding_v1 import core_compounding_strategy
+
         pending_dec = db.get_pending_reconciliation_decision()
         if not pending_dec:
             return None
 
-        target_ticker = pending_dec.get("target_instrument")
+        target_ticker = pending_dec.get("target_instrument", "")
         dedup_key = pending_dec.get("dedup_key")
 
+        # Always force refresh to get latest broker ground truth
         if open_positions is None:
             open_positions = broker.get_open_positions(force_refresh=True) or []
         if open_orders is None:
             open_orders = broker.get_open_orders(force_refresh=True) or []
 
-        order_match = next((o for o in open_orders if o.get("ticker") == target_ticker), None)
-        pos_match = next((p for p in open_positions if p.get("ticker") == target_ticker), None)
+        order_match = next((o for o in open_orders if str(o.get("ticker", "")).upper() == target_ticker.upper() and str(o.get("type", "")).upper() != "STOP"), None)
+        if not order_match:
+            b_oid_saved = pending_dec.get("broker_order_id")
+            if b_oid_saved:
+                order_match = next((o for o in open_orders if str(o.get("id")) == str(b_oid_saved)), None)
+
+        pos_match = next((p for p in open_positions if str(p.get("ticker", "")).upper() == target_ticker.upper()), None)
 
         session_ctx = self.get_core_compounding_session_context(dt=current_time)
         now_uk = session_ctx["now_uk"]
@@ -728,26 +736,66 @@ class PRVQuantEngine:
         # Defense-in-depth: Ensure dedup_key remains recorded so it never retries today or carries to next session
         if hasattr(self, "_executed_signals") and dedup_key:
             self._executed_signals.add(dedup_key)
+        if dedup_key:
+            self.mark_signal_bar_executed(dedup_key)
 
         if order_match:
             b_oid = str(order_match.get("id") or "ADOPTED_BROKER_ORDER")
             if is_past_window:
-                broker.cancel_order(b_oid)
-                if pos_match and float(pos_match.get("quantity", 0)) > 0:
-                    qty = float(pos_match.get("quantity", 0))
+                pre_cancel_filled_qty = float(pos_match.get("quantity", 0)) if pos_match else 0.0
+                try:
+                    cancel_res = broker.cancel_order(b_oid)
+                except Exception as e:
+                    cancel_res = {"success": False, "error": f"Exception: {str(e)}"}
+
+                cancel_ok = isinstance(cancel_res, dict) and cancel_res.get("success", False)
+
+                refreshed_orders = broker.get_open_orders(force_refresh=True) or []
+                refreshed_positions = broker.get_open_positions(force_refresh=True) or []
+
+                order_still_present = any(
+                    str(o.get("id")) == b_oid and str(o.get("type", "")).upper() != "STOP"
+                    for o in refreshed_orders
+                )
+
+                post_pos = next((p for p in refreshed_positions if str(p.get("ticker", "")).upper() == target_ticker.upper()), None)
+                final_qty = float(post_pos.get("quantity", 0)) if post_pos else 0.0
+                avg_p = float(post_pos.get("averagePrice", 0)) if post_pos else 0.0
+
+                if not cancel_ok or order_still_present:
+                    err_msg = cancel_res.get("error", "Order still present at broker") if isinstance(cancel_res, dict) else "Unknown cancel error"
                     db.update_core_compounding_decision_status(
                         dedup_key=dedup_key,
-                        status="PARTIALLY_FILLED_WINDOW_CLOSED",
-                        notes=f"Broker reconciliation after window close: cancelled working remainder {b_oid}. Position retained: {qty} shares."
+                        status="WINDOW_CLOSE_PENDING_RECONCILIATION",
+                        notes=f"Broker reconciliation after window close: cancel inconclusive (cancel_ok={cancel_ok}, order_present={order_still_present}, err={err_msg}, pre_qty={pre_cancel_filled_qty}, refreshed_qty={final_qty})."
                     )
-                    return f"Reconciled order {b_oid} after window close: cancelled remainder, position retained ({qty} shares) -> PARTIALLY_FILLED_WINDOW_CLOSED"
+                    if final_qty > 0 and avg_p > 0:
+                        inst_meta = core_compounding_strategy.get_instrument_metadata(target_ticker)
+                        is_uk_pence = inst_meta.get("is_uk_pence", True)
+                        stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                        broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                        broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
+                    return f"Reconciliation after window close: order {b_oid} still pending cancellation -> WINDOW_CLOSE_PENDING_RECONCILIATION"
                 else:
-                    db.update_core_compounding_decision_status(
-                        dedup_key=dedup_key,
-                        status="EXPIRED_MISSED_WINDOW",
-                        notes=f"Broker reconciliation after window close: cancelled stale working order {b_oid}. Signal expired (no carry)."
-                    )
-                    return f"Reconciled order {b_oid} after window close: cancelled at broker -> EXPIRED_MISSED_WINDOW"
+                    if final_qty > 0:
+                        inst_meta = core_compounding_strategy.get_instrument_metadata(target_ticker)
+                        is_uk_pence = inst_meta.get("is_uk_pence", True)
+                        stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                        broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                        broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
+                        db.update_core_compounding_decision_status(
+                            dedup_key=dedup_key,
+                            status="PARTIALLY_FILLED_WINDOW_CLOSED",
+                            notes=f"Broker reconciliation after window close: confirmed order {b_oid} cancelled at broker. Position retained: {final_qty} shares."
+                        )
+                        return f"Reconciled order {b_oid} after window close: cancelled remainder, position retained ({final_qty} shares) -> PARTIALLY_FILLED_WINDOW_CLOSED"
+                    else:
+                        db.update_core_compounding_decision_status(
+                            dedup_key=dedup_key,
+                            status="EXPIRED_MISSED_WINDOW",
+                            notes=f"Broker reconciliation after window close: confirmed order {b_oid} cancelled at broker. Signal expired (no carry)."
+                        )
+                        return f"Reconciled order {b_oid} after window close: cancelled at broker -> EXPIRED_MISSED_WINDOW"
             else:
                 db.update_core_compounding_decision_status(
                     dedup_key=dedup_key,
@@ -760,6 +808,12 @@ class PRVQuantEngine:
             qty = float(pos_match.get("quantity", 0))
             avg_p = float(pos_match.get("averagePrice", 0))
             status = "PARTIALLY_FILLED_WINDOW_CLOSED" if is_past_window else "FILLED"
+            if avg_p > 0:
+                inst_meta = core_compounding_strategy.get_instrument_metadata(target_ticker)
+                is_uk_pence = inst_meta.get("is_uk_pence", True)
+                stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                broker.sync_broker_stop_order(target_ticker, qty, broker_stop_price)
             db.update_core_compounding_decision_status(
                 dedup_key=dedup_key,
                 status=status,
@@ -959,6 +1013,8 @@ class PRVQuantEngine:
 
         etf_tickers_upper = {inst["t212_ticker"].upper() for inst in core_compounding_strategy.CERTIFIED_UNIVERSE} | {inst["symbol"].upper() for inst in core_compounding_strategy.CERTIFIED_UNIVERSE}
 
+        stops_synced_in_window_close = set()
+
         # 0b. Strict Window-Close Enforcement: Cancel working limit entry orders if window closed
         if is_past_window:
             working_limit_orders = [
@@ -966,41 +1022,85 @@ class PRVQuantEngine:
                 if str(o.get("ticker", "")).upper() in etf_tickers_upper and str(o.get("type", "")).upper() == "LIMIT"
             ]
             if working_limit_orders:
-                cancelled_orders = []
                 for w_ord in working_limit_orders:
                     w_id = str(w_ord.get("id"))
                     w_ticker = str(w_ord.get("ticker"))
-                    broker.cancel_order(w_id)
-                    cancelled_orders.append(w_id)
-                    logger.info(f"WINDOW_CLOSE: Cancelled working limit order {w_id} for {w_ticker} at broker.")
-
-                    pos = next((p for p in open_positions if str(p.get("ticker", "")).upper() == w_ticker.upper()), None)
-                    actual_filled_qty = float(pos.get("quantity", 0.0)) if pos else 0.0
-                    avg_p = float(pos.get("averagePrice", 0.0)) if pos else 0.0
 
                     latest_dec = db.get_latest_core_compounding_decision()
                     dedup_key = latest_dec.get("dedup_key") if latest_dec and str(latest_dec.get("target_instrument", "")).upper() == w_ticker.upper() else f"CORE_{w_ticker}_{cur_d_str}"
                     self.mark_signal_bar_executed(dedup_key)
 
-                    if actual_filled_qty <= 0:
-                        db.update_core_compounding_decision_status(
-                            dedup_key=dedup_key,
-                            status="EXPIRED_MISSED_WINDOW",
-                            notes=f"Window closed at 08:05:00 BST. Cancelled unfilled limit order {w_id} at broker. Signal expired without fill (no carry)."
-                        )
-                    else:
-                        db.update_core_compounding_decision_status(
-                            dedup_key=dedup_key,
-                            status="PARTIALLY_FILLED_WINDOW_CLOSED",
-                            notes=f"Window closed at 08:05:00 BST. Cancelled unfilled remainder of limit order {w_id} at broker. Position retained: {actual_filled_qty} shares."
-                        )
-                        inst_meta = core_compounding_strategy.get_instrument_metadata(w_ticker)
-                        is_uk_pence = inst_meta.get("is_uk_pence", True)
-                        stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-                        broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
-                        broker.sync_broker_stop_order(w_ticker, actual_filled_qty, broker_stop_price)
+                    # Step 1: Pre-cancel snapshot
+                    pre_pos = next((p for p in open_positions if str(p.get("ticker", "")).upper() == w_ticker.upper()), None)
+                    pre_cancel_filled_qty = float(pre_pos.get("quantity", 0.0)) if pre_pos else 0.0
 
-                open_orders = [o for o in open_orders if str(o.get("id")) not in cancelled_orders]
+                    # Step 2: Send cancellation for working entry remainder
+                    try:
+                        cancel_res = broker.cancel_order(w_id)
+                    except Exception as e:
+                        cancel_res = {"success": False, "error": f"Exception: {str(e)}"}
+
+                    cancel_ok = isinstance(cancel_res, dict) and cancel_res.get("success", False)
+
+                    # Step 3: Force-refresh broker open orders and positions after cancellation
+                    refreshed_orders = broker.get_open_orders(force_refresh=True) or []
+                    refreshed_positions = broker.get_open_positions(force_refresh=True) or []
+
+                    # Step 4: Confirm whether the entry order is absent/terminal at broker
+                    order_still_present = any(
+                        str(o.get("id")) == w_id and str(o.get("type", "")).upper() != "STOP"
+                        for o in refreshed_orders
+                    )
+
+                    # Post-cancel position snapshot from refreshed broker truth
+                    post_pos = next((p for p in refreshed_positions if str(p.get("ticker", "")).upper() == w_ticker.upper()), None)
+                    post_cancel_final_filled_qty = float(post_pos.get("quantity", 0.0)) if post_pos else 0.0
+                    avg_p = float(post_pos.get("averagePrice", 0.0)) if post_pos else 0.0
+
+                    # Step 5: Evaluate outcome
+                    if not cancel_ok or order_still_present:
+                        err_msg = cancel_res.get("error", "Order still present on broker book") if isinstance(cancel_res, dict) else "Unknown cancel error"
+                        db.update_core_compounding_decision_status(
+                            dedup_key=dedup_key,
+                            status="WINDOW_CLOSE_PENDING_RECONCILIATION",
+                            notes=f"Window close cancel pending reconciliation: cancel_ok={cancel_ok}, order_present={order_still_present}, err={err_msg}, pre_qty={pre_cancel_filled_qty}, refreshed_qty={post_cancel_final_filled_qty}"
+                        )
+                        logger.warning(
+                            f"WINDOW_CLOSE_PENDING_RECONCILIATION: Order {w_id} ({w_ticker}) cancel inconclusive (cancel_ok={cancel_ok}, present={order_still_present}). "
+                            f"Refreshed filled qty: {post_cancel_final_filled_qty}."
+                        )
+                        if post_cancel_final_filled_qty > 0 and avg_p > 0:
+                            inst_meta = core_compounding_strategy.get_instrument_metadata(w_ticker)
+                            is_uk_pence = inst_meta.get("is_uk_pence", True)
+                            stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                            broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                            broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
+                            stops_synced_in_window_close.add(w_ticker.upper())
+                    else:
+                        # Order confirmed absent/terminal at broker!
+                        if post_cancel_final_filled_qty > 0:
+                            inst_meta = core_compounding_strategy.get_instrument_metadata(w_ticker)
+                            is_uk_pence = inst_meta.get("is_uk_pence", True)
+                            stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+                            broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                            broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
+                            stops_synced_in_window_close.add(w_ticker.upper())
+                            terminal_state = "PARTIALLY_FILLED_WINDOW_CLOSED"
+                            note_text = f"Window closed at 08:05:00 BST. Confirmed limit order {w_id} cancelled/terminal at broker. Position retained: {post_cancel_final_filled_qty} shares."
+                        else:
+                            terminal_state = "EXPIRED_MISSED_WINDOW"
+                            note_text = f"Window closed at 08:05:00 BST. Confirmed unfilled limit order {w_id} cancelled/absent at broker. Signal expired without fill (no carry)."
+
+                        db.update_core_compounding_decision_status(
+                            dedup_key=dedup_key,
+                            status=terminal_state,
+                            notes=note_text
+                        )
+                        logger.info(f"WINDOW_CLOSE: Confirmed terminal {terminal_state} for {w_ticker} (final_qty={post_cancel_final_filled_qty}).")
+
+                # Update local open_orders and open_positions caches to refreshed broker truth
+                open_orders = broker.get_open_orders(force_refresh=True) or []
+                open_positions = broker.get_open_positions(force_refresh=True) or []
 
         # 1. Evaluate Point-in-Time Signal & Cross-Sectional Ranking
         sig = self.evaluate_core_compounding_live_state()
@@ -1044,7 +1144,7 @@ class PRVQuantEngine:
             # Incremental partial-fill stop expansion: sync broker stop order if held quantity exceeds protected quantity
             existing_stops = [o for o in open_orders if str(o.get("ticker", "")).upper() == held_ticker.upper() and o.get("type") == "STOP"]
             protected_qty = sum(abs(float(s.get("quantity", 0.0))) for s in existing_stops)
-            if qty > 0 and protected_qty < qty:
+            if qty > 0 and protected_qty < qty and held_ticker.upper() not in stops_synced_in_window_close:
                 inst_meta = core_compounding_strategy.get_instrument_metadata(held_ticker)
                 is_uk_pence = inst_meta.get("is_uk_pence", True)
                 stop_price = round(avg_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
