@@ -11,6 +11,11 @@ from typing import Dict, Any, List, Optional, Tuple, Union
 from datetime import datetime, timezone
 from src.config.settings import settings
 from src.database.db import db
+from src.core.runtime_guard import (
+    assert_live_broker_write_allowed,
+    assert_live_broker_read_allowed,
+    live_caches_may_hydrate_from_disk,
+)
 
 logger = logging.getLogger("trading212")
 
@@ -51,6 +56,8 @@ class Trading212Broker:
 
         # Hydrate last verified state from persistent SQLite snapshot ledger & disk cache
         try:
+            if not live_caches_may_hydrate_from_disk():
+                raise RuntimeError("TEST_ISOLATION_SKIP_SNAPSHOT_HYDRATION")
             with db.get_connection() as conn:
                 cur = conn.cursor()
                 cur.execute("SELECT * FROM portfolio_snapshots ORDER BY id DESC LIMIT 1")
@@ -64,9 +71,11 @@ class Trading212Broker:
             pass
 
         import json, os
+        # TEST ISOLATION: disk snapshot caches mirror the live Practice account.
+        self._live_cache_hydration_allowed = live_caches_may_hydrate_from_disk()
         cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "broker_positions_cache.json")
         try:
-            if os.path.exists(cache_path):
+            if self._live_cache_hydration_allowed and os.path.exists(cache_path):
                 with open(cache_path, "r") as f:
                     self._cached_positions = json.load(f)
                     self._cached_positions_time = time.time()
@@ -75,7 +84,7 @@ class Trading212Broker:
 
         summary_cache_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "broker_summary_cache.json")
         try:
-            if os.path.exists(summary_cache_path):
+            if self._live_cache_hydration_allowed and os.path.exists(summary_cache_path):
                 with open(summary_cache_path, "r") as f:
                     self._cached_summary = json.load(f)
                     self._cached_summary_time = time.time()
@@ -100,6 +109,10 @@ class Trading212Broker:
         self.last_request_time = time.time()
 
     def _request_with_retry(self, method: str, endpoint: str, **kwargs) -> requests.Response:
+        # FAIL-CLOSED: mutating broker calls require explicit operator authorisation.
+        assert_live_broker_write_allowed(method, endpoint)
+        # FAIL-CLOSED: live reads are denied inside a test runtime unless opted into.
+        assert_live_broker_read_allowed(method, endpoint)
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         max_retries = 5
         base_backoff = 1.5

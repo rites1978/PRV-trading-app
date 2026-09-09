@@ -1,7 +1,11 @@
 import os
+import sys
 import requests
 from dotenv import load_dotenv
 from typing import Dict, Any, List, Optional
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from src.core.runtime_guard import assert_live_broker_write_allowed, assert_live_broker_read_allowed
 
 load_dotenv()
 
@@ -24,6 +28,7 @@ class Trading212Client:
         """Fetch account cash and total portfolio valuation."""
         try:
             url = f"{self.base_url}/equity/account/summary"
+            assert_live_broker_read_allowed("GET", "equity")
             response = requests.get(url, auth=self.auth, timeout=10)
             if response.status_code == 200:
                 data = response.json()
@@ -42,6 +47,7 @@ class Trading212Client:
         """Fetch all currently open equity positions."""
         try:
             url = f"{self.base_url}/equity/portfolio"
+            assert_live_broker_read_allowed("GET", "equity")
             response = requests.get(url, auth=self.auth, timeout=10)
             if response.status_code == 200:
                 return response.json()
@@ -53,6 +59,7 @@ class Trading212Client:
         """Get open position details for a specific ticker."""
         try:
             url = f"{self.base_url}/equity/portfolio/{ticker}"
+            assert_live_broker_read_allowed("GET", "equity")
             response = requests.get(url, auth=self.auth, timeout=10)
             if response.status_code == 200:
                 return response.json()
@@ -67,6 +74,7 @@ class Trading212Client:
         quantity < 0: SELL
         """
         try:
+            assert_live_broker_write_allowed("POST", "equity/orders/market")
             url = f"{self.base_url}/equity/orders/market"
             payload = {
                 "ticker": ticker,
@@ -82,6 +90,7 @@ class Trading212Client:
     def place_limit_order(self, ticker: str, quantity: float, limit_price: float, time_validity: str = "DAY") -> Dict[str, Any]:
         """Place a limit order."""
         try:
+            assert_live_broker_write_allowed("POST", "equity/orders/limit")
             url = f"{self.base_url}/equity/orders/limit"
             payload = {
                 "ticker": ticker,
@@ -99,6 +108,7 @@ class Trading212Client:
     def cancel_order(self, order_id: str) -> Dict[str, Any]:
         """Cancel an existing pending order."""
         try:
+            assert_live_broker_write_allowed("DELETE", f"equity/orders/{order_id}")
             url = f"{self.base_url}/equity/orders/{order_id}"
             response = requests.delete(url, auth=self.auth, timeout=10)
             if response.status_code in [200, 204]:
@@ -111,6 +121,7 @@ class Trading212Client:
         """Fetch historical orders."""
         try:
             url = f"{self.base_url}/equity/history/orders?limit={limit}"
+            assert_live_broker_read_allowed("GET", "equity")
             response = requests.get(url, auth=self.auth, timeout=10)
             if response.status_code == 200:
                 data = response.json()
@@ -123,6 +134,7 @@ class Trading212Client:
         """Download list of available instruments."""
         try:
             url = f"{self.base_url}/equity/metadata/instruments"
+            assert_live_broker_read_allowed("GET", "equity")
             response = requests.get(url, auth=self.auth, timeout=15)
             if response.status_code == 200:
                 return response.json()

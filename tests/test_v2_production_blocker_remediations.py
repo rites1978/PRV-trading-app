@@ -73,6 +73,8 @@ class TestBlockerRemediations(unittest.TestCase):
         }]
 
         with patch.object(broker, "get_open_positions", return_value=mock_pos), \
+             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "reconcile_orphan_stops", return_value=[]), \
              patch.object(market_data, "get_market_snapshot", return_value={"success": True, "indicators": {"atr": 0.20}, "recent_returns": []}), \
              patch.object(broker, "sync_broker_stop_order", return_value={"success": True}), \
              patch.object(order_router, "route_exit_order", return_value=(True, "V2 Exit", {"trade_id": "TEST_EXIT_1", "net_realized_pnl": 5.0, "gross_profit_loss": 6.0, "total_transaction_costs": 1.0})) as mock_exit:

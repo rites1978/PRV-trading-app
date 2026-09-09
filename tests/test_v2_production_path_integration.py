@@ -127,6 +127,18 @@ class TestV2ProductionPathIntegration(unittest.TestCase):
             })
             return {"success": True, "data": {"id": f"ORD_{len(placed_orders)}"}}
 
+        def mock_place_limit(ticker, quantity, limit_price, time_validity="DAY"):
+            # Mirrors the current production entry contract:
+            # broker.place_limit_order(t212_ticker, quantity, broker_limit_price, time_validity="DAY")
+            placed_orders.append({
+                "ticker": ticker,
+                "quantity": quantity,
+                "type": "LIMIT",
+                "price": limit_price,
+                "time_validity": time_validity
+            })
+            return {"success": True, "data": {"id": f"ORD_{len(placed_orders)}", "status": "FILLED", "filledQuantity": quantity}}
+
         def mock_place_stop(ticker, quantity, stop_price, time_validity="GOOD_TILL_CANCEL"):
             placed_orders.append({
                 "ticker": ticker,
@@ -139,6 +151,7 @@ class TestV2ProductionPathIntegration(unittest.TestCase):
 
         with patch("src.portfolio.portfolio_snapshot.portfolio_snapshot.get_authoritative_snapshot", return_value=mock_portfolio_snap), \
              patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "place_limit_order", side_effect=mock_place_limit), \
              patch.object(broker, "place_market_order", side_effect=mock_place_order), \
              patch.object(broker, "place_stop_order", side_effect=mock_place_stop):
 
@@ -265,6 +278,7 @@ class TestV2ProductionPathIntegration(unittest.TestCase):
 
         with patch("src.portfolio.portfolio_snapshot.portfolio_snapshot.get_authoritative_snapshot", return_value=mock_portfolio_snap), \
              patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "place_limit_order", side_effect=mock_place_limit), \
              patch.object(broker, "place_market_order", side_effect=mock_place_order), \
              patch.object(broker, "place_stop_order", side_effect=mock_place_stop):
 

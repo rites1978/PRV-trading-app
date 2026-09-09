@@ -859,7 +859,9 @@ class ClosingConnection:
 
 class Database:
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or settings.DB_PATH
+        from src.core.runtime_guard import resolve_db_path
+        # TEST ISOLATION: never open the production database under a test runtime.
+        self.db_path = resolve_db_path(db_path or settings.DB_PATH)
         self._init_db()
 
     def get_connection(self) -> Any:

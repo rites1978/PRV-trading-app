@@ -1,7 +1,7 @@
 """
 TDD Regression Suite: Execution Routing, Broker Parity & Order Lifecycle Reconciliation.
 Enforces:
-1. ACCOUNT_MODE=PRACTICE calls broker.place_market_order() (Trading212 Demo API).
+1. ACCOUNT_MODE=PRACTICE routes entries via broker.place_limit_order() (Trading212 Demo API).
 2. PRACTICE never returns SIMULATED_FILL.
 3. Internal simulator remains available only in explicit SIMULATION mode.
 4. Accepted / open / filled symbol cannot be submitted again in the next scan.
@@ -36,8 +36,13 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
         except Exception:
             pass
 
-    def test_1_practice_calls_broker_place_market_order(self):
-        """1. ACCOUNT_MODE=PRACTICE must call broker.place_market_order() on Trading212 Demo API."""
+    def test_1_practice_calls_broker_place_limit_order(self):
+        """1. ACCOUNT_MODE=PRACTICE must route entries through broker.place_limit_order().
+
+        Entry execution moved from market to broker-enforced marketable LIMIT orders.
+        place_market_order is mocked purely as a tripwire: if the router ever falls back
+        to it for an entry, this test fails instead of reaching a real broker client.
+        """
         import uuid
         settings.ACCOUNT_MODE = "PRACTICE"
         mock_status = {
@@ -48,7 +53,8 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
         }
         order_id = f"OP_TEST_{uuid.uuid4().hex[:8]}"
         mock_snap = {"account_summary": {"free_cash": 50000.0, "total_nav": 50000.0}, "positions": []}
-        with patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "fillPrice": 9.58}}) as mock_order, \
+        with patch.object(broker, "place_limit_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "filledQuantity": 100.0}}) as mock_limit, \
+             patch.object(broker, "place_market_order") as mock_market, \
              patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
@@ -71,7 +77,10 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
                 strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
             )
             self.assertTrue(success, f"Route entry order failed: {msg}")
-            mock_order.assert_called_once_with("IGLTl_EQ", 100.0)
+            # Current contract: marketable LIMIT priced off the configured slippage collar,
+            # submitted DAY, in the instrument's broker-native price unit.
+            mock_limit.assert_called_once_with("IGLTl_EQ", 100.0, 9.5896, time_validity="DAY")
+            mock_market.assert_not_called()
 
     def test_2_practice_never_returns_simulated_fill(self):
         """2. ACCOUNT_MODE=PRACTICE must never return SIMULATED_FILL in trade log or audit trail."""
@@ -85,7 +94,8 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
         }
         order_id = f"OP_TEST_{uuid.uuid4().hex[:8]}"
         mock_snap = {"account_summary": {"free_cash": 50000.0, "total_nav": 50000.0}, "positions": []}
-        with patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "fillPrice": 9.58}}), \
+        with patch.object(broker, "place_limit_order", return_value={"success": True, "data": {"id": order_id, "status": "FILLED", "filledQuantity": 100.0}}), \
+             patch.object(broker, "place_market_order"), \
              patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
@@ -120,6 +130,7 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
             "emergency_risk_mode": False
         }
         with patch.object(broker, "place_market_order") as mock_broker, \
+             patch.object(broker, "place_limit_order") as mock_broker_limit, \
              patch.object(daily_objective_service, "get_daily_status", return_value=mock_status):
             success, msg, res = order_router.route_entry_order(
                 symbol="IGLT",
@@ -139,18 +150,21 @@ class TestExecutionRoutingReconciliation(unittest.TestCase):
             )
             self.assertTrue(success, f"Simulation order failed: {msg}")
             mock_broker.assert_not_called()
+            mock_broker_limit.assert_not_called()
             self.assertIn("SIMULATED", msg.upper())
 
     def test_4_accepted_open_filled_symbol_cannot_be_submitted_again_next_scan(self):
         """4. A symbol with an existing open position or pending order at the broker cannot be re-ordered."""
         with patch.object(broker, "get_open_positions", return_value=[{"ticker": "ULVR_EQ", "quantity": 10, "currentPrice": 40.0, "averagePrice": 39.0}]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order") as mock_place:
+             patch.object(broker, "place_market_order") as mock_place, \
+             patch.object(broker, "place_limit_order") as mock_place_limit:
             
             # Attempt to evaluate / route candidate when already held
             blocked = self.engine._is_symbol_active_or_pending("ULVR_EQ")
             self.assertTrue(blocked)
             mock_place.assert_not_called()
+            mock_place_limit.assert_not_called()
 
     def test_5_telemetry_cannot_say_trades_executed_without_broker_fill_evidence(self):
         """5. Telemetry must track separate lifecycle counters and never state TRADES EXECUTED without fills."""
