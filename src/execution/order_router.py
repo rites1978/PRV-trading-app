@@ -157,6 +157,23 @@ class OrderRouter:
         is_foreign = not is_uk
         exchange = "LSE" if is_uk else "NYSE/NASDAQ"
         currency = "GBP" if is_uk else "USD"
+
+        from src.data.universe import PRV_CORE_COMPOUNDING_UNIVERSE
+        core_symbols = {e["symbol"] for e in PRV_CORE_COMPOUNDING_UNIVERSE}
+        core_tickers = {e["t212_ticker"] for e in PRV_CORE_COMPOUNDING_UNIVERSE}
+        if str(strategy_id).upper() in ("PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1", "CORE_V1") or symbol in core_symbols or t212_ticker in core_tickers:
+            instrument_type = "ETF"
+
+        # Defense-in-depth: Ensure quantity strictly conforms to broker increment & precision
+        try:
+            from src.strategies.core_compounding_v1 import core_compounding_strategy
+            meta = core_compounding_strategy.get_instrument_metadata(t212_ticker or symbol)
+            prec = int(meta.get("broker_allowed_precision", 3))
+            inc = float(meta.get("broker_allowed_increment", 0.001))
+            quantity = core_compounding_strategy.floor_to_broker_increment(quantity, increment=inc, precision=prec)
+        except Exception as e:
+            logger.warning(f"Failed to floor quantity to broker increment: {e}")
+
         nominal_value = quantity * price
         dec_price = decision_price or price
 
@@ -476,7 +493,7 @@ class OrderRouter:
                     return False, f"❌ Broker order rejected: {err_msg}", {
                         "approved": False,
                         "is_timeout": False,
-                        "status": "REJECTED",
+                        "status": "REJECTED_NON_RETRYABLE_FOR_SIGNAL",
                         "error": err_msg
                     }
         else:

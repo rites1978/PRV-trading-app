@@ -49,7 +49,9 @@ class CoreCompoundingStrategy:
             "asset_class": "Equities (US S&P 500)",
             "currency": "GBX",
             "is_uk_pence": True,
-            "sdrt_exempt": True
+            "sdrt_exempt": True,
+            "broker_allowed_precision": 3,
+            "broker_allowed_increment": 0.001
         },
         {
             "symbol": "EQQQ",
@@ -60,7 +62,9 @@ class CoreCompoundingStrategy:
             "asset_class": "Equities (US Tech / Nasdaq)",
             "currency": "GBX",
             "is_uk_pence": True,
-            "sdrt_exempt": True
+            "sdrt_exempt": True,
+            "broker_allowed_precision": 3,
+            "broker_allowed_increment": 0.001
         },
         {
             "symbol": "IWDA",
@@ -72,7 +76,9 @@ class CoreCompoundingStrategy:
             "asset_class": "Equities (Global Developed)",
             "currency": "GBX",
             "is_uk_pence": True,
-            "sdrt_exempt": True
+            "sdrt_exempt": True,
+            "broker_allowed_precision": 3,
+            "broker_allowed_increment": 0.001
         },
         {
             "symbol": "ISF",
@@ -83,7 +89,9 @@ class CoreCompoundingStrategy:
             "asset_class": "Equities (UK Large Cap)",
             "currency": "GBX",
             "is_uk_pence": True,
-            "sdrt_exempt": True
+            "sdrt_exempt": True,
+            "broker_allowed_precision": 3,
+            "broker_allowed_increment": 0.001
         },
         {
             "symbol": "EMIM",
@@ -94,7 +102,9 @@ class CoreCompoundingStrategy:
             "asset_class": "Equities (Emerging Markets)",
             "currency": "GBX",
             "is_uk_pence": True,
-            "sdrt_exempt": True
+            "sdrt_exempt": True,
+            "broker_allowed_precision": 3,
+            "broker_allowed_increment": 0.001
         },
         {
             "symbol": "SGLN",
@@ -105,7 +115,9 @@ class CoreCompoundingStrategy:
             "asset_class": "Commodities (Physical Gold Safe Haven)",
             "currency": "GBX",
             "is_uk_pence": True,
-            "sdrt_exempt": True
+            "sdrt_exempt": True,
+            "broker_allowed_precision": 3,
+            "broker_allowed_increment": 0.001
         },
         {
             "symbol": "IGLT",
@@ -116,7 +128,9 @@ class CoreCompoundingStrategy:
             "asset_class": "Fixed Income (UK Gilts / Rates)",
             "currency": "GBP",
             "is_uk_pence": False,
-            "sdrt_exempt": True
+            "sdrt_exempt": True,
+            "broker_allowed_precision": 3,
+            "broker_allowed_increment": 0.001
         }
     ]
 
@@ -280,20 +294,55 @@ class CoreCompoundingStrategy:
 
         return False, "HOLD"
 
+    def get_instrument_metadata(self, symbol_or_ticker: Optional[str]) -> Dict[str, Any]:
+        """Returns authoritative broker instrument metadata including allowed precision and increment."""
+        if not symbol_or_ticker:
+            return {"broker_allowed_precision": 3, "broker_allowed_increment": 0.001}
+        clean = str(symbol_or_ticker).replace("_L", "").replace(".L", "").replace("l_EQ", "").replace("_EQ", "").upper()
+        for inst in self.CERTIFIED_UNIVERSE:
+            inst_sym = inst["symbol"].upper()
+            inst_t212 = inst["t212_ticker"].upper()
+            inst_alt = inst.get("t212_ticker_alt", "").upper()
+            if clean in (inst_sym, inst_t212.replace("L_EQ", "").replace("_EQ", ""), inst_alt.replace("L_EQ", "").replace("_EQ", "")):
+                return inst
+        return {"broker_allowed_precision": 3, "broker_allowed_increment": 0.001}
+
+    def floor_to_broker_increment(
+        self,
+        raw_qty: float,
+        increment: float = 0.001,
+        precision: int = 3
+    ) -> float:
+        """
+        Floors raw quantity to the broker-supported increment without rounding upward.
+        Guarantees deployable capital and risk ceiling are never exceeded.
+        """
+        if raw_qty <= 0 or increment <= 0:
+            return 0.0
+        import math
+        factor = round(1.0 / increment)
+        floored = math.floor(raw_qty * factor + 1e-9) / factor
+        return round(floored, precision)
+
     def calculate_order_shares(
         self,
         entry_price_gbp: float,
         available_cash_gbp: float = 50000.0,
-        total_nav_gbp: Optional[float] = None
+        total_nav_gbp: Optional[float] = None,
+        symbol: Optional[str] = None
     ) -> float:
-        """Calculates exact order quantity for £40,000 nominal deployment bounded by available cash and 80% NAV."""
+        """Calculates exact order quantity bounded by available cash, 80% NAV, and floored to broker increment."""
         if entry_price_gbp <= 0:
             return 0.0
         max_by_nav = (float(total_nav_gbp) * 0.80 - 15.0) if total_nav_gbp is not None else self.POSITION_SIZE_GBP
         deployable = min(self.POSITION_SIZE_GBP, available_cash_gbp, max_by_nav)
         if deployable <= 0:
             return 0.0
-        return round(deployable / entry_price_gbp, 4)
+        raw_qty = deployable / entry_price_gbp
+        meta = self.get_instrument_metadata(symbol) if symbol else {"broker_allowed_precision": 3, "broker_allowed_increment": 0.001}
+        precision = int(meta.get("broker_allowed_precision", 3))
+        increment = float(meta.get("broker_allowed_increment", 0.001))
+        return self.floor_to_broker_increment(raw_qty, increment=increment, precision=precision)
 
 
 core_compounding_strategy = CoreCompoundingStrategy()

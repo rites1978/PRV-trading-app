@@ -105,7 +105,7 @@ class PRVQuantEngine:
         # Check database persistent state for core compounding decisions across process restarts
         try:
             core_dec = db.get_core_compounding_decision(dedup_key)
-            if core_dec and core_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "FILLED", "UNKNOWN_PENDING_RECONCILIATION"):
+            if core_dec and core_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "FILLED", "UNKNOWN_PENDING_RECONCILIATION", "REJECTED", "REJECTED_NON_RETRYABLE_FOR_SIGNAL"):
                 if not hasattr(self, "_executed_signals"):
                     self._executed_signals = set()
                 self._executed_signals.add(dedup_key)
@@ -774,10 +774,11 @@ class PRVQuantEngine:
         is_window = is_trading_day and (window_start <= cur_t <= window_end)
 
         # 3. Determine intended execution session
+        next_session = self.get_next_valid_lse_session(cur_d.strftime("%Y-%m-%d"))
         if is_trading_day and cur_t <= window_end:
             intended_session = cur_d.strftime("%Y-%m-%d")
         else:
-            intended_session = self.get_next_valid_lse_session(cur_d.strftime("%Y-%m-%d"))
+            intended_session = next_session
 
         expected_completed = self.get_expected_latest_completed_session(now_uk)
 
@@ -790,6 +791,7 @@ class PRVQuantEngine:
             "is_trading_day": is_trading_day,
             "is_execution_window": is_window,
             "intended_execution_session": intended_session,
+            "next_execution_session": next_session,
             "expected_completed_session": expected_completed,
             "intended_execution_window": "08:00:00-08:05:00 BST"
         }
@@ -920,6 +922,8 @@ class PRVQuantEngine:
         selected_score = sig.get("selected_score", 0.0)
         as_of_date = sig.get("as_of_date", cur_d_str)
         obs_bar_str = sig.get("previous_timestamp", as_of_date)[:10]
+        signal_execution_session = self.get_next_valid_lse_session(obs_bar_str)
+        next_session = session_ctx.get("next_execution_session", self.get_next_valid_lse_session(cur_d_str))
 
         decision = "HOLD"
         reason = ""
@@ -991,10 +995,10 @@ class PRVQuantEngine:
                     # Strict Frozen Research Semantics: Market open execution window (08:00:00-08:05:00 BST)
                     if cur_t < dtime(8, 0):
                         decision = "HOLD"
-                        reason = f"AWAITING_EXECUTION_WINDOW: Signal for {selected_symbol} on bar {obs_bar_str} scheduled for market open at 08:00:00 BST on {intended_session}."
+                        reason = f"AWAITING_EXECUTION_WINDOW: Signal for {selected_symbol} on bar {obs_bar_str} scheduled for market open at 08:00:00 BST on {signal_execution_session}."
                     else:
                         decision = "HOLD"
-                        reason = f"SIGNAL_EXPIRED: 08:00:00-08:05:00 BST market open execution window for session {intended_session} has elapsed. Signal expires per frozen research semantics."
+                        reason = f"SIGNAL_EXPIRED: 08:00:00-08:05:00 BST market open execution window for session {signal_execution_session} has elapsed. Next execution window opens at 08:00:00 BST on {next_session}."
                 elif not settings.PRACTICE_NEW_ENTRIES_ALLOWED:
                     decision = "HOLD"
                     reason = f"PRACTICE_NEW_ENTRIES_ALLOWED=False: Signal {selected_symbol} generated (Sharpe {selected_score:+.4f}), but new entries are locked."
@@ -1016,7 +1020,8 @@ class PRVQuantEngine:
                         order_qty = core_compounding_strategy.calculate_order_shares(
                             entry_price_gbp=cur_price,
                             available_cash_gbp=available_cash,
-                            total_nav_gbp=total_nav
+                            total_nav_gbp=total_nav,
+                            symbol=selected_symbol
                         )
                         stop_price = round(cur_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
 
@@ -1031,7 +1036,7 @@ class PRVQuantEngine:
                                 "signal_generated_at": datetime.now(timezone.utc).isoformat(),
                                 "target_instrument": selected_ticker,
                                 "target_score": selected_score,
-                                "intended_execution_session": cur_d_str,
+                                "intended_execution_session": signal_execution_session,
                                 "intended_execution_window": "08:00:00-08:05:00 BST",
                                 "execution_status": "DISPATCHING",
                                 "notes": f"Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}, Close > SMA200)."
@@ -1093,11 +1098,13 @@ class PRVQuantEngine:
                                 decision = "HOLD"
                                 reason = f"UNKNOWN_PENDING_RECONCILIATION: {route_msg}"
                             else:
+                                self.mark_signal_bar_executed(dedup_key)
+                                rejection_status = trade_res.get("status", "REJECTED_NON_RETRYABLE_FOR_SIGNAL")
                                 try:
                                     db.update_core_compounding_decision_status(
                                         dedup_key=dedup_key,
-                                        status="REJECTED",
-                                        notes=f"Routing rejected: {route_msg}"
+                                        status=rejection_status,
+                                        notes=f"Routing rejected non-retryable: {route_msg}"
                                     )
                                 except Exception:
                                     pass
@@ -1122,7 +1129,8 @@ class PRVQuantEngine:
             "eligible_candidates_count": sig.get("eligible_candidates_count", 0),
             "open_positions_count": len(open_positions),
             "open_orders_count": len(open_orders),
-            "intended_execution_session": intended_session,
+            "intended_execution_session": signal_execution_session if raw_decision == "ENTER" else intended_session,
+            "next_execution_session": next_session,
             "intended_execution_window": session_ctx["intended_execution_window"],
             "is_execution_window": session_ctx["is_execution_window"]
         }

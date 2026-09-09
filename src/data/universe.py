@@ -139,7 +139,9 @@ PRV_CORE_COMPOUNDING_UNIVERSE: List[Dict[str, Any]] = [
         "currency": "GBX",
         "is_uk_pence": True,
         "instrument_type": "ETF",
-        "sdrt_exempt": True
+        "sdrt_exempt": True,
+        "broker_allowed_precision": 3,
+        "broker_allowed_increment": 0.001
     },
     {
         "symbol": "EQQQ",
@@ -152,7 +154,9 @@ PRV_CORE_COMPOUNDING_UNIVERSE: List[Dict[str, Any]] = [
         "currency": "GBX",
         "is_uk_pence": True,
         "instrument_type": "ETF",
-        "sdrt_exempt": True
+        "sdrt_exempt": True,
+        "broker_allowed_precision": 3,
+        "broker_allowed_increment": 0.001
     },
     {
         "symbol": "IWDA",
@@ -166,7 +170,9 @@ PRV_CORE_COMPOUNDING_UNIVERSE: List[Dict[str, Any]] = [
         "currency": "GBX",
         "is_uk_pence": True,
         "instrument_type": "ETF",
-        "sdrt_exempt": True
+        "sdrt_exempt": True,
+        "broker_allowed_precision": 3,
+        "broker_allowed_increment": 0.001
     },
     {
         "symbol": "ISF",
@@ -179,7 +185,9 @@ PRV_CORE_COMPOUNDING_UNIVERSE: List[Dict[str, Any]] = [
         "currency": "GBX",
         "is_uk_pence": True,
         "instrument_type": "ETF",
-        "sdrt_exempt": True
+        "sdrt_exempt": True,
+        "broker_allowed_precision": 3,
+        "broker_allowed_increment": 0.001
     },
     {
         "symbol": "EMIM",
@@ -192,7 +200,9 @@ PRV_CORE_COMPOUNDING_UNIVERSE: List[Dict[str, Any]] = [
         "currency": "GBX",
         "is_uk_pence": True,
         "instrument_type": "ETF",
-        "sdrt_exempt": True
+        "sdrt_exempt": True,
+        "broker_allowed_precision": 3,
+        "broker_allowed_increment": 0.001
     },
     {
         "symbol": "SGLN",
@@ -205,7 +215,9 @@ PRV_CORE_COMPOUNDING_UNIVERSE: List[Dict[str, Any]] = [
         "currency": "GBX",
         "is_uk_pence": True,
         "instrument_type": "ETF",
-        "sdrt_exempt": True
+        "sdrt_exempt": True,
+        "broker_allowed_precision": 3,
+        "broker_allowed_increment": 0.001
     },
     {
         "symbol": "IGLT",
@@ -218,7 +230,9 @@ PRV_CORE_COMPOUNDING_UNIVERSE: List[Dict[str, Any]] = [
         "currency": "GBP",
         "is_uk_pence": False,
         "instrument_type": "ETF",
-        "sdrt_exempt": True
+        "sdrt_exempt": True,
+        "broker_allowed_precision": 3,
+        "broker_allowed_increment": 0.001
     }
 ]
 
