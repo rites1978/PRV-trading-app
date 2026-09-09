@@ -758,7 +758,7 @@ class PRVQuantEngine:
                 if isinstance(res, tuple) and len(res) == 2:
                     return list(res[0]), bool(res[1])
                 elif isinstance(res, list):
-                    return res, getattr(broker, "_orders_last_fresh", True)
+                    return res, getattr(broker, "_orders_last_fresh", False)
             except Exception as e:
                 logger.error(f"Authoritative orders fetch error: {e}")
                 return [], False
@@ -768,14 +768,14 @@ class PRVQuantEngine:
             if isinstance(res, tuple) and len(res) == 2:
                 return list(res[0]), bool(res[1])
             elif isinstance(res, list):
-                is_fresh = getattr(broker, "_orders_last_fresh", True)
+                is_fresh = getattr(broker, "_orders_last_fresh", False)
                 return res, is_fresh
         except TypeError:
             try:
                 res = broker.get_open_orders(force_refresh=True)
                 if isinstance(res, tuple) and len(res) == 2:
                     return list(res[0]), bool(res[1])
-                is_fresh = getattr(broker, "_orders_last_fresh", True)
+                is_fresh = getattr(broker, "_orders_last_fresh", False)
                 return list(res) if res else [], is_fresh
             except Exception as e:
                 logger.error(f"Orders fetch error: {e}")
@@ -798,7 +798,7 @@ class PRVQuantEngine:
                 if isinstance(res, tuple) and len(res) == 2:
                     return list(res[0]), bool(res[1])
                 elif isinstance(res, list):
-                    return res, getattr(broker, "_positions_last_fresh", True)
+                    return res, getattr(broker, "_positions_last_fresh", False)
             except Exception as e:
                 logger.error(f"Authoritative positions fetch error: {e}")
                 return [], False
@@ -808,14 +808,14 @@ class PRVQuantEngine:
             if isinstance(res, tuple) and len(res) == 2:
                 return list(res[0]), bool(res[1])
             elif isinstance(res, list):
-                is_fresh = getattr(broker, "_positions_last_fresh", True)
+                is_fresh = getattr(broker, "_positions_last_fresh", False)
                 return res, is_fresh
         except TypeError:
             try:
                 res = broker.get_open_positions(force_refresh=True)
                 if isinstance(res, tuple) and len(res) == 2:
                     return list(res[0]), bool(res[1])
-                is_fresh = getattr(broker, "_positions_last_fresh", True)
+                is_fresh = getattr(broker, "_positions_last_fresh", False)
                 return list(res) if res else [], is_fresh
             except Exception as e:
                 logger.error(f"Positions fetch error: {e}")

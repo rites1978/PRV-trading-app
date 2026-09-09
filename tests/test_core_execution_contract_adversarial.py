@@ -30,6 +30,7 @@ from src.brokers.trading212 import broker
 from src.data.market_data import market_data
 from src.database.db import db
 from src.strategies.core_compounding_v1 import core_compounding_strategy
+from tests._provenance_mocks import provenance_aware
 
 
 class TestCoreExecutionContractAdversarial(unittest.TestCase):
@@ -134,7 +135,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
             }
         })
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=live_price),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=live_price),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": nav, "available_cash": nav},
@@ -168,7 +169,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         })
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_1"})
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -199,7 +200,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         })
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_2"})
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -230,7 +231,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         })
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_3"})
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -259,7 +260,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         })
         mock_sync_stop = MagicMock()
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -283,7 +284,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         })
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_PARTIAL"})
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit),              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -306,7 +307,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         mock_limit = MagicMock(return_value={"success": False, "error": "HTTP 400: Limit price exceeded bounds"})
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit):
 
             res1 = self.engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -353,7 +354,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         open_orders = [{"id": "ORD_WORKING_99", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}]
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=open_orders),              patch.object(broker, "place_limit_order", mock_limit):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware(open_orders)),              patch.object(broker, "place_limit_order", mock_limit):
 
             res = restarted_engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -392,7 +393,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         open_positions = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 41.70}]
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=open_positions),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware(open_positions)),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit):
 
             res = restarted_engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 33216.38},
@@ -407,7 +408,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
         mock_limit = MagicMock(return_value={"success": False, "error": "HTTPSConnectionPool: Read timed out", "is_timeout": True})
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit):
 
             res1 = self.engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -434,7 +435,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
             "data": {"id": "ORD_EXACT_1", "status": "FILLED", "fillPrice": 41.6900, "filledQuantity": 956.158}
         })
 
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", return_value=[]),              patch.object(broker, "get_open_orders", return_value=[]),              patch.object(broker, "place_limit_order", mock_limit):
+        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit):
 
             res1 = self.engine._run_core_compounding_cycle(
                 account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -502,8 +503,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         # Step 1: Cycle at 08:01:00 BST -> Limit order placed
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_limit), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -527,8 +528,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders)), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -575,8 +576,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_limit), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -615,8 +616,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         # Step 1: Partial fill at 08:02
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_limit), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -643,8 +644,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
-             patch.object(broker, "get_open_positions", return_value=pos_400), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders_w3)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware(pos_400)), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders_w3)), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -692,8 +693,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
-             patch.object(broker, "get_open_positions", return_value=pos_600), \
-             patch.object(broker, "get_open_orders", return_value=[working_remainder_356, old_stop_400]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware(pos_600)), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([working_remainder_356, old_stop_400])), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -722,8 +723,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
-             patch.object(broker, "get_open_positions", return_value=pos_600), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders_w4)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware(pos_600)), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders_w4)), \
              patch.object(broker, "cancel_order", mock_cancel_w4), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -752,8 +753,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
-             patch.object(broker, "get_open_positions", return_value=pos_600), \
-             patch.object(broker, "get_open_orders", return_value=[expanded_stop_600]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware(pos_600)), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([expanded_stop_600])), \
              patch.object(broker, "place_limit_order", mock_limit), \
              patch.object(broker, "cancel_order", mock_cancel):
 
@@ -800,8 +801,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders_w6)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders_w6)), \
              patch.object(broker, "cancel_order", mock_cancel):
 
             res = self.engine._run_core_compounding_cycle(
@@ -847,8 +848,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[working_order]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([working_order])), \
              patch.object(broker, "place_limit_order", mock_limit), \
              patch.object(broker, "cancel_order", mock_cancel):
 
@@ -904,8 +905,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders_w8)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders_w8)), \
              patch.object(broker, "place_limit_order", mock_limit), \
              patch.object(broker, "cancel_order", mock_cancel):
 
@@ -955,8 +956,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders)), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -1004,8 +1005,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders)), \
              patch.object(broker, "cancel_order", mock_cancel):
 
             res = self.engine._run_core_compounding_cycle(
@@ -1046,8 +1047,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders)), \
              patch.object(broker, "cancel_order", mock_cancel):
 
             res = self.engine._run_core_compounding_cycle(
@@ -1097,8 +1098,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", side_effect=lambda **kw: list(active_positions)), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware(lambda: active_positions)), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders)), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -1156,8 +1157,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
-             patch.object(broker, "get_open_positions", side_effect=lambda **kw: list(active_positions)), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware(lambda: active_positions)), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders)), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -1202,15 +1203,16 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         def get_orders_smart(**kwargs):
             nonlocal call_count
             call_count += 1
-            if call_count == 1:
-                return [working_order]
-            return []
+            data = [working_order] if call_count == 1 else []
+            # Both reads are authoritative here: the test asserts a terminal state,
+            # which requires genuine broker provenance.
+            return (data, True) if kwargs.get("return_provenance") else data
 
         mock_cancel = MagicMock(return_value={"success": True})
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
              patch.object(broker, "get_open_orders", side_effect=get_orders_smart), \
              patch.object(broker, "cancel_order", mock_cancel):
 
@@ -1262,8 +1264,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", side_effect=lambda **kw: list(active_positions)), \
-             patch.object(broker, "get_open_orders", side_effect=lambda **kw: list(active_orders)), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware(lambda: active_positions)), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware(lambda: active_orders)), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
 
@@ -1315,8 +1317,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.7000), \
-             patch.object(broker, "get_open_positions", return_value=pos_600), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware(pos_600)), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_limit), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):
@@ -1371,8 +1373,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_limit), \
              patch.object(broker, "cancel_order", mock_cancel), \
              patch.object(broker, "sync_broker_stop_order", mock_sync_stop):

@@ -34,6 +34,7 @@ from src.data.market_data import market_data
 from src.database.db import db
 from src.strategies.core_compounding_v1 import core_compounding_strategy
 from src.research.strategies.prv_core_compounding_v1 import FROZEN_UNIVERSE
+from tests._provenance_mocks import provenance_aware
 
 
 class TestCoreCompoundingProductionPath(unittest.TestCase):
@@ -119,8 +120,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         import uuid
         test_oid = f"ORDER_{uuid.uuid4().hex[:8]}"
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", return_value={"success": True, "data": {"id": test_oid, "status": "FILLED", "fillPrice": 45.0}}) as mock_place_order, \
              patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
              patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
@@ -152,8 +153,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         feed = self._create_synthetic_feed(emim_qualifies=False)
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order") as mock_place_order, \
              patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
 
@@ -181,8 +182,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         }]
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=existing_pos), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware(existing_pos)), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order") as mock_place_order, \
              patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
 
@@ -210,8 +211,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         import uuid
         test_oid4 = f"ORDER_{uuid.uuid4().hex[:8]}"
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", return_value={"success": True, "data": {"id": test_oid4, "status": "FILLED", "fillPrice": 45.0}}), \
              patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
              patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
@@ -264,8 +265,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         feed = self._create_synthetic_feed(emim_qualifies=True)
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(order_router, "route_entry_order", return_value=(True, "MOCK", {})) as mock_route:
 
             res = restarted_engine._run_core_compounding_cycle(
@@ -301,8 +302,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         }
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(self.engine, "get_core_compounding_session_context", return_value=mock_ctx_pre), \
              patch.object(order_router, "route_entry_order") as mock_route:
 
@@ -329,8 +330,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         }
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(self.engine, "get_core_compounding_session_context", return_value=mock_ctx_post), \
              patch.object(order_router, "route_entry_order") as mock_route:
 
@@ -385,8 +386,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         feed = self._create_synthetic_feed(emim_qualifies=True)
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(order_router, "route_entry_order", return_value=(False, "BROKER_REJECTED: Price deviated", {"approved": False})):
 
             res = self.engine._run_core_compounding_cycle(
@@ -417,8 +418,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
 
         # Cycle 1: Timeout occurs at broker HTTP boundary
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", return_value={"success": False, "error": "HTTPSConnectionPool: Read timed out.", "is_timeout": True}), \
              patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
              patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
@@ -451,7 +452,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
 
                 # Cycle 3: Next engine cycle -> broker reconciliation required before retry
                 working_order = [{"id": "ORD_T212_999", "ticker": "EMIMl_EQ", "quantity": 884.0, "status": "WORKING"}]
-                with patch.object(broker, "get_open_orders", return_value=working_order):
+                with patch.object(broker, "get_open_orders", side_effect=provenance_aware(working_order)):
                     # Next cycle runs reconciliation and adopts order
                     res2 = restarted_engine._run_core_compounding_cycle(
                         account={"total_value": 49896.38, "available_cash": 49896.38},
@@ -493,8 +494,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         })
 
         # When broker shows NO orders and NO positions
-        with patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]):
+        with patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])):
             recon_msg = self.engine.reconcile_unknown_submissions()
             self.assertIn("EXPIRED_MISSED_WINDOW", recon_msg)
 
@@ -518,8 +519,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
 
         test_oid = "ORDER_ACCEPTED_123"
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", return_value={"success": True, "data": {"id": test_oid, "status": "ACCEPTED", "filledQuantity": 0.0}}), \
              patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
              patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
@@ -546,7 +547,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
             # Second cycle with working order at broker: produces 0 duplicate orders
             spy_route_order.reset_mock()
             working_orders = [{"id": test_oid, "ticker": "EMIMl_EQ", "quantity": 884.0, "status": "WORKING"}]
-            with patch.object(broker, "get_open_orders", return_value=working_orders):
+            with patch.object(broker, "get_open_orders", side_effect=provenance_aware(working_orders)):
                 res2 = self.engine._run_core_compounding_cycle(
                     account={"total_value": 49896.38, "available_cash": 49896.38},
                     bypass_execution_window=True
@@ -557,8 +558,8 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
 
             # Subsequent cycle: broker confirms fill in open_positions -> transitions to FILLED
             filled_positions = [{"ticker": "EMIMl_EQ", "quantity": 884.0, "averagePrice": 45.10, "currentPrice": 45.15}]
-            with patch.object(broker, "get_open_positions", return_value=filled_positions), \
-                 patch.object(broker, "get_open_orders", return_value=[]):
+            with patch.object(broker, "get_open_positions", side_effect=provenance_aware(filled_positions)), \
+                 patch.object(broker, "get_open_orders", side_effect=provenance_aware([])):
                 res3 = self.engine._run_core_compounding_cycle(
                     account={"total_value": 49896.38, "available_cash": 10000.0},
                     bypass_execution_window=True

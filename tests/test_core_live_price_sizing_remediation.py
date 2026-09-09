@@ -29,6 +29,7 @@ from src.data.market_data import market_data
 from src.database.db import db
 from src.strategies.core_compounding_v1 import core_compounding_strategy
 from src.data.universe import PRV_CORE_COMPOUNDING_UNIVERSE
+from tests._provenance_mocks import provenance_aware
 
 
 class TestCoreLivePriceSizingRemediation(unittest.TestCase):
@@ -123,8 +124,8 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=live_price), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
@@ -158,8 +159,8 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=live_price), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
@@ -191,8 +192,8 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=live_price), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
@@ -215,8 +216,8 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=None), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
@@ -262,8 +263,8 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.69), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_place):
 
             # Cycle 1: Executes
@@ -296,8 +297,8 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.69), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_place):
 
             # Cycle 1: Dispatches and gets rejected
@@ -325,8 +326,8 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=41.69), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_place):
 
             res1 = self.engine._run_core_compounding_cycle(
@@ -392,8 +393,8 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed_iwda.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=1.468), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
@@ -449,8 +450,8 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(market_data, "get_current_executable_price", return_value=live_price), \
-             patch.object(broker, "get_open_positions", return_value=[]), \
-             patch.object(broker, "get_open_orders", return_value=[]), \
+             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
              patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(

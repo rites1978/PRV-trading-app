@@ -331,9 +331,14 @@ class Trading212Broker:
         """Fetch all active positions returning (data, authoritative_fresh). Never treats cache as fresh."""
         res = self.get_open_positions(force_refresh=True, return_provenance=True)
         if isinstance(res, tuple) and len(res) == 2:
-            return res
-        elif isinstance(res, list):
-            return res, True
+            return list(res[0]) if res[0] else [], bool(res[1])
+        # A bare list carries NO provenance. Absence of provenance is never freshness.
+        if isinstance(res, list):
+            logger.warning(
+                "AUTHORITATIVE_POSITIONS_NO_PROVENANCE: bare list returned without a "
+                "freshness flag; treating as NON-authoritative."
+            )
+            return list(res), False
         return [], False
 
     def get_position(self, ticker: str) -> Optional[Dict[str, Any]]:
@@ -389,9 +394,14 @@ class Trading212Broker:
         """Fetch all open orders returning (data, authoritative_fresh). Never treats cache as fresh."""
         res = self.get_open_orders(force_refresh=True, return_provenance=True)
         if isinstance(res, tuple) and len(res) == 2:
-            return res
-        elif isinstance(res, list):
-            return res, True
+            return list(res[0]) if res[0] else [], bool(res[1])
+        # A bare list carries NO provenance. Absence of provenance is never freshness.
+        if isinstance(res, list):
+            logger.warning(
+                "AUTHORITATIVE_ORDERS_NO_PROVENANCE: bare list returned without a "
+                "freshness flag; treating as NON-authoritative."
+            )
+            return list(res), False
         return [], False
 
     def verify_clean_reset_status(self) -> Dict[str, Any]:
@@ -550,28 +560,156 @@ class Trading212Broker:
             logger.warning(f"Error cancelling stop orders for {ticker}: {e}")
         return cancelled
 
+    def _held_tickers_from_authoritative_positions(self, positions: List[Dict[str, Any]]) -> Optional[set]:
+        """
+        Build the set of tickers with a non-zero holding.
+
+        Returns None if ANY position record is malformed. A malformed payload must
+        never be reduced to "no holdings", because that would make every live stop
+        look orphaned.
+        """
+        held = set()
+        for p in positions or []:
+            ticker = str(p.get("ticker", "")).upper()
+            if not ticker:
+                logger.error("ORPHAN_RECONCILIATION_MALFORMED: position record without ticker")
+                return None
+            try:
+                qty = float(p.get("quantity", 0))
+            except (TypeError, ValueError):
+                logger.error(f"ORPHAN_RECONCILIATION_MALFORMED: unparseable quantity for {ticker}")
+                return None
+            if qty > 0:
+                held.add(ticker)
+        return held
+
     def reconcile_orphan_stops(self) -> List[str]:
         """
-        Safety Watchdog: Audits all working stop orders against open positions.
-        If a stop order exists for a ticker that has ZERO open positions,
-        the stop is an orphan and is immediately cancelled.
+        Safety Watchdog: audits working stop orders against open positions and
+        cancels stops whose position no longer exists.
+
+        FAIL-CLOSED CONTRACT — cached data never counts as broker confirmation:
+        a stop is only ever classified as an orphan when BOTH the positions read and
+        the orders read are authoritative (a genuinely fresh broker response) and the
+        ticker definitively holds zero quantity. A degraded, stale, empty-fallback,
+        timed-out, HTTP-error or malformed read cancels NOTHING and defers.
+
+        Previously a failed positions read degraded to cached/empty data while the
+        orders read succeeded, making every live protective stop appear orphaned and
+        eligible for cancellation.
+
+        Returns the ids of stops whose cancellation was actually confirmed.
         """
-        cancelled_orphans = []
+        cancelled_orphans: List[str] = []
+        report = {"status": "UNKNOWN", "cancelled": [], "deferred_reason": None,
+                  "candidates": [], "unconfirmed": []}
+
+        def _defer(reason: str) -> List[str]:
+            report["status"] = "ORPHAN_RECONCILIATION_DEFERRED"
+            report["deferred_reason"] = reason
+            self.last_orphan_reconciliation = report
+            logger.warning(f"ORPHAN_RECONCILIATION_DEFERRED: {reason}. No stop cancelled.")
+            return []
+
         try:
-            positions = self.get_open_positions(force_refresh=True) or []
-            open_tickers = {str(p.get("ticker", "")).upper() for p in positions if float(p.get("quantity", 0)) > 0}
-            orders = self.get_open_orders(force_refresh=True) or []
-            for o in orders:
-                if o.get("type") == "STOP":
-                    o_ticker = str(o.get("ticker", "")).upper()
-                    if o_ticker not in open_tickers:
-                        order_id = str(o.get("id"))
-                        res = self.cancel_order(order_id)
-                        if res.get("success"):
-                            logger.info(f"🛡️ Reconciled orphan stop order {order_id} for {o_ticker} (position closed)")
-                            cancelled_orphans.append(order_id)
+            positions, positions_fresh = self.get_open_positions_authoritative()
         except Exception as e:
-            logger.warning(f"Error during orphan stop reconciliation: {e}")
+            return _defer(f"positions read raised {type(e).__name__}: {e}")
+        if not positions_fresh:
+            return _defer("positions read is NOT authoritative (stale/cached/degraded)")
+
+        try:
+            orders, orders_fresh = self.get_open_orders_authoritative()
+        except Exception as e:
+            return _defer(f"orders read raised {type(e).__name__}: {e}")
+        if not orders_fresh:
+            return _defer("orders read is NOT authoritative (stale/cached/degraded)")
+
+        held_tickers = self._held_tickers_from_authoritative_positions(positions)
+        if held_tickers is None:
+            return _defer("positions payload malformed")
+
+        candidates = []
+        for o in orders or []:
+            if str(o.get("type", "")).upper() != "STOP":
+                continue
+            o_ticker = str(o.get("ticker", "")).upper()
+            o_id = str(o.get("id", ""))
+            if not o_ticker or not o_id:
+                return _defer("orders payload malformed (stop without ticker/id)")
+            if o_ticker not in held_tickers:
+                candidates.append((o_id, o_ticker))
+
+        report["candidates"] = [f"{i}:{t}" for i, t in candidates]
+        if not candidates:
+            report["status"] = "ORPHAN_RECONCILIATION_CLEAN"
+            self.last_orphan_reconciliation = report
+            return []
+
+        # Re-confirm authoritatively immediately before cancelling. This closes the
+        # window where the first read raced a fill/settlement.
+        try:
+            recheck_positions, recheck_fresh = self.get_open_positions_authoritative()
+        except Exception as e:
+            return _defer(f"pre-cancel re-confirmation raised {type(e).__name__}: {e}")
+        if not recheck_fresh:
+            return _defer("pre-cancel re-confirmation of positions is NOT authoritative")
+
+        recheck_held = self._held_tickers_from_authoritative_positions(recheck_positions)
+        if recheck_held is None:
+            return _defer("pre-cancel re-confirmation payload malformed")
+
+        for o_id, o_ticker in candidates:
+            if o_ticker in recheck_held:
+                logger.info(
+                    f"ORPHAN_RECONCILIATION_ABORTED for {o_id} ({o_ticker}): position present "
+                    "on re-confirmation. Stop retained."
+                )
+                continue
+
+            try:
+                res = self.cancel_order(o_id)
+            except Exception as e:
+                logger.error(f"ORPHAN_CANCEL_ERROR {o_id} ({o_ticker}): {type(e).__name__}: {e}")
+                report["unconfirmed"].append(o_id)
+                continue
+
+            if not isinstance(res, dict) or not res.get("success"):
+                err = res.get("error") if isinstance(res, dict) else "no response"
+                logger.error(f"ORPHAN_CANCEL_FAILED {o_id} ({o_ticker}): {err}")
+                report["unconfirmed"].append(o_id)
+                continue
+
+            # Cancel reported success: verify absence authoritatively before claiming it.
+            try:
+                post_orders, post_fresh = self.get_open_orders_authoritative()
+            except Exception as e:
+                logger.warning(
+                    f"ORPHAN_CANCEL_UNCONFIRMED {o_id} ({o_ticker}): post-cancel read raised "
+                    f"{type(e).__name__}: {e}"
+                )
+                report["unconfirmed"].append(o_id)
+                continue
+            if not post_fresh:
+                logger.warning(
+                    f"ORPHAN_CANCEL_UNCONFIRMED {o_id} ({o_ticker}): post-cancel read not authoritative"
+                )
+                report["unconfirmed"].append(o_id)
+                continue
+
+            still_present = any(str(x.get("id", "")) == o_id for x in (post_orders or []))
+            if still_present:
+                logger.error(f"ORPHAN_CANCEL_UNCONFIRMED {o_id} ({o_ticker}): order still present at broker")
+                report["unconfirmed"].append(o_id)
+                continue
+
+            logger.info(f"🛡️ Reconciled orphan stop order {o_id} for {o_ticker} (position closed, confirmed absent)")
+            cancelled_orphans.append(o_id)
+
+        report["cancelled"] = list(cancelled_orphans)
+        report["status"] = "ORPHAN_RECONCILIATION_COMPLETED" if not report["unconfirmed"] \
+            else "ORPHAN_RECONCILIATION_PARTIAL_UNCONFIRMED"
+        self.last_orphan_reconciliation = report
         return cancelled_orphans
 
     def sync_broker_stop_order(self, ticker: str, quantity: float, desired_stop_price: float, time_validity: str = "GOOD_TILL_CANCEL") -> Dict[str, Any]:

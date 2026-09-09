@@ -26,6 +26,7 @@ from src.research.strategies.prv_core_compounding_v1 import (
     load_partition_data,
     FROZEN_UNIVERSE
 )
+from tests._provenance_mocks import provenance_aware
 
 
 class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
@@ -89,8 +90,8 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
         return mock_data
 
     @patch.object(order_router, "route_entry_order")
-    @patch.object(broker, "get_open_positions", return_value=[])
-    @patch.object(broker, "get_open_orders", return_value=[])
+    @patch.object(broker, "get_open_positions", side_effect=provenance_aware([]))
+    @patch.object(broker, "get_open_orders", side_effect=provenance_aware([]))
     def test_friday_signal_to_monday_normal_open(self, mock_orders, mock_positions, mock_route_entry):
         """Invariant 1: Friday completed bar routes order on Monday (status DISPATCHED)."""
         mock_route_entry.return_value = (True, "Order DISPATCHED to Trading212", {"broker_order_id": "TEST_ORDER_001", "lifecycle_status": "DISPATCHED"})
@@ -135,8 +136,8 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
             self.assertEqual(dec["execution_status"], "DISPATCHED")
 
     @patch.object(order_router, "route_entry_order")
-    @patch.object(broker, "get_open_positions", return_value=[])
-    @patch.object(broker, "get_open_orders", return_value=[])
+    @patch.object(broker, "get_open_positions", side_effect=provenance_aware([]))
+    @patch.object(broker, "get_open_orders", side_effect=provenance_aware([]))
     def test_friday_signal_to_monday_holiday_tuesday_open(self, mock_orders, mock_positions, mock_route_entry):
         """Invariant 2: Friday signal before bank holiday correctly routes on Tuesday."""
         mock_route_entry.return_value = (True, "Order ACCEPTED by Trading212", {"broker_order_id": "TEST_ORDER_MAY"})
@@ -176,8 +177,8 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
             mock_route_entry.assert_called_once()
 
     @patch.object(order_router, "route_entry_order")
-    @patch.object(broker, "get_open_positions", return_value=[])
-    @patch.object(broker, "get_open_orders", return_value=[])
+    @patch.object(broker, "get_open_positions", side_effect=provenance_aware([]))
+    @patch.object(broker, "get_open_orders", side_effect=provenance_aware([]))
     def test_signal_bar_deduplication_prevents_duplicate_dispatch(self, mock_orders, mock_positions, mock_route_entry):
         """Invariant 3: Signal deduplication blocks re-executing the same observation bar."""
         mock_route_entry.return_value = (True, "Order ACCEPTED by Trading212", {"broker_order_id": "TEST_ORDER_001"})
@@ -202,7 +203,7 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
 
     @patch.object(order_router, "route_entry_order")
     @patch.object(broker, "get_open_positions")
-    @patch.object(broker, "get_open_orders", return_value=[])
+    @patch.object(broker, "get_open_orders", side_effect=provenance_aware([]))
     def test_order_lifecycle_dispatched_and_filled(self, mock_orders, mock_positions, mock_route_entry):
         """Invariant 4: Dispatches when flat; holds when position is confirmed held."""
         mock_route_entry.return_value = (True, "Order ACCEPTED by Trading212", {"broker_order_id": "ORDER_LIFECYCLE_1"})
@@ -210,8 +211,8 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
         mock_data = self._build_mock_7_asset_data(dates, target_sym="EMIM", target_sharpe=0.2235)
         sig = self.strategy.evaluate_point_in_time_signal(dates[-1], dates[-2], mock_data)
 
-        # Stage 1: Flat -> DISPATCHED
-        mock_positions.return_value = []
+        # Stage 1: Flat -> DISPATCHED (authoritative empty book)
+        mock_positions.side_effect = provenance_aware([])
         with patch.object(self.engine, "evaluate_core_compounding_live_state", return_value=sig), \
              patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True):
 
@@ -221,7 +222,8 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
             mock_route_entry.assert_called_once()
 
         # Stage 2: Position Held -> HOLD (no new order)
-        mock_positions.return_value = [{"ticker": "EMIMl_EQ", "quantity": 888.0, "averagePrice": 45.0, "currentPrice": 45.0}]
+        mock_positions.side_effect = provenance_aware(
+            [{"ticker": "EMIMl_EQ", "quantity": 888.0, "averagePrice": 45.0, "currentPrice": 45.0}])
         mock_route_entry.reset_mock()
 
         with patch.object(self.engine, "evaluate_core_compounding_live_state", return_value=sig), \

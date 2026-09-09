@@ -322,9 +322,28 @@ class TestBlockerRemediations(unittest.TestCase):
             {"ticker": "ACTIVEl_EQ", "quantity": 100.0, "averagePrice": 26.0}
         ]
 
-        with patch.object(broker, "get_open_orders", return_value=mock_orders), \
-             patch.object(broker, "get_open_positions", return_value=mock_positions), \
-             patch.object(broker, "cancel_order", return_value={"success": True}) as mock_cancel:
+        # Model an AUTHORITATIVE broker that actually honours the cancellation.
+        # Reconciliation is fail-closed: it requires genuine provenance on both reads
+        # and authoritative proof of absence after cancelling, so the mock must return
+        # (data, authoritative_fresh) whenever provenance is requested. A bare list
+        # would (correctly) be treated as non-authoritative and cancel nothing.
+        live_orders = list(mock_orders)
+
+        def _orders(*a, **k):
+            data = list(live_orders)
+            return (data, True) if k.get("return_provenance") else data
+
+        def _positions(*a, **k):
+            data = list(mock_positions)
+            return (data, True) if k.get("return_provenance") else data
+
+        def _cancel(order_id):
+            live_orders[:] = [o for o in live_orders if str(o["id"]) != str(order_id)]
+            return {"success": True}
+
+        with patch.object(broker, "get_open_orders", side_effect=_orders), \
+             patch.object(broker, "get_open_positions", side_effect=_positions), \
+             patch.object(broker, "cancel_order", side_effect=_cancel) as mock_cancel:
 
             reconciled = broker.reconcile_orphan_stops()
             self.assertIn("STOP_ORPHAN_1", reconciled, "Orphan stop order was not detected and cancelled")
