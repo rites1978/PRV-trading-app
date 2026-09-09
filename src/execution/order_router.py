@@ -351,8 +351,13 @@ class OrderRouter:
         managed_order.transition_to(OrderState.ORDER_SUBMITTED, f"Routing to {'Internal Simulator' if is_internal_sim else 'Trading212 (' + settings.ACCOUNT_MODE + ')'}")
 
         if not is_internal_sim:
-            # Live / Practice Broker Execution on Trading212 API
-            res = broker.place_market_order(t212_ticker, quantity)
+            # Live / Practice Broker Execution on Trading212 API via Broker-Enforced Marketable Limit Order
+            from src.data.universe import universe_manager
+            meta = universe_manager.get_by_t212_ticker(t212_ticker) or universe_manager.get_by_symbol(symbol)
+            is_pence = meta.get("is_uk_pence", False) if meta else (is_uk and not t212_ticker.startswith("VUSA"))
+            broker_limit_price = round(limit_price * 100.0, 2) if is_pence else round(limit_price, 4)
+
+            res = broker.place_limit_order(t212_ticker, quantity, broker_limit_price, time_validity="DAY")
             latency_ms = round((time.time() - t0) * 1000.0, 2)
             
             if res.get("success"):
@@ -361,10 +366,15 @@ class OrderRouter:
                 broker_status = str(broker_order_data.get("status", "SUBMITTED")).upper()
                 filled_qty = float(broker_order_data.get("filledQuantity") or 0.0)
                 
-                # Explicitly distinguish ACCEPTED/WORKING from FILLED
+                # Explicitly distinguish ACCEPTED/WORKING, PARTIALLY_FILLED, and FILLED
                 if broker_status == "FILLED" or (filled_qty >= quantity and quantity > 0):
                     managed_order.transition_to(OrderState.FILLED, f"Broker executed fill {broker_order_id}")
                     lifecycle_status = "FILLED"
+                    if filled_qty <= 0:
+                        filled_qty = quantity
+                elif filled_qty > 0:
+                    managed_order.transition_to(OrderState.PARTIAL_FILL, f"Broker partially filled {filled_qty}/{quantity} shares")
+                    lifecycle_status = "PARTIALLY_FILLED"
                 else:
                     managed_order.transition_to(OrderState.ACKNOWLEDGED, f"Broker accepted order {broker_order_id}")
                     lifecycle_status = "ACCEPTED"
@@ -399,12 +409,12 @@ class OrderRouter:
                     "submitted_price": limit_price,
                     "fill_price": fill_price,
                     "quantity": quantity,
-                    "partial_fill_quantity": 0.0,
+                    "partial_fill_quantity": filled_qty if lifecycle_status == "PARTIALLY_FILLED" else 0.0,
                     "latency_ms": latency_ms,
                     "slippage_bps": slippage_bps,
                     "time_to_fill_sec": round(latency_ms / 1000.0, 3),
                     "order_type": "MARKETABLE_LIMIT",
-                    "status": "FILLED",
+                    "status": lifecycle_status,
                     "decision_price": dec_price,
                     "arrival_price": price,
                     "delay_cost_bps": shortfall["delay_cost_bps"],
@@ -416,50 +426,53 @@ class OrderRouter:
                     "cancellation_reason": None
                 })
 
-                # Record Trade in Database
-                db.record_trade({
-                    "trade_id": str(broker_order_id),
-                    "symbol": symbol,
-                    "action": "BUY",
-                    "quantity": quantity,
-                    "price": fill_price,
-                    "total_cost": nominal_value,
-                    "spread_cost": shortfall["friction_breakdown"]["spread_cost"],
-                    "slippage_cost": shortfall["friction_breakdown"]["slippage_cost"],
-                    "fx_cost": shortfall["friction_breakdown"]["fx_cost"],
-                    "broker_fees": shortfall["friction_breakdown"]["broker_fees"],
-                    "taxes": shortfall["friction_breakdown"]["stamp_duty"] + shortfall["friction_breakdown"]["ptm_levy"],
-                    "net_cost": nominal_value + shortfall["friction_breakdown"]["total_friction"],
-                    "confidence_score": confidence_score,
-                    "reward_risk_ratio": gate_result["net_reward_risk"],
-                    "trade_reason": trade_reason,
-                    "mode": settings.ACCOUNT_MODE
-                })
+                # Record Trade in Database if any fill occurred
+                if filled_qty > 0:
+                    db.record_trade({
+                        "trade_id": str(broker_order_id),
+                        "symbol": symbol,
+                        "action": "BUY",
+                        "quantity": filled_qty,
+                        "price": fill_price,
+                        "total_cost": filled_qty * fill_price,
+                        "spread_cost": shortfall["friction_breakdown"]["spread_cost"],
+                        "slippage_cost": shortfall["friction_breakdown"]["slippage_cost"],
+                        "fx_cost": shortfall["friction_breakdown"]["fx_cost"],
+                        "broker_fees": shortfall["friction_breakdown"]["broker_fees"],
+                        "taxes": shortfall["friction_breakdown"]["stamp_duty"] + shortfall["friction_breakdown"]["ptm_levy"],
+                        "net_cost": (filled_qty * fill_price) + shortfall["friction_breakdown"]["total_friction"],
+                        "confidence_score": confidence_score,
+                        "reward_risk_ratio": gate_result["net_reward_risk"],
+                        "trade_reason": trade_reason,
+                        "mode": settings.ACCOUNT_MODE
+                    })
 
                 portfolio_reservations.release(managed_order.client_order_id)
-                audit_tag = "FILLED_BROKER" if broker_status == "FILLED" else "BROKER_ACCEPTED"
+                audit_tag = "FILLED_BROKER" if lifecycle_status == "FILLED" else ("PARTIAL_FILL" if lifecycle_status == "PARTIALLY_FILLED" else "BROKER_ACCEPTED")
                 
-                # Place broker-native protective stop order immediately upon entry
+                # Place broker-native protective stop order immediately upon fill for actually filled shares
                 stop_order_id = None
-                if stop_loss_price and stop_loss_price > 0:
+                actual_stop_price = None
+                if filled_qty > 0 and fill_price > 0:
                     time.sleep(1.5)  # Throttle order rate to respect Trading212 burst order limits
                     try:
-                        from src.data.universe import universe_manager
-                        meta = universe_manager.get_by_t212_ticker(t212_ticker) or universe_manager.get_by_symbol(symbol)
-                        is_pence = meta.get("is_uk_pence", False) if meta else (is_uk and not t212_ticker.startswith("VUSA"))
+                        from src.strategies.core_compounding_v1 import core_compounding_strategy
+                        stop_pct = getattr(core_compounding_strategy, "STOP_LOSS_PCT", 0.02)
+                        actual_stop_price = round(fill_price * (1.0 - stop_pct), 4)
+
                         if is_pence:
-                            # Convert GBP (£) stop loss to broker-native GBX (pence): e.g. £608.33 -> 60,833.00p
-                            broker_stop_price = round(stop_loss_price * 100.0, 2)
+                            # Convert GBP (£) stop loss to broker-native GBX (pence): e.g. £40.8758 -> 4,087.58p
+                            broker_stop_price = round(actual_stop_price * 100.0, 2)
                         else:
                             # Native GBP (£) instrument: e.g. VUSA £106.90
-                            broker_stop_price = round(stop_loss_price, 4)
-                        logger.info(f"Submitting native stop order for {t212_ticker}: entry=£{fill_price:.2f}, stop_loss=£{stop_loss_price:.4f} -> broker_stop_price={broker_stop_price} {'GBX (pence)' if is_pence else 'GBP (£)'}")
-                        stop_res = broker.sync_broker_stop_order(t212_ticker, quantity, broker_stop_price)
+                            broker_stop_price = round(actual_stop_price, 4)
+                        logger.info(f"Submitting native stop order for {t212_ticker}: actual_fill=£{fill_price:.4f}, stop_loss=£{actual_stop_price:.4f} -> broker_stop_price={broker_stop_price} {'GBX (pence)' if is_pence else 'GBP (£)'}, protected_shares={filled_qty}")
+                        stop_res = broker.sync_broker_stop_order(t212_ticker, filled_qty, broker_stop_price)
                         if not stop_res or not stop_res.get("success"):
                             # FAIL-CLOSED: no confirmed protective stop -> flatten + HALT
                             err_stop = stop_res.get("error", "Failed stop confirmation") if stop_res else "No response"
                             logger.critical(f"FATAL FAIL-CLOSED: No confirmed protective stop for {t212_ticker} ({err_stop})! Flattening position immediately and halting engine.")
-                            broker.place_market_order(t212_ticker, -quantity)
+                            broker.place_market_order(t212_ticker, -filled_qty)
                             from src.core.engine import quant_engine
                             quant_engine.stop()
                             return False, f"FAIL-CLOSED: Protective stop failed ({err_stop}). Position flattened and engine halted.", {"approved": False, "halt": True}
@@ -467,19 +480,24 @@ class OrderRouter:
                     except Exception as stop_err:
                         logger.critical(f"FATAL FAIL-CLOSED: Exception in placing broker stop order: {stop_err}! Emergency flattening.")
                         try:
-                            broker.place_market_order(t212_ticker, -quantity)
+                            broker.place_market_order(t212_ticker, -filled_qty)
                         except Exception:
                             pass
                         from src.core.engine import quant_engine
                         quant_engine.stop()
                         return False, f"FAIL-CLOSED: Exception placing stop ({stop_err}). Position flattened and engine halted.", {"approved": False, "halt": True}
+                elif lifecycle_status == "ACCEPTED":
+                    logger.info(f"Order {broker_order_id} is WORKING on broker book (ACCEPTED). No protective stop submitted until fill.")
 
                 self._log_audit("BUY_EXECUTION", symbol, market_regime, agent_votes, confidence_score, f"{trade_reason} | StopID: {stop_order_id}", True, quantity, audit_tag)
                 res_data = dict(res.get("data", {}))
                 res_data["lifecycle_status"] = lifecycle_status
                 res_data["broker_order_id"] = broker_order_id
+                res_data["fill_price"] = fill_price
                 res_data["filled_quantity"] = filled_qty
-                return True, f"✅ Order Executed ({settings.ACCOUNT_MODE} - {lifecycle_status}): {quantity} shares of {symbol} at £{fill_price:.2f} (Broker ID: {broker_order_id}, Stop ID: {stop_order_id})", res_data
+                res_data["stop_order_id"] = stop_order_id
+                res_data["stop_price"] = actual_stop_price
+                return True, f"Order {lifecycle_status} ({broker_order_id})", res_data
             else:
                 err_msg = res.get("error", "Unknown broker error")
                 is_timeout = (

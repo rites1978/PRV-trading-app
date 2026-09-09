@@ -125,7 +125,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
              patch.object(market_data, "get_current_executable_price", return_value=live_price), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", mock_place):
+             patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": nav, "available_cash": nav},
@@ -134,7 +134,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
             self.assertEqual(res["decision"], "ENTER")
             self.assertEqual(mock_place.call_count, 1)
-            call_ticker, call_qty = mock_place.call_args[0]
+            call_ticker, call_qty = mock_place.call_args[0][:2]
             self.assertEqual(call_ticker, "EMIMl_EQ")
 
             # Verify quantity is calculated against max permitted fill price and <= deployable
@@ -160,7 +160,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
              patch.object(market_data, "get_current_executable_price", return_value=live_price), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", mock_place):
+             patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": nav, "available_cash": nav},
@@ -169,7 +169,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
             self.assertEqual(res["decision"], "ENTER")
             self.assertEqual(mock_place.call_count, 1)
-            call_ticker, call_qty = mock_place.call_args[0]
+            call_ticker, call_qty = mock_place.call_args[0][:2]
 
             expected_qty = core_compounding_strategy.floor_to_broker_increment(deployable / max_permitted_fill)
             self.assertEqual(call_qty, expected_qty)
@@ -193,7 +193,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
              patch.object(market_data, "get_current_executable_price", return_value=live_price), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", mock_place):
+             patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": nav, "available_cash": nav},
@@ -201,7 +201,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
             )
 
             self.assertEqual(res["decision"], "ENTER")
-            call_ticker, call_qty = mock_place.call_args[0]
+            call_ticker, call_qty = mock_place.call_args[0][:2]
 
             self.assertLessEqual(call_qty * max_permitted_fill, deployable)
             self.assertAlmostEqual(call_qty, 912.816, places=2)
@@ -217,7 +217,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
              patch.object(market_data, "get_current_executable_price", return_value=None), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", mock_place):
+             patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": nav, "available_cash": nav},
@@ -264,7 +264,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
              patch.object(market_data, "get_current_executable_price", return_value=41.69), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", mock_place):
+             patch.object(broker, "place_limit_order", mock_place):
 
             # Cycle 1: Executes
             res1 = self.engine._run_core_compounding_cycle(
@@ -298,7 +298,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
              patch.object(market_data, "get_current_executable_price", return_value=41.69), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", mock_place):
+             patch.object(broker, "place_limit_order", mock_place):
 
             # Cycle 1: Dispatches and gets rejected
             res1 = self.engine._run_core_compounding_cycle(
@@ -327,7 +327,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
              patch.object(market_data, "get_current_executable_price", return_value=41.69), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", mock_place):
+             patch.object(broker, "place_limit_order", mock_place):
 
             res1 = self.engine._run_core_compounding_cycle(
                 account={"total_value": nav, "available_cash": nav},
@@ -394,7 +394,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
              patch.object(market_data, "get_current_executable_price", return_value=1.468), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", mock_place):
+             patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": nav, "available_cash": nav},
@@ -451,7 +451,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
              patch.object(market_data, "get_current_executable_price", return_value=live_price), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", mock_place):
+             patch.object(broker, "place_limit_order", mock_place):
 
             res = self.engine._run_core_compounding_cycle(
                 account={"total_value": nav, "available_cash": nav},
@@ -460,7 +460,7 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
 
             self.assertEqual(res["decision"], "ENTER")
             self.assertEqual(mock_place.call_count, 1)
-            call_ticker, call_qty = mock_place.call_args[0]
+            call_ticker, call_qty = mock_place.call_args[0][:2]
             self.assertEqual(call_ticker, "EMIMl_EQ")
             self.assertEqual(call_qty, broker_qty)
             self.assertEqual(broker_qty, 956.158)

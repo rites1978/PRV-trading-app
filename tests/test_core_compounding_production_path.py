@@ -7,7 +7,7 @@ Verifies the real end-to-end production path and strict frozen invariants:
     -> evaluate_core_compounding_live_state()
     -> Net Edge Gate & Capital Reservation
     -> order_router.route_entry_order()
-    -> broker.place_market_order() (only final broker HTTP boundary mocked)
+    -> broker.place_limit_order() (only final broker HTTP boundary mocked)
 
 Mandatory Verification Matrix:
 1. First scheduler execution (qualifying signal, open window) => ROUTE_ENTRY_ORDER_CALL_COUNT = 1
@@ -121,7 +121,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": test_oid, "status": "FILLED", "fillPrice": 45.0}}) as mock_place_order, \
+             patch.object(broker, "place_limit_order", return_value={"success": True, "data": {"id": test_oid, "status": "FILLED", "fillPrice": 45.0}}) as mock_place_order, \
              patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
              patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
              patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
@@ -154,7 +154,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order") as mock_place_order, \
+             patch.object(broker, "place_limit_order") as mock_place_order, \
              patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
 
             res = self.engine._run_core_compounding_cycle(
@@ -183,7 +183,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(broker, "get_open_positions", return_value=existing_pos), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order") as mock_place_order, \
+             patch.object(broker, "place_limit_order") as mock_place_order, \
              patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
 
             res = self.engine._run_core_compounding_cycle(
@@ -212,7 +212,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": test_oid4, "status": "FILLED", "fillPrice": 45.0}}), \
+             patch.object(broker, "place_limit_order", return_value={"success": True, "data": {"id": test_oid4, "status": "FILLED", "fillPrice": 45.0}}), \
              patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
              patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
              patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
@@ -419,7 +419,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", return_value={"success": False, "error": "HTTPSConnectionPool: Read timed out.", "is_timeout": True}), \
+             patch.object(broker, "place_limit_order", return_value={"success": False, "error": "HTTPSConnectionPool: Read timed out.", "is_timeout": True}), \
              patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
              patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:
 
@@ -520,7 +520,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
              patch.object(broker, "get_open_positions", return_value=[]), \
              patch.object(broker, "get_open_orders", return_value=[]), \
-             patch.object(broker, "place_market_order", return_value={"success": True, "data": {"id": test_oid, "status": "ACCEPTED", "filledQuantity": 0.0}}), \
+             patch.object(broker, "place_limit_order", return_value={"success": True, "data": {"id": test_oid, "status": "ACCEPTED", "filledQuantity": 0.0}}), \
              patch.object(broker, "sync_broker_stop_order", return_value={"success": True, "action": "PLACED_NEW"}), \
              patch("src.execution.order_router.portfolio_snapshot.hydrate_once", return_value=mock_snap), \
              patch.object(order_router, "route_entry_order", wraps=order_router.route_entry_order) as spy_route_order:

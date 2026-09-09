@@ -103,7 +103,7 @@ class ExecutionRemediationTest(unittest.TestCase):
         unique_order_id = f"TEST_ROUTER_FLOOR_{int(datetime.now().timestamp() * 1000)}"
         with patch("src.portfolio.portfolio_snapshot.portfolio_snapshot.hydrate_once", return_value={"account_summary": {"free_cash": 50000.0, "total_nav": 50000.0}, "positions": []}), \
              patch("src.brokers.trading212.broker.get_open_orders", return_value=[]), \
-             patch("src.brokers.trading212.broker.place_market_order") as mock_place, \
+             patch("src.brokers.trading212.broker.place_limit_order") as mock_place, \
              patch("src.brokers.trading212.broker.sync_broker_stop_order", return_value={"success": True, "data": {"id": "STOP_FLOOR_001"}}), \
              patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True), \
              patch("src.execution.net_edge_gate.net_edge_gate.evaluate_candidate") as mock_gate:
@@ -136,7 +136,7 @@ class ExecutionRemediationTest(unittest.TestCase):
             self.assertTrue(ok, f"route_entry_order failed: {msg}")
             # Ensure broker received floored 3-decimal quantity: 959.045
             mock_place.assert_called_once()
-            submitted_ticker, submitted_qty = mock_place.call_args[0]
+            submitted_ticker, submitted_qty = mock_place.call_args[0][:2]
             self.assertEqual(submitted_ticker, "EMIMl_EQ")
             self.assertEqual(submitted_qty, 959.045)
             print(f"  ✅ order_router successfully floored 959.0458 to {submitted_qty} before broker call")
@@ -149,7 +149,7 @@ class ExecutionRemediationTest(unittest.TestCase):
         # 1. Simulate rejection response from order_router
         with patch("src.portfolio.portfolio_snapshot.portfolio_snapshot.hydrate_once", return_value={"account_summary": {"free_cash": 50000.0, "total_nav": 50000.0}, "positions": []}), \
              patch("src.brokers.trading212.broker.get_open_orders", return_value=[]), \
-             patch("src.brokers.trading212.broker.place_market_order") as mock_place, \
+             patch("src.brokers.trading212.broker.place_limit_order") as mock_place, \
              patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True), \
              patch("src.execution.net_edge_gate.net_edge_gate.evaluate_candidate") as mock_gate:
             mock_place.return_value = {
@@ -250,7 +250,7 @@ class ExecutionRemediationTest(unittest.TestCase):
         unique_replay_id = f"REPLAY_ORDER_EMIM_{int(datetime.now().timestamp() * 1000)}"
 
         with patch("src.portfolio.portfolio_snapshot.portfolio_snapshot.hydrate_once", return_value={"account_summary": {"free_cash": 50000.0, "total_nav": 50000.0}, "positions": []}), \
-             patch("src.brokers.trading212.broker.place_market_order") as mock_place, \
+             patch("src.brokers.trading212.broker.place_limit_order") as mock_place, \
              patch("src.brokers.trading212.broker.sync_broker_stop_order") as mock_stop, \
              patch("src.brokers.trading212.broker.get_open_positions", return_value=[]), \
              patch("src.brokers.trading212.broker.get_open_orders", return_value=[]), \
@@ -307,7 +307,7 @@ class ExecutionRemediationTest(unittest.TestCase):
                 self.assertEqual(res1["selected_instrument"], "EMIM")
                 self.assertEqual(mock_place.call_count, 1)
 
-                submitted_ticker, submitted_qty = mock_place.call_args[0]
+                submitted_ticker, submitted_qty = mock_place.call_args[0][:2]
                 self.assertEqual(submitted_ticker, "EMIMl_EQ")
                 # Sizing price with 10 bps collar ceiling: round(41.6925 * 1.0010, 4) = 41.7342
                 # Deployable = 50k NAV * 0.80 - 15 = 39985.0 / 41.7342 = 958.087 shares
