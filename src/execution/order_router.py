@@ -22,6 +22,7 @@ from src.execution.net_edge_gate import net_edge_gate
 from src.execution.order_state_machine import ManagedOrder, OrderState, portfolio_reservations
 from src.portfolio.portfolio_snapshot import portfolio_snapshot
 from src.data.market_hours import market_hours
+from src.core.price_units import broker_price_to_gbp, UnknownInstrumentUnitError
 
 logger = logging.getLogger("order_router")
 
@@ -378,7 +379,68 @@ class OrderRouter:
                 else:
                     managed_order.transition_to(OrderState.ACKNOWLEDGED, f"Broker accepted order {broker_order_id}")
                     lifecycle_status = "ACCEPTED"
-                fill_price = float(broker_order_data.get("fillPrice") or price)
+                # CANONICAL UNITS (F4). Two cases are deliberately DISTINCT.
+                #
+                # CASE A -- broker supplies NO fillPrice. Trading212's live payload has no
+                # such field (verified against a real filled EMIM order), so this is the
+                # normal path: `price` is already canonical GBP and is used as the
+                # explicitly-known-GBP arrival price. Previously verified behaviour.
+                #
+                # CASE B -- broker DOES supply a fillPrice. It is BROKER-NATIVE (sibling
+                # fields on the same payload, e.g. limitPrice 4204.79, are GBX), so it is
+                # normalised through instrument metadata exactly once. If that unit cannot
+                # be resolved we must NOT substitute the arrival price: deriving a
+                # protective stop from a price that is not the actual fill would break
+                # STOP_DERIVES_FROM_ACTUAL_RECOGNISED_FILL_PRICE. We instead refuse to
+                # recognise any fill price and hand the order to authoritative broker-state
+                # reconciliation.
+                raw_fill_price = broker_order_data.get("fillPrice")
+                fill_price_unresolved_err = None
+                if raw_fill_price is None or str(raw_fill_price).strip() == "":
+                    fill_price = price
+                    fill_price_source = "GBP_ARRIVAL_PRICE_NO_BROKER_FILLPRICE"
+                else:
+                    try:
+                        fill_price = broker_price_to_gbp(float(raw_fill_price), t212_ticker)
+                        fill_price_source = "BROKER_FILL_PRICE_NORMALISED"
+                    except UnknownInstrumentUnitError as unit_err:
+                        fill_price = None
+                        fill_price_source = "PRICE_UNIT_UNRESOLVED"
+                        fill_price_unresolved_err = str(unit_err)
+
+                if fill_price_unresolved_err is not None:
+                    # FAIL-CLOSED: no recognised fill price -> no actual-fill-derived stop.
+                    # The managed order is left in the state the broker actually reported
+                    # (FILLED / PARTIALLY_FILLED / ACKNOWLEDGED above) and the reservation is
+                    # NOT released, because capital may genuinely be committed. Resolution is
+                    # deferred to authoritative broker-state reconciliation.
+                    unit_err_msg = (
+                        f"PRICE_UNIT_UNRESOLVED: broker returned fillPrice={raw_fill_price} for "
+                        f"{t212_ticker}, whose quote unit cannot be resolved from instrument "
+                        f"metadata. Refusing to recognise a fill price; no actual-fill-derived "
+                        f"protective stop may be created. ({fill_price_unresolved_err})"
+                    )
+                    logger.critical(unit_err_msg)
+                    self._log_audit("EXECUTION_PRICE_UNIT_UNRESOLVED", symbol, market_regime,
+                                    agent_votes, confidence_score, unit_err_msg, True, quantity,
+                                    "PRICE_UNIT_UNRESOLVED_PENDING_RECONCILIATION")
+                    return False, f"PRICE_UNIT_UNRESOLVED_PENDING_RECONCILIATION: {unit_err_msg}", {
+                        "approved": False,
+                        "status": "PRICE_UNIT_UNRESOLVED_PENDING_RECONCILIATION",
+                        "broker_order_id": broker_order_id,
+                        "lifecycle_status": lifecycle_status,
+                        "filled_quantity": filled_qty,
+                        "fill_price": None,
+                        "stop_price": None,
+                        "stop_order_id": None,
+                        "requires_broker_reconciliation": True,
+                        "error": unit_err_msg
+                    }
+
+                logger.info(
+                    f"FILL_PRICE_RESOLVED {t212_ticker}: £{fill_price:.4f} "
+                    f"(source={fill_price_source}, raw={raw_fill_price})"
+                )
                 slippage_bps = round(((fill_price - price) / max(0.001, price)) * 10000.0, 1)
 
                 # Compute Implementation Shortfall

@@ -130,7 +130,8 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
             "data": {
                 "id": "ORD_LIMIT_001",
                 "status": "FILLED",
-                "fillPrice": 41.6900,
+                # BROKER-NATIVE GBX: 4169.00 GBX = £41.69 (see note below).
+                "fillPrice": 4169.00,
                 "filledQuantity": 956.158
             }
         })
@@ -161,11 +162,17 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         """2. Simulated fill @ £41.6900: Stop is £40.8562 (exact 2.0000%)."""
         feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
         fill_p = 41.6900
+        # BROKER-NATIVE UNITS: EMIMl_EQ is GBX-quoted, so the broker's own price
+        # fields are GBX -- the real payload's sibling limitPrice is 4204.79 for a
+        # ~£42 line, and this suite already uses GBX for averagePrice/stopPrice.
+        # order['currency']='GBP' is the SETTLEMENT currency, not quote-unit
+        # authority. Economic meaning is unchanged: 4169.00 GBX = £41.6900.
+        broker_fill_p = round(fill_p * 100.0, 2)  # 4169.00 GBX
         qty = 956.158
 
         mock_limit = MagicMock(return_value={
             "success": True,
-            "data": {"id": "ORD_FILL_1", "status": "FILLED", "fillPrice": fill_p, "filledQuantity": qty}
+            "data": {"id": "ORD_FILL_1", "status": "FILLED", "fillPrice": broker_fill_p, "filledQuantity": qty}
         })
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_1"})
 
@@ -192,11 +199,17 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         """3. Simulated fill @ £41.7100: Stop is £40.8758 (exact 2.0000%, not stale £40.8562)."""
         feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
         fill_p = 41.7100
+        # BROKER-NATIVE UNITS: EMIMl_EQ is GBX-quoted, so the broker's own price
+        # fields are GBX -- the real payload's sibling limitPrice is 4204.79 for a
+        # ~£42 line, and this suite already uses GBX for averagePrice/stopPrice.
+        # order['currency']='GBP' is the SETTLEMENT currency, not quote-unit
+        # authority. Economic meaning is unchanged: 4171.00 GBX = £41.7100.
+        broker_fill_p = round(fill_p * 100.0, 2)  # 4171.00 GBX
         qty = 956.158
 
         mock_limit = MagicMock(return_value={
             "success": True,
-            "data": {"id": "ORD_FILL_2", "status": "FILLED", "fillPrice": fill_p, "filledQuantity": qty}
+            "data": {"id": "ORD_FILL_2", "status": "FILLED", "fillPrice": broker_fill_p, "filledQuantity": qty}
         })
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_2"})
 
@@ -223,11 +236,17 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         """4. Simulated fill @ £41.7317: Stop is £40.8971 (exact 2.0000%, not stale £40.8562)."""
         feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
         fill_p = 41.7317
+        # BROKER-NATIVE UNITS: EMIMl_EQ is GBX-quoted, so the broker's own price
+        # fields are GBX -- the real payload's sibling limitPrice is 4204.79 for a
+        # ~£42 line, and this suite already uses GBX for averagePrice/stopPrice.
+        # order['currency']='GBP' is the SETTLEMENT currency, not quote-unit
+        # authority. Economic meaning is unchanged: 4173.17 GBX = £41.7317.
+        broker_fill_p = round(fill_p * 100.0, 2)  # 4173.17 GBX
         qty = 956.158
 
         mock_limit = MagicMock(return_value={
             "success": True,
-            "data": {"id": "ORD_FILL_3", "status": "FILLED", "fillPrice": fill_p, "filledQuantity": qty}
+            "data": {"id": "ORD_FILL_3", "status": "FILLED", "fillPrice": broker_fill_p, "filledQuantity": qty}
         })
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_3"})
 
@@ -277,10 +296,16 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
         partial_qty = 400.0
         fill_p = 41.7000
+        # BROKER-NATIVE UNITS: EMIMl_EQ is GBX-quoted, so the broker's own price
+        # fields are GBX -- the real payload's sibling limitPrice is 4204.79 for a
+        # ~£42 line, and this suite already uses GBX for averagePrice/stopPrice.
+        # order['currency']='GBP' is the SETTLEMENT currency, not quote-unit
+        # authority. Economic meaning is unchanged: 4170.00 GBX = £41.7000.
+        broker_fill_p = round(fill_p * 100.0, 2)  # 4170.00 GBX
 
         mock_limit = MagicMock(return_value={
             "success": True,
-            "data": {"id": "ORD_PARTIAL_001", "status": "PARTIALLY_FILLED", "fillPrice": fill_p, "filledQuantity": partial_qty}
+            "data": {"id": "ORD_PARTIAL_001", "status": "PARTIALLY_FILLED", "fillPrice": broker_fill_p, "filledQuantity": partial_qty}
         })
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_PARTIAL"})
 
@@ -391,7 +416,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         restarted_engine._stop_event.set()
         restarted_engine.is_running = False
 
-        open_positions = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 41.70}]
+        open_positions = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 4170.00}]
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware(open_positions)),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit):
 
@@ -432,7 +457,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
         mock_limit = MagicMock(return_value={
             "success": True,
-            "data": {"id": "ORD_EXACT_1", "status": "FILLED", "fillPrice": 41.6900, "filledQuantity": 956.158}
+            "data": {"id": "ORD_EXACT_1", "status": "FILLED", "fillPrice": 4169.00, "filledQuantity": 956.158}
         })
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())),              patch.object(market_data, "get_current_executable_price", return_value=41.6900),              patch.object(broker, "get_open_positions", side_effect=provenance_aware([])),              patch.object(broker, "get_open_orders", side_effect=provenance_aware([])),              patch.object(broker, "place_limit_order", mock_limit):
@@ -570,7 +595,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
         mock_limit = MagicMock(return_value={
             "success": True,
-            "data": {"id": "ORD_W2_001", "status": "FILLED", "fillPrice": 41.6900, "filledQuantity": 956.158}
+            "data": {"id": "ORD_W2_001", "status": "FILLED", "fillPrice": 4169.00, "filledQuantity": 956.158}
         })
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_W2"})
 
@@ -608,7 +633,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
         mock_limit = MagicMock(return_value={
             "success": True,
-            "data": {"id": "ORD_W3_001", "status": "PARTIALLY_FILLED", "fillPrice": 41.7000, "filledQuantity": 400.0}
+            "data": {"id": "ORD_W3_001", "status": "PARTIALLY_FILLED", "fillPrice": 4170.00, "filledQuantity": 400.0}
         })
         mock_cancel = MagicMock(return_value={"success": True})
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_W3"})
@@ -633,7 +658,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         # Step 2: At 08:05, window closes. Remainder (556.158) cancelled, position 400 retained
         working_remainder = {"id": "ORD_W3_001", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 556.158}
         active_stop = {"id": "STOP_W3", "ticker": "EMIMl_EQ", "type": "STOP", "quantity": -400.0, "stopPrice": 4086.60}
-        pos_400 = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 41.70, "currentPrice": 41.70}]
+        pos_400 = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 4170.00, "currentPrice": 4170.00}]
 
         active_orders_w3 = [working_remainder, active_stop]
         def cancel_w3(oid):
@@ -687,7 +712,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         })
 
         # At 08:04, position increased to 600 shares, but stop still covers only 400 shares
-        pos_600 = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 41.70, "currentPrice": 41.70}]
+        pos_600 = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 4170.00, "currentPrice": 4170.00}]
         working_remainder_356 = {"id": "ORD_W4_001", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 356.158}
         old_stop_400 = {"id": "STOP_W4_OLD", "ticker": "EMIMl_EQ", "type": "STOP", "quantity": -400.0, "stopPrice": 4086.60}
 
@@ -748,7 +773,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         mock_cancel = MagicMock()
 
         # At 08:06 BST, only the 600-share position and its stop exist; entry order remainder is GONE
-        pos_600 = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 41.70, "currentPrice": 41.70}]
+        pos_600 = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 4170.00, "currentPrice": 4170.00}]
         expanded_stop_600 = {"id": "STOP_W4_EXPANDED", "ticker": "EMIMl_EQ", "type": "STOP", "quantity": -600.0, "stopPrice": 4086.60}
 
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
@@ -1090,7 +1115,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         def cancel_race(oid):
             nonlocal active_orders, active_positions
             active_orders = []
-            active_positions = [{"ticker": "EMIMl_EQ", "quantity": 956.158, "averagePrice": 41.6900, "currentPrice": 41.6900}]
+            active_positions = [{"ticker": "EMIMl_EQ", "quantity": 956.158, "averagePrice": 4169.00, "currentPrice": 4169.00}]
             return {"success": True}
 
         mock_cancel = MagicMock(side_effect=cancel_race)
@@ -1144,12 +1169,12 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         working_remainder = {"id": "ORD_R5_REM", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 556.158}
         active_stop = {"id": "STOP_R5_OLD", "ticker": "EMIMl_EQ", "type": "STOP", "quantity": -400.0, "stopPrice": 4086.60}
         active_orders = [working_remainder, active_stop]
-        active_positions = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 41.7000, "currentPrice": 41.7000}]
+        active_positions = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 4170.00, "currentPrice": 4170.00}]
 
         def cancel_race_partial(oid):
             nonlocal active_orders, active_positions
             active_orders = [active_stop]
-            active_positions = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 41.7000, "currentPrice": 41.7000}]
+            active_positions = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 4170.00, "currentPrice": 4170.00}]
             return {"success": True}
 
         mock_cancel = MagicMock(side_effect=cancel_race_partial)
@@ -1251,12 +1276,12 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         working_remainder = {"id": "ORD_R7_REM", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 856.158}
         active_stop = {"id": "STOP_R7_OLD", "ticker": "EMIMl_EQ", "type": "STOP", "quantity": -100.0, "stopPrice": 4085.62}
         active_orders = [working_remainder, active_stop]
-        active_positions = [{"ticker": "EMIMl_EQ", "quantity": 100.0, "averagePrice": 41.6900, "currentPrice": 41.6900}]
+        active_positions = [{"ticker": "EMIMl_EQ", "quantity": 100.0, "averagePrice": 4169.00, "currentPrice": 4169.00}]
 
         def cancel_race_7(oid):
             nonlocal active_orders, active_positions
             active_orders = [active_stop]
-            active_positions = [{"ticker": "EMIMl_EQ", "quantity": 500.0, "averagePrice": 41.6900, "currentPrice": 41.6900}]
+            active_positions = [{"ticker": "EMIMl_EQ", "quantity": 500.0, "averagePrice": 4169.00, "currentPrice": 4169.00}]
             return {"success": True}
 
         mock_cancel = MagicMock(side_effect=cancel_race_7)
@@ -1306,7 +1331,7 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
             "notes": "Cancel pending reconciliation before reboot"
         })
 
-        pos_600 = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 41.7000, "currentPrice": 41.7000}]
+        pos_600 = [{"ticker": "EMIMl_EQ", "quantity": 600.0, "averagePrice": 4170.00, "currentPrice": 4170.00}]
         mock_limit = MagicMock()
         mock_cancel = MagicMock()
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_R8_RECON"})

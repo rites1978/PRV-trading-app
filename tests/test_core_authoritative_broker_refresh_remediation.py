@@ -286,7 +286,7 @@ class TestCoreAuthoritativeBrokerRefreshRemediation(unittest.TestCase):
         feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
 
         w_ord = {"id": "ORD_SC4", "ticker": "EMIMl_EQ", "type": "LIMIT", "quantity": 956.158}
-        stale_pos = [{"ticker": "EMIMl_EQ", "quantity": 200.0, "averagePrice": 41.69}]
+        stale_pos = [{"ticker": "EMIMl_EQ", "quantity": 200.0, "averagePrice": 4169.00}]
         mock_cancel = MagicMock(return_value={"success": True})
 
         call_count_orders = 0
@@ -488,7 +488,7 @@ class TestCoreAuthoritativeBrokerRefreshRemediation(unittest.TestCase):
             "notes": "Partial fill confirmed on broker"
         })
 
-        pos_400 = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 41.7000, "currentPrice": 41.7000}]
+        pos_400 = [{"ticker": "EMIMl_EQ", "quantity": 400.0, "averagePrice": 4170.00, "currentPrice": 4170.00}]
         mock_sync_stop = MagicMock(return_value={"success": True, "order_id": "STOP_SC8_B"})
 
         with patch.object(broker, "sync_broker_stop_order", mock_sync_stop):

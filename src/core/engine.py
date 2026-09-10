@@ -31,6 +31,11 @@ from src.compliance.integrity_guard import integrity_guard
 from src.analytics.attribution_service import attribution_service
 from src.analytics.trajectory_service import trajectory_service
 from telegram_notifier import TelegramNotifier
+from src.core.price_units import (
+    broker_price_to_gbp,
+    gbp_to_broker_price,
+    broker_stop_from_broker_entry,
+)
 
 class PRVQuantEngine:
     # ── Explicit strategy routing families for open-position management ──
@@ -826,6 +831,89 @@ class PRVQuantEngine:
 
         return [], False
 
+    def reconcile_unresolved_fill_price(
+        self,
+        open_positions: Optional[List[Dict[str, Any]]] = None,
+        open_orders: Optional[List[Dict[str, Any]]] = None,
+        positions_authoritative: Optional[bool] = None,
+        orders_authoritative: Optional[bool] = None,
+    ) -> Optional[str]:
+        """
+        Authoritative resolver for PRICE_UNIT_UNRESOLVED_PENDING_RECONCILIATION (F4).
+
+        This state means the broker reported a fill whose quote unit could not be
+        resolved, so no actual-fill-derived protective stop could be created and the
+        global entry gate is armed. It is cleared ONLY by positive authoritative
+        evidence -- an authoritative broker position carrying a usable averagePrice.
+
+        Deliberately NOT cleared by:
+          * a non-authoritative / cached / stale refresh (deferred, gate stays armed),
+          * an empty broker response (absence is not evidence the order did not fill).
+
+        No stop is placed here: once the decision leaves the unresolved state, the
+        existing open-position stop-sync path protects the position from the
+        authoritative broker averagePrice. This adds no new stop logic.
+        """
+        dec = db.get_unresolved_fill_price_decision()
+        if not dec:
+            return None
+
+        dedup_key = dec.get("dedup_key")
+        target_ticker = str(dec.get("target_instrument", "") or "")
+
+        if open_positions is None:
+            open_positions, positions_authoritative = self.fetch_positions_authoritative(broker)
+        elif positions_authoritative is None:
+            positions_authoritative = True
+        if open_orders is None:
+            open_orders, orders_authoritative = self.fetch_orders_authoritative(broker)
+        elif orders_authoritative is None:
+            orders_authoritative = True
+
+        # FAIL-CLOSED: cached or stale state can never clear an ambiguous fill.
+        if not positions_authoritative or not orders_authoritative:
+            msg = (
+                f"UNRESOLVED_FILL_DEFERRED: broker refresh not authoritative "
+                f"(positions_fresh={positions_authoritative}, orders_fresh={orders_authoritative}) "
+                f"for {target_ticker}. Entry gate remains armed."
+            )
+            logger.warning(msg)
+            return msg
+
+        pos_match = next(
+            (p for p in (open_positions or [])
+             if str(p.get("ticker", "")).upper() == target_ticker.upper()), None)
+
+        if pos_match:
+            qty = float(pos_match.get("quantity", 0) or 0)
+            avg_p = float(pos_match.get("averagePrice", 0) or 0)
+            if qty > 0 and avg_p > 0:
+                # Positive authoritative evidence: the true entry price is now known.
+                terminal = "FILLED"
+                db.update_core_compounding_decision_status(
+                    dedup_key=dedup_key,
+                    status=terminal,
+                    notes=(
+                        f"UNRESOLVED_FILL_RESOLVED: authoritative broker position confirms "
+                        f"{qty} @ {avg_p} (broker-native) for {target_ticker}. Fill price "
+                        f"adopted from authoritative broker state; protective stop is "
+                        f"synced by the standard open-position path."
+                    )
+                )
+                msg = (f"UNRESOLVED_FILL_RESOLVED: {target_ticker} adopted from authoritative "
+                       f"broker position ({qty} @ {avg_p}) -> {terminal}.")
+                logger.info(msg)
+                return msg
+
+        # Absence is not evidence. Stay fail-closed.
+        msg = (
+            f"UNRESOLVED_FILL_UNCONFIRMED: no authoritative position with a usable "
+            f"averagePrice for {target_ticker}. Entry gate remains armed; an empty or "
+            f"partial broker view must not clear an ambiguous fill."
+        )
+        logger.warning(msg)
+        return msg
+
     def reconcile_unknown_submissions(
         self,
         open_positions: Optional[List[Dict[str, Any]]] = None,
@@ -936,18 +1024,16 @@ class PRVQuantEngine:
                         notes=f"Broker reconciliation after window close: cancel inconclusive (cancel_ok={cancel_ok}, order_present={order_still_present}, err={err_msg}, pre_qty={pre_cancel_filled_qty}, refreshed_qty={final_qty})."
                     )
                     if final_qty > 0 and avg_p > 0:
-                        inst_meta = core_compounding_strategy.get_instrument_metadata(target_ticker)
-                        is_uk_pence = inst_meta.get("is_uk_pence", True)
-                        stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-                        broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                        # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
+                        broker_stop_price = broker_stop_from_broker_entry(
+                            avg_p, target_ticker, core_compounding_strategy.STOP_LOSS_PCT)
                         broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
                     return f"Reconciliation after window close: order {b_oid} still pending cancellation -> WINDOW_CLOSE_PENDING_RECONCILIATION"
                 else:
                     if final_qty > 0:
-                        inst_meta = core_compounding_strategy.get_instrument_metadata(target_ticker)
-                        is_uk_pence = inst_meta.get("is_uk_pence", True)
-                        stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-                        broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                        # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
+                        broker_stop_price = broker_stop_from_broker_entry(
+                            avg_p, target_ticker, core_compounding_strategy.STOP_LOSS_PCT)
                         broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
                         db.update_core_compounding_decision_status(
                             dedup_key=dedup_key,
@@ -975,10 +1061,9 @@ class PRVQuantEngine:
             avg_p = float(pos_match.get("averagePrice", 0))
             status = "PARTIALLY_FILLED_WINDOW_CLOSED" if is_past_window else "FILLED"
             if avg_p > 0:
-                inst_meta = core_compounding_strategy.get_instrument_metadata(target_ticker)
-                is_uk_pence = inst_meta.get("is_uk_pence", True)
-                stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-                broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
+                broker_stop_price = broker_stop_from_broker_entry(
+                    avg_p, target_ticker, core_compounding_strategy.STOP_LOSS_PCT)
                 broker.sync_broker_stop_order(target_ticker, qty, broker_stop_price)
             db.update_core_compounding_decision_status(
                 dedup_key=dedup_key,
@@ -1151,6 +1236,20 @@ class PRVQuantEngine:
         open_positions, positions_fresh = self.fetch_positions_authoritative(broker)
         open_orders, orders_fresh = self.fetch_orders_authoritative(broker)
 
+        # 0a. F4: attempt authoritative resolution of an ambiguous unresolved fill.
+        # Runs every cycle so the state is recoverable, never orphaned.
+        try:
+            unresolved_msg = self.reconcile_unresolved_fill_price(
+                open_positions=open_positions,
+                open_orders=open_orders,
+                positions_authoritative=positions_fresh,
+                orders_authoritative=orders_fresh,
+            )
+            if unresolved_msg:
+                logger.info(f"CORE_UNRESOLVED_FILL: {unresolved_msg}")
+        except Exception as _unresolved_err:
+            logger.error(f"UNRESOLVED_FILL_RECONCILIATION_ERROR: {_unresolved_err}")
+
         # 0. Broker Reconciliation for in-flight / unknown submissions
         recon_msg = self.reconcile_unknown_submissions(
             open_positions=open_positions,
@@ -1231,10 +1330,9 @@ class PRVQuantEngine:
                             qty = float(post_pos.get("quantity", 0))
                             avg_p = float(post_pos.get("averagePrice", 0))
                             if avg_p > 0:
-                                inst_meta = core_compounding_strategy.get_instrument_metadata(w_ticker)
-                                is_uk_pence = inst_meta.get("is_uk_pence", True)
-                                stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-                                broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                                # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
+                                broker_stop_price = broker_stop_from_broker_entry(
+                                    avg_p, w_ticker, core_compounding_strategy.STOP_LOSS_PCT)
                                 broker.sync_broker_stop_order(w_ticker, qty, broker_stop_price)
                                 stops_synced_in_window_close.add(w_ticker.upper())
                         continue
@@ -1262,19 +1360,17 @@ class PRVQuantEngine:
                             f"Refreshed filled qty: {post_cancel_final_filled_qty}."
                         )
                         if post_cancel_final_filled_qty > 0 and avg_p > 0:
-                            inst_meta = core_compounding_strategy.get_instrument_metadata(w_ticker)
-                            is_uk_pence = inst_meta.get("is_uk_pence", True)
-                            stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-                            broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                            # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
+                            broker_stop_price = broker_stop_from_broker_entry(
+                                avg_p, w_ticker, core_compounding_strategy.STOP_LOSS_PCT)
                             broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
                             stops_synced_in_window_close.add(w_ticker.upper())
                     else:
                         # Order confirmed absent/terminal at broker!
                         if post_cancel_final_filled_qty > 0:
-                            inst_meta = core_compounding_strategy.get_instrument_metadata(w_ticker)
-                            is_uk_pence = inst_meta.get("is_uk_pence", True)
-                            stop_price = round(avg_p * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-                            broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                            # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
+                            broker_stop_price = broker_stop_from_broker_entry(
+                                avg_p, w_ticker, core_compounding_strategy.STOP_LOSS_PCT)
                             broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
                             stops_synced_in_window_close.add(w_ticker.upper())
                             terminal_state = "PARTIALLY_FILLED_WINDOW_CLOSED"
@@ -1348,18 +1444,22 @@ class PRVQuantEngine:
             existing_stops = [o for o in open_orders if str(o.get("ticker", "")).upper() == held_ticker.upper() and o.get("type") == "STOP"]
             protected_qty = sum(abs(float(s.get("quantity", 0.0))) for s in existing_stops)
             if qty > 0 and protected_qty < qty and held_ticker.upper() not in stops_synced_in_window_close:
-                inst_meta = core_compounding_strategy.get_instrument_metadata(held_ticker)
-                is_uk_pence = inst_meta.get("is_uk_pence", True)
-                stop_price = round(avg_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-                broker_stop_price = round(stop_price * 100.0, 2) if is_uk_pence else round(stop_price, 4)
+                # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
+                broker_stop_price = broker_stop_from_broker_entry(
+                    avg_price, held_ticker, core_compounding_strategy.STOP_LOSS_PCT)
                 logger.info(f"INCREMENTAL_FILL_DETECTED: Position increased to {qty} shares (was {protected_qty}). Expanding broker stop order to {qty} shares @ {broker_stop_price}.")
                 broker.sync_broker_stop_order(held_ticker, qty, broker_stop_price)
 
-            # Check 2% stop loss
-            stop_price = round(avg_price * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
-            if cur_price <= stop_price:
+            # Check 2% stop loss in canonical GBP.
+            # NOTE: avg_price / cur_price stay BROKER-NATIVE below, because
+            # route_exit_order normalises them itself. Passing GBP there would
+            # normalise a second time and scale by 1/100.
+            avg_price_gbp = broker_price_to_gbp(avg_price, held_ticker)
+            cur_price_gbp = broker_price_to_gbp(cur_price, held_ticker)
+            stop_price_gbp_val = round(avg_price_gbp * (1.0 - core_compounding_strategy.STOP_LOSS_PCT), 4)
+            if cur_price_gbp <= stop_price_gbp_val:
                 decision = "EXIT"
-                reason = f"STOP_LOSS_TRIGGERED: Current price £{cur_price:.4f} <= Stop £{stop_price:.4f} (-2.0%)"
+                reason = f"STOP_LOSS_TRIGGERED: Current price £{cur_price_gbp:.4f} <= Stop £{stop_price_gbp_val:.4f} (-2.0%)"
                 logger.warning(reason)
                 exit_ok, exit_msg, _ = order_router.route_exit_order(
                     symbol=held_ticker.replace("l_EQ", "").replace("_EQ", ""),
@@ -1376,7 +1476,7 @@ class PRVQuantEngine:
                     executed_trades.append(held_ticker)
             else:
                 decision = "HOLD"
-                reason = f"HOLDING_ACTIVE_POSITION: Holding {qty} shares of {held_ticker} @ £{avg_price:.4f} (Cur £{cur_price:.4f}, Stop £{stop_price:.4f}). Next rebalance check pending."
+                reason = f"HOLDING_ACTIVE_POSITION: Holding {qty} shares of {held_ticker} @ £{avg_price_gbp:.4f} (Cur £{cur_price_gbp:.4f}, Stop £{stop_price_gbp_val:.4f}). Next rebalance check pending."
         else:
             # 4. No Open Position: Evaluate Entry Signal
             raw_decision = sig.get("decision", "HOLD_CASH")
@@ -1429,7 +1529,31 @@ class PRVQuantEngine:
                     selected_rec = next((r for r in full_rankings if r["symbol"] == selected_symbol), None)
                     signal_price = float(selected_rec["close_t_minus_1"]) if selected_rec else 0.0
 
-                    if signal_price <= 0:
+                    # FAIL-CLOSED GLOBAL ENTRY GATE (F4). An earlier order whose broker
+                    # fill-price unit could not be resolved may genuinely be FILLED or
+                    # PARTIALLY_FILLED at the broker, with NO actual-fill-derived
+                    # protective stop. Until authoritative broker reconciliation resolves
+                    # it, no new capital may be deployed. This gate is deliberately FIRST
+                    # in the chain and independent of MAX_POSITIONS, available cash,
+                    # reservation state, sizing constants and symbol idempotency.
+                    unresolved_fill_dec = None
+                    try:
+                        unresolved_fill_dec = db.get_unresolved_fill_price_decision()
+                    except Exception:
+                        unresolved_fill_dec = None
+
+                    if unresolved_fill_dec is not None:
+                        decision = "HOLD"
+                        reason = (
+                            "FAIL_CLOSED: PRICE_UNIT_UNRESOLVED_PENDING_RECONCILIATION for "
+                            f"{unresolved_fill_dec.get('target_instrument')} "
+                            f"(order {unresolved_fill_dec.get('broker_order_id')}). "
+                            "A possibly-filled order has no recognised fill price and no "
+                            "actual-fill-derived stop; new entry blocked until authoritative "
+                            "broker reconciliation resolves it."
+                        )
+                        logger.error(reason)
+                    elif signal_price <= 0:
                         decision = "HOLD"
                         reason = f"FAIL_CLOSED: Invalid quote price (£{signal_price:.4f}) for target {selected_symbol}."
                     elif not positions_fresh or not orders_fresh:
@@ -1573,23 +1697,41 @@ class PRVQuantEngine:
                                     decision = "ENTER"
                                     reason = f"AUTONOMOUS_ENTRY_{lifecycle_status}: {order_qty} shares of {selected_ticker} ({selected_symbol}) routed to Trading212 ({broker_order_id})."
                                 else:
+                                    # F4: a fill price whose unit could not be resolved is NOT a
+                                    # rejection -- the order may well have filled at the broker. It
+                                    # routes to the SAME pending-reconciliation path as a timeout so
+                                    # authoritative broker state decides, rather than being recorded
+                                    # as REJECTED or given an actual-fill-derived stop.
+                                    unresolved_units = (
+                                        trade_res.get("requires_broker_reconciliation", False)
+                                        or trade_res.get("status") == "PRICE_UNIT_UNRESOLVED_PENDING_RECONCILIATION"
+                                    )
                                     is_timeout = (
                                         trade_res.get("is_timeout", False)
                                         or trade_res.get("status") == "UNKNOWN_PENDING_RECONCILIATION"
                                         or "timeout" in str(route_msg).lower()
+                                        or unresolved_units
                                     )
                                     if is_timeout:
                                         self.mark_signal_bar_executed(dedup_key)
+                                        pending_status = (trade_res.get("status") or "UNKNOWN_PENDING_RECONCILIATION") \
+                                            if unresolved_units else "UNKNOWN_PENDING_RECONCILIATION"
+                                        pending_note = (
+                                            f"Fill price unit unresolved; no actual-fill-derived stop was created. "
+                                            f"Awaiting authoritative broker reconciliation: {route_msg}"
+                                        ) if unresolved_units else (
+                                            f"Order submission timeout. Awaiting broker reconciliation: {route_msg}"
+                                        )
                                         try:
                                             db.update_core_compounding_decision_status(
                                                 dedup_key=dedup_key,
-                                                status="UNKNOWN_PENDING_RECONCILIATION",
-                                                notes=f"Order submission timeout. Awaiting broker reconciliation: {route_msg}"
+                                                status=pending_status,
+                                                notes=pending_note
                                             )
                                         except Exception:
                                             pass
                                         decision = "HOLD"
-                                        reason = f"UNKNOWN_PENDING_RECONCILIATION: {route_msg}"
+                                        reason = f"{pending_status}: {route_msg}"
                                     else:
                                         self.mark_signal_bar_executed(dedup_key)
                                         rejection_status = trade_res.get("status", "REJECTED")
