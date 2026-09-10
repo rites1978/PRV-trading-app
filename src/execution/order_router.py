@@ -23,6 +23,7 @@ from src.execution.order_state_machine import ManagedOrder, OrderState, portfoli
 from src.portfolio.portfolio_snapshot import portfolio_snapshot
 from src.data.market_hours import market_hours
 from src.core.price_units import broker_price_to_gbp, UnknownInstrumentUnitError
+from src.core.runtime_guard import entry_lock_bypass_authorised
 
 logger = logging.getLogger("order_router")
 
@@ -146,6 +147,18 @@ class OrderRouter:
 
         # 0. Strategy Execution Authority Gate (Only active strategy V2 can route practice orders)
         from src.strategies.registry import strategy_registry
+        # A bypass of the entry lock is honoured ONLY on an explicit operator opt-in
+        # (PRV_ENTRY_LOCK_BYPASS=true). Otherwise the flag is ignored, so no production
+        # entry path can silently defeat the lock.
+        if bypass_audit_freeze:
+            _bypass_ok, _bypass_reason = entry_lock_bypass_authorised()
+            if not _bypass_ok:
+                logger.critical(
+                    f"ENTRY_LOCK_BYPASS_IGNORED for {symbol}: {_bypass_reason} "
+                    "Proceeding with the entry lock ENFORCED."
+                )
+            bypass_audit_freeze = _bypass_ok
+
         if not strategy_registry.can_strategy_route_orders(strategy_id, bypass_gate=bypass_audit_freeze):
             reason = f"HOLD: Strategy '{strategy_id}' is not authorized for broker execution (shadow benchmark only)."
             self._log_audit("HOLD_STRATEGY_SHADOW", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, f"STRATEGY_{strategy_id}_SHADOW_ONLY")

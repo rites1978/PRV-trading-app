@@ -14,6 +14,7 @@ from src.database.db import db
 from src.core.runtime_guard import (
     assert_live_broker_write_allowed,
     assert_live_broker_read_allowed,
+    assert_new_entry_submission_allowed,
     live_caches_may_hydrate_from_disk,
 )
 
@@ -449,9 +450,16 @@ class Trading212Broker:
             }
 
     def place_market_order(self, ticker: str, quantity: float) -> Dict[str, Any]:
-        """Execute market order."""
+        """Execute market order.
+
+        ENTRY LOCK BACKSTOP: a positive quantity deploys new capital and is refused
+        while new entries are locked. Negative quantities (exits, liquidations,
+        emergency risk reduction) are never blocked here.
+        """
         with self._lock:
             try:
+                if float(quantity) > 0:
+                    assert_new_entry_submission_allowed(f"BUY market order {ticker} x{quantity}")
                 payload = {"ticker": ticker, "quantity": quantity}
                 res = self._request_with_retry("POST", "equity/orders/market", json=payload)
                 if res.status_code in [200, 201]:
@@ -479,9 +487,15 @@ class Trading212Broker:
                 }
 
     def place_limit_order(self, ticker: str, quantity: float, limit_price: float, time_validity: str = "GOOD_TILL_CANCEL") -> Dict[str, Any]:
-        """Execute broker limit order."""
+        """Execute broker limit order.
+
+        ENTRY LOCK BACKSTOP: see place_market_order. Positive quantity only.
+        """
         with self._lock:
             try:
+                if float(quantity) > 0:
+                    assert_new_entry_submission_allowed(
+                        f"BUY limit order {ticker} x{quantity} @ {limit_price}")
                 payload = {
                     "ticker": ticker,
                     "quantity": quantity,

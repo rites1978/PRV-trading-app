@@ -93,6 +93,73 @@ def autonomous_engine_autostart_allowed() -> Tuple[bool, str]:
     )
 
 
+# Explicit operator capability required to defeat the new-entry lock. Absent this,
+# a bypass flag is ignored rather than silently honoured.
+ENTRY_LOCK_BYPASS_ENV = "PRV_ENTRY_LOCK_BYPASS"
+
+
+class EntrySubmissionBlocked(RuntimeError):
+    """Raised when a new-entry (capital-deploying) order is attempted while locked."""
+
+
+def entry_lock_bypass_authorised() -> Tuple[bool, str]:
+    """
+    A bypass of the new-entry lock is honoured only on an explicit operator opt-in.
+
+    Diagnostic/canary scripts may set PRV_ENTRY_LOCK_BYPASS=true for a controlled
+    single validation. Without it the bypass argument is ignored, so no production
+    entry path can silently defeat the lock.
+    """
+    raw = os.getenv(ENTRY_LOCK_BYPASS_ENV)
+    if raw is None:
+        return False, f"{ENTRY_LOCK_BYPASS_ENV} is not set; entry-lock bypass denied."
+    if raw.strip().lower() == "true":
+        return True, f"{ENTRY_LOCK_BYPASS_ENV}=true explicit operator bypass."
+    return False, f"{ENTRY_LOCK_BYPASS_ENV}={raw!r} is not the approved opt-in; bypass denied."
+
+
+def new_entry_submission_allowed(bypass_requested: bool = False) -> Tuple[bool, str]:
+    """
+    Single source of truth for whether NEW capital may be deployed.
+
+    Governs entry (capital-deploying) submissions only. Exits, liquidations,
+    protective-stop placement/replacement and emergency risk reduction are NOT
+    governed by this gate and remain available while entries are locked.
+
+    Fail-closed: an unrecognised ACCOUNT_MODE denies.
+    """
+    from src.config.settings import settings
+
+    if bypass_requested:
+        ok, reason = entry_lock_bypass_authorised()
+        if ok:
+            return True, f"ENTRY_LOCK_BYPASSED: {reason}"
+        return False, f"ENTRY_LOCK_BYPASS_REFUSED: {reason}"
+
+    mode = str(getattr(settings, "ACCOUNT_MODE", "") or "").upper()
+    if mode == "PRACTICE":
+        if getattr(settings, "PRACTICE_TRADING_ENABLED", False) and \
+                getattr(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", False):
+            return True, "PRACTICE_NEW_ENTRIES_ALLOWED=True."
+        return False, "PRACTICE_NEW_ENTRIES_ALLOWED=False; new entries are locked."
+    if mode == "LIVE":
+        if getattr(settings, "REAL_MONEY_TRADING_ENABLED", False) and \
+                getattr(settings, "REAL_MONEY_NEW_ENTRIES_ALLOWED", False):
+            return True, "REAL_MONEY_NEW_ENTRIES_ALLOWED=True."
+        return False, "REAL_MONEY_NEW_ENTRIES_ALLOWED=False; new entries are locked."
+    return False, f"Unrecognised ACCOUNT_MODE {mode!r}; new entries denied (fail-closed)."
+
+
+def assert_new_entry_submission_allowed(context: str, bypass_requested: bool = False) -> None:
+    """Fail-closed gate for any capital-deploying order submission."""
+    allowed, reason = new_entry_submission_allowed(bypass_requested=bypass_requested)
+    if allowed:
+        return
+    msg = f"ENTRY_SUBMISSION_BLOCKED: {context} refused. {reason}"
+    logger.critical(msg)
+    raise EntrySubmissionBlocked(msg)
+
+
 def live_broker_writes_allowed() -> Tuple[bool, str]:
     """Return (allowed, reason). Default posture is DENY."""
     in_test = is_test_runtime()

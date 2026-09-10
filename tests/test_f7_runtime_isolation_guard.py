@@ -66,7 +66,14 @@ class TestF7RuntimeIsolationGuard(unittest.TestCase):
         self.assertEqual(len(calls), 0, "no mutating HTTP request may reach the network")
         for r in results:
             self.assertFalse(r.get("success"), "blocked write must not report success")
-            self.assertIn("LIVE_BROKER_WRITE_BLOCKED", str(r.get("error")))
+            # Two independent fail-closed guards stand in front of the HTTP layer: the
+            # runtime write guard, and the entry lock (which refuses capital-deploying
+            # BUYs earlier still). Either refusal satisfies this invariant -- what must
+            # never happen is a mutating request reaching the network.
+            self.assertRegex(
+                str(r.get("error")),
+                r"LIVE_BROKER_WRITE_BLOCKED|ENTRY_SUBMISSION_BLOCKED",
+                "a blocked write must name the guard that refused it")
 
     def test_sync_broker_stop_order_cannot_mutate(self):
         """The stop-sync helper must not be able to place orders under test."""

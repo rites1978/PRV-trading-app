@@ -19,6 +19,7 @@ from typing import Dict, Any, Optional
 
 from src.config.settings import settings
 from src.brokers.trading212 import broker
+from src.core.runtime_guard import new_entry_submission_allowed
 from src.brokers.broker_ledger import broker_ledger
 
 logger = logging.getLogger("canary")
@@ -40,6 +41,21 @@ def execute_live_etf_canary() -> Dict[str, Any]:
 
     target_ticker = "CSP1_EQ"
     target_qty = 1.0
+
+    # FAIL-CLOSED ENTRY GATE: the canary opens a real position, so it is a
+    # capital-deploying ENTRY and is refused whenever new entries are locked. This
+    # check runs BEFORE any broker read or write, so a locked account performs no
+    # broker interaction at all.
+    entry_ok, entry_reason = new_entry_submission_allowed()
+    if not entry_ok:
+        msg = f"CANARY_BLOCKED: new entries are locked. {entry_reason}"
+        logger.critical(msg)
+        return {
+            "success": False,
+            "status": "CANARY_BLOCKED_ENTRY_LOCK",
+            "error": msg,
+            "entry_lock_enforced": True,
+        }
 
     # 1. Baseline Verification
     pre_snap = broker.get_account_summary(force_refresh=True)
