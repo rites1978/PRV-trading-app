@@ -20,6 +20,7 @@ from src.core.engine import PRVQuantEngine
 from src.strategies.core_compounding_v1 import CoreCompoundingStrategy
 from src.execution.order_router import order_router
 from src.brokers.trading212 import broker
+from src.data.market_data import market_data
 from src.database.db import db
 from src.research.strategies.prv_core_compounding_v1 import (
     execute_prv_core_compounding_v1,
@@ -55,7 +56,24 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
 
         self.strategy = CoreCompoundingStrategy()
 
+        # OFFLINE: never let the live price provider be reached from a test.
+        self._patch_exec_price = patch.object(
+            market_data, "get_current_executable_price",
+            side_effect=self._synthetic_executable_price)
+        self._patch_exec_price.start()
+
+    def _synthetic_executable_price(self, yf_ticker, is_uk_pence=True):
+        """Hermetic executable price matching _build_mock_7_asset_data.
+
+        The engine consults the live price provider immediately before dispatch,
+        which reaches query1.finance.yahoo.com. These fixtures price the target
+        instrument at 45.0 and every other instrument at 20.0 (already GBP-scaled in
+        the strategy frame), so mirror that rather than going to the network.
+        """
+        return 45.0 if "EMIM" in str(yf_ticker).upper() else 20.0
+
     def tearDown(self):
+        self._patch_exec_price.stop()
         settings.PRACTICE_NEW_ENTRIES_ALLOWED = self.orig_practice
         settings.REAL_MONEY_NEW_ENTRIES_ALLOWED = self.orig_real
         settings.ACCOUNT_MODE = self.orig_mode

@@ -64,7 +64,34 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         # Build synthetic 2-year daily history for all 7 ETFs
         self.dates = pd.date_range("2024-01-01", "2026-09-04", freq="B")
 
+        # OFFLINE: never let the live price provider be reached from a test.
+        self._patch_exec_price = patch.object(
+            market_data, "get_current_executable_price",
+            side_effect=self._synthetic_executable_price)
+        self._patch_exec_price.start()
+
+
+    def _synthetic_executable_price(self, yf_ticker, is_uk_pence=True):
+        """Hermetic executable price derived from the synthetic feed.
+
+        Without this the engine calls the real market-data provider, which reaches
+        query1.finance.yahoo.com over the network. Deriving the price from whatever
+        history feed the test has installed keeps the suite self-consistent and
+        offline.
+        """
+        try:
+            df = market_data.fetch_history(yf_ticker)
+        except Exception:
+            return None
+        if df is None or getattr(df, "empty", True):
+            return None
+        last = float(df["Close"].iloc[-1])
+        if last <= 0:
+            return None
+        return round(last / 100.0, 4) if is_uk_pence else round(last, 4)
+
     def tearDown(self):
+        self._patch_exec_price.stop()
         settings.PRACTICE_NEW_ENTRIES_ALLOWED = self.orig_practice
         settings.REAL_MONEY_NEW_ENTRIES_ALLOWED = self.orig_real
         settings.ACCOUNT_MODE = self.orig_mode
