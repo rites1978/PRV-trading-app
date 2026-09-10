@@ -5,7 +5,16 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: ./start.sh
     plan: standard
+    # FAIL-CLOSED DEPLOYMENT: a push must never redeploy-and-rearm the autonomous
+    # engine on its own. Deploys are triggered manually and explicitly.
+    # NOTE: for a dashboard-created service this file is not authoritative -- the
+    # live "Auto-Deploy" setting in the Render dashboard is.
+    autoDeploy: false
     envVars:
+      # FAIL-CLOSED: the autonomous engine starts only on the explicit opt-in
+      # PRV_AUTORUN_ENGINE=true. Absent, empty or malformed values leave it stopped.
+      - key: PRV_AUTORUN_ENGINE
+        value: "false"
       - key: TRADING_ENV
         value: demo
       - key: TRADING212_API_KEY

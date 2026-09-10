@@ -26,19 +26,33 @@ app = FastAPI(
     version="2.0.0"
 )
 
+from src.core.runtime_guard import autonomous_engine_autostart_allowed
+
+
 @app.on_event("startup")
 def on_startup():
     """Start background 60s broker snapshot refresh worker on API boot."""
     import sys
     if "unittest" in sys.modules or os.getenv("PRV_TESTING", "").lower() in ("true", "1", "yes"):
         return
+    # Read-only broker snapshot worker. Proven read-only: refresh_broker_snapshot()
+    # calls only get_account_summary() and get_open_positions(), both GET requests.
+    # It cannot submit, cancel or modify orders, and never invokes strategy or
+    # execution logic.
     broker.start_background_sync(interval_seconds=60)
-    autorun = os.getenv("PRV_AUTORUN_ENGINE", "true").strip().lower() in ("true", "1", "yes")
-    if autorun:
-        try:
-            quant_engine.start()
-        except Exception as e:
-            print(f"[Startup Engine Start Error] {e}")
+
+    # FAIL-CLOSED: a deployment must never autostart autonomous trading. The engine
+    # starts only on an explicit approved opt-in (PRV_AUTORUN_ENGINE=true). Absent,
+    # empty or malformed values leave it stopped.
+    autorun, autorun_reason = autonomous_engine_autostart_allowed()
+    if not autorun:
+        print(f"[Startup] AUTONOMOUS_ENGINE_NOT_STARTED: {autorun_reason}")
+        return
+    try:
+        print(f"[Startup] AUTONOMOUS_ENGINE_AUTOSTART: {autorun_reason}")
+        quant_engine.start()
+    except Exception as e:
+        print(f"[Startup Engine Start Error] {e}")
 
 # Enable CORS for web and mobile clients
 app.add_middleware(

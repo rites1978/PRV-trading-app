@@ -65,6 +65,34 @@ def is_test_runtime() -> bool:
     return False
 
 
+# Only this exact (case-insensitive, trimmed) value may start the autonomous engine.
+AUTORUN_ENGINE_ENV = "PRV_AUTORUN_ENGINE"
+_AUTORUN_APPROVED_VALUE = "true"
+
+
+def autonomous_engine_autostart_allowed() -> Tuple[bool, str]:
+    """
+    FAIL-CLOSED deployment gate for autonomous engine autostart.
+
+    A deployment must never begin trading on its own. The engine autostarts only on
+    an explicit, exactly-approved opt-in value. Absent, empty, malformed or any other
+    value -- including truthy-looking ones such as "1"/"yes"/"TRUE_" -- returns False.
+    There is deliberately NO implicit default of true.
+    """
+    raw = os.getenv(AUTORUN_ENGINE_ENV)
+    if raw is None:
+        return False, f"{AUTORUN_ENGINE_ENV} is not set; autonomous autostart denied (fail-closed default)."
+    normalised = raw.strip().lower()
+    if normalised == _AUTORUN_APPROVED_VALUE:
+        return True, f"{AUTORUN_ENGINE_ENV}={raw!r} is the explicit approved opt-in."
+    if normalised == "":
+        return False, f"{AUTORUN_ENGINE_ENV} is empty; autonomous autostart denied."
+    return False, (
+        f"{AUTORUN_ENGINE_ENV}={raw!r} is not the approved opt-in value "
+        f"'{_AUTORUN_APPROVED_VALUE}'; autonomous autostart denied."
+    )
+
+
 def live_broker_writes_allowed() -> Tuple[bool, str]:
     """Return (allowed, reason). Default posture is DENY."""
     in_test = is_test_runtime()
