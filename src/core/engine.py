@@ -1034,13 +1034,22 @@ class PRVQuantEngine:
                         # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
                         broker_stop_price = broker_stop_from_broker_entry(
                             avg_p, target_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                        broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
-                        db.update_core_compounding_decision_status(
-                            dedup_key=dedup_key,
-                            status="PARTIALLY_FILLED_WINDOW_CLOSED",
-                            notes=f"Broker reconciliation after window close: confirmed order {b_oid} cancelled at broker. Position retained: {final_qty} shares."
-                        )
-                        return f"Reconciled order {b_oid} after window close: cancelled remainder, position retained ({final_qty} shares) -> PARTIALLY_FILLED_WINDOW_CLOSED"
+                        stop_res = broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
+                        if stop_res and stop_res.get("success"):
+                            db.update_core_compounding_decision_status(
+                                dedup_key=dedup_key,
+                                status="PARTIALLY_FILLED_WINDOW_CLOSED",
+                                notes=f"Broker reconciliation after window close: confirmed order {b_oid} cancelled at broker. Position retained: {final_qty} shares with confirmed protective stop."
+                            )
+                            return f"Reconciled order {b_oid} after window close: cancelled remainder, position retained ({final_qty} shares) -> PARTIALLY_FILLED_WINDOW_CLOSED"
+                        else:
+                            stop_err = stop_res.get("error") if stop_res else "unconfirmed stop"
+                            db.update_core_compounding_decision_status(
+                                dedup_key=dedup_key,
+                                status="WINDOW_CLOSE_PENDING_RECONCILIATION",
+                                notes=f"Broker reconciliation after window close: confirmed order {b_oid} cancelled at broker. Position retained: {final_qty} shares, but protective stop unconfirmed ({stop_err})."
+                            )
+                            return f"Reconciled order {b_oid} after window close: protective stop unconfirmed ({stop_err}) -> WINDOW_CLOSE_PENDING_RECONCILIATION"
                     else:
                         db.update_core_compounding_decision_status(
                             dedup_key=dedup_key,
@@ -1059,16 +1068,25 @@ class PRVQuantEngine:
         elif pos_match and float(pos_match.get("quantity", 0)) > 0:
             qty = float(pos_match.get("quantity", 0))
             avg_p = float(pos_match.get("averagePrice", 0))
-            status = "PARTIALLY_FILLED_WINDOW_CLOSED" if is_past_window else "FILLED"
             if avg_p > 0:
                 # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
                 broker_stop_price = broker_stop_from_broker_entry(
                     avg_p, target_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                broker.sync_broker_stop_order(target_ticker, qty, broker_stop_price)
+                stop_res = broker.sync_broker_stop_order(target_ticker, qty, broker_stop_price)
+                if not stop_res or not stop_res.get("success"):
+                    stop_err = stop_res.get("error") if stop_res else "unconfirmed stop"
+                    pending_status = "WINDOW_CLOSE_PENDING_RECONCILIATION" if is_past_window else "UNKNOWN_PENDING_RECONCILIATION"
+                    db.update_core_compounding_decision_status(
+                        dedup_key=dedup_key,
+                        status=pending_status,
+                        notes=f"Broker reconciliation: confirmed position on broker ({qty} shares @ £{avg_p:.4f}), but protective stop unconfirmed ({stop_err})."
+                    )
+                    return f"Confirmed position for {target_ticker} ({qty} shares) but protective stop unconfirmed -> {pending_status}"
+            status = "PARTIALLY_FILLED_WINDOW_CLOSED" if is_past_window else "FILLED"
             db.update_core_compounding_decision_status(
                 dedup_key=dedup_key,
                 status=status,
-                notes=f"Broker reconciliation: confirmed position on broker ({qty} shares @ £{avg_p:.4f})."
+                notes=f"Broker reconciliation: confirmed position on broker ({qty} shares @ £{avg_p:.4f}) with confirmed protective stop."
             )
             return f"Confirmed position for {target_ticker} ({qty} shares) -> {status}"
         else:
@@ -1371,10 +1389,15 @@ class PRVQuantEngine:
                             # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
                             broker_stop_price = broker_stop_from_broker_entry(
                                 avg_p, w_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                            broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
+                            stop_res = broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
                             stops_synced_in_window_close.add(w_ticker.upper())
-                            terminal_state = "PARTIALLY_FILLED_WINDOW_CLOSED"
-                            note_text = f"Window closed at 08:05:00 BST. Confirmed limit order {w_id} cancelled/terminal at broker. Position retained: {post_cancel_final_filled_qty} shares."
+                            if stop_res and stop_res.get("success"):
+                                terminal_state = "PARTIALLY_FILLED_WINDOW_CLOSED"
+                                note_text = f"Window closed at 08:05:00 BST. Confirmed limit order {w_id} cancelled/terminal at broker. Position retained: {post_cancel_final_filled_qty} shares with confirmed protective stop."
+                            else:
+                                stop_err = stop_res.get("error", stop_res.get("action", "unconfirmed stop")) if stop_res else "unconfirmed stop"
+                                terminal_state = "WINDOW_CLOSE_PENDING_RECONCILIATION"
+                                note_text = f"Window closed at 08:05:00 BST. Confirmed limit order {w_id} cancelled/terminal at broker. Position retained: {post_cancel_final_filled_qty} shares, but protective stop unconfirmed ({stop_err})."
                         else:
                             terminal_state = "EXPIRED_MISSED_WINDOW"
                             note_text = f"Window closed at 08:05:00 BST. Confirmed unfilled limit order {w_id} cancelled/absent at broker. Signal expired without fill (no carry)."
@@ -1384,7 +1407,7 @@ class PRVQuantEngine:
                             status=terminal_state,
                             notes=note_text
                         )
-                        logger.info(f"WINDOW_CLOSE: Confirmed terminal {terminal_state} for {w_ticker} (final_qty={post_cancel_final_filled_qty}).")
+                        logger.info(f"WINDOW_CLOSE: Confirmed {terminal_state} for {w_ticker} (final_qty={post_cancel_final_filled_qty}).")
 
                 # Update local open_orders and open_positions caches to refreshed broker truth
                 open_orders, orders_fresh = self.fetch_orders_authoritative(broker)

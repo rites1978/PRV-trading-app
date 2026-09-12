@@ -267,10 +267,27 @@ class TestBlockerRemediations(unittest.TestCase):
             "stopPrice": 32.00,
             "quantity": -100.0
         }
+        mock_positions = [
+            {"ticker": "SHELl_EQ", "quantity": 100.0, "averagePrice": 30.0}
+        ]
+        live_orders = [existing_stop_order]
 
-        with patch.object(broker, "get_open_orders", return_value=[existing_stop_order]), \
+        def _orders(*a, **k):
+            data = list(live_orders)
+            return (data, True) if k.get("return_provenance") else data
+
+        def _positions(*a, **k):
+            data = list(mock_positions)
+            return (data, True) if k.get("return_provenance") else data
+
+        def _cancel(order_id):
+            live_orders[:] = [o for o in live_orders if str(o["id"]) != str(order_id)]
+            return {"success": True}
+
+        with patch.object(broker, "get_open_orders", side_effect=_orders), \
+             patch.object(broker, "get_open_positions", side_effect=_positions), \
              patch.object(broker, "place_stop_order", return_value={"success": False, "error": "HTTP 500 Network Error"}) as mock_place, \
-             patch.object(broker, "cancel_order", return_value={"success": True}) as mock_cancel:
+             patch.object(broker, "cancel_order", side_effect=_cancel) as mock_cancel:
 
             res = broker.sync_broker_stop_order("SHELl_EQ", 100.0, 34.00)
 
