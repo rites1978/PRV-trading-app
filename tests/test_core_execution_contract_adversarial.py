@@ -28,9 +28,12 @@ from src.core.engine import PRVQuantEngine
 from src.execution.order_router import order_router
 from src.brokers.trading212 import broker
 from src.data.market_data import market_data
+from src.data.market_hours import market_hours
 from src.database.db import db
 from src.strategies.core_compounding_v1 import core_compounding_strategy
 from tests._provenance_mocks import provenance_aware
+
+CORE_EXECUTION_CONTRACT_TESTS_DO_NOT_DEPEND_ON_REAL_WALL_CLOCK = True
 
 
 class TestCoreExecutionContractAdversarial(unittest.TestCase):
@@ -73,8 +76,11 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         self.patch_snap.start()
         self.patch_stop.start()
         self.patch_cancel.start()
+        self.patch_market_hours = patch.object(market_hours, "is_asset_market_open", return_value=True)
+        self.patch_market_hours.start()
 
     def tearDown(self):
+        self.patch_market_hours.stop()
         self.patch_account.stop()
         self.patch_snap.stop()
         self.patch_stop.stop()
@@ -1418,6 +1424,64 @@ class TestCoreExecutionContractAdversarial(unittest.TestCase):
         dec = db.get_latest_core_compounding_decision()
         self.assertEqual(dec["execution_status"], "EXPIRED_MISSED_WINDOW")
         self.assertTrue(restarted_engine.is_signal_bar_already_executed(dedup_key))
+
+    def test_invariant_core_execution_contract_does_not_depend_on_real_wall_clock(self):
+        """Invariant: Adversarial contract tests run identically regardless of host machine calendar/clock."""
+        self.assertTrue(CORE_EXECUTION_CONTRACT_TESTS_DO_NOT_DEPEND_ON_REAL_WALL_CLOCK)
+
+        test_scenarios = [
+            ("WEEKDAY_MON", datetime(2026, 9, 7, 8, 1, 0, tzinfo=ZoneInfo("Europe/London")), "ENTER"),
+            ("WEEKEND_SAT", datetime(2026, 9, 12, 14, 0, 0, tzinfo=ZoneInfo("Europe/London")), "HOLD"),
+            ("WEEKEND_SUN", datetime(2026, 9, 13, 10, 0, 0, tzinfo=ZoneInfo("Europe/London")), "HOLD"),
+            ("HOLIDAY_BANK", datetime(2026, 8, 31, 8, 1, 0, tzinfo=ZoneInfo("Europe/London")), "HOLD"),
+        ]
+        feed = self._create_synthetic_feed(top_symbol="EMIM", emim_close=41.59)
+        mock_limit = MagicMock(return_value={
+            "success": True,
+            "data": {"id": "ORD_INV_001", "status": "SUBMITTED", "filledQuantity": 0.0}
+        })
+
+        for label, sim_dt, expected_decision in test_scenarios:
+            with self.subTest(simulated_date=label):
+                with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed.get(t, pd.DataFrame())), \
+                     patch.object(market_data, "get_current_executable_price", return_value=41.6900), \
+                     patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
+                     patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
+                     patch.object(broker, "place_limit_order", mock_limit):
+                    with db.get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute("DELETE FROM core_compounding_decisions")
+                        conn.commit()
+                    self.engine._executed_signals.clear()
+
+                    res = self.engine._run_core_compounding_cycle(
+                        account={"total_value": 49896.38, "available_cash": 49896.38},
+                        bypass_execution_window=False,
+                        current_time=sim_dt
+                    )
+                    self.assertEqual(res["decision"], expected_decision, f"Failed for {label}")
+                    # Invariance verification: host machine wall clock NEVER causes spurious MARKET CLOSED rejection
+                    self.assertNotIn("MARKET CLOSED", res.get("reason", ""))
+
+        # And verify that if is_asset_market_open is explicitly mocked False, the gate activates
+        with patch.object(market_hours, "is_asset_market_open", return_value=False):
+            approved, reason, meta = order_router.route_entry_order(
+                symbol="EMIM",
+                t212_ticker="EMIMl_EQ",
+                quantity=100.0,
+                price=41.69,
+                target_price=45.0,
+                stop_loss_price=40.85,
+                sector="ETF",
+                confidence_score=0.85,
+                market_regime="BULLISH",
+                agent_votes={"TrendAgent": "BUY"},
+                risk_approved=True,
+                is_paper=True,
+                strategy_id="CORE_V1"
+            )
+            self.assertFalse(approved)
+            self.assertIn("MARKET CLOSED", reason)
 
 
 if __name__ == "__main__":

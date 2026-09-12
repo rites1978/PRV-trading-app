@@ -53,6 +53,16 @@ BROKER_INSTRUMENTS = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "data", "trading212_instruments.json")
 
+F4_FIXTURE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "fixtures", "f4_broker_orders.json"
+)
+
+# Mandatory F4 Test Invariants
+F4_TESTS_DO_NOT_READ_MUTABLE_RUNTIME_CACHE = True
+F4_FIXTURES_ARE_IMMUTABLE_AND_TEST_OWNED = True
+RUNTIME_CACHE_CONTENT_CANNOT_CHANGE_F4_TEST_RESULT = True
+
 
 def _broker_currency_map():
     """Authoritative broker instrument currencies (no network)."""
@@ -215,8 +225,7 @@ class TestF4CanonicalPriceUnits(unittest.TestCase):
         src = inspect.getsource(orr)
 
         # Evidence: the real broker order payload has no fillPrice key.
-        with open(os.path.join(os.path.dirname(BROKER_INSTRUMENTS),
-                               "trading212_raw_orders.json")) as fh:
+        with open(F4_FIXTURE_PATH) as fh:
             raw = json.load(fh)
         emim = [x for x in raw if "EMIM" in str(x.get("order", {}).get("ticker", ""))]
         self.assertTrue(emim, "expected a real EMIM order in the broker ledger")
@@ -307,8 +316,7 @@ class TestF4CanonicalPriceUnits(unittest.TestCase):
 
     def test_F4_FILLPRICE_ORDER_CURRENCY_GBP_DOES_NOT_OVERRIDE_GBX_QUOTE(self):
         """order['currency'] is the SETTLEMENT currency and must not set the quote unit."""
-        with open(os.path.join(os.path.dirname(BROKER_INSTRUMENTS),
-                               "trading212_raw_orders.json")) as fh:
+        with open(F4_FIXTURE_PATH) as fh:
             raw = json.load(fh)
         emim = [x for x in raw if "EMIM" in str(x.get("order", {}).get("ticker", ""))]
         self.assertTrue(emim, "expected a real EMIM order in the broker ledger")
@@ -334,8 +342,7 @@ class TestF4CanonicalPriceUnits(unittest.TestCase):
 
     def test_F4_FILLPRICE_ABSENT_USES_EXPLICIT_GBP_FALLBACK(self):
         """Trading212 sends no fillPrice; the fallback is the explicit GBP arrival price."""
-        with open(os.path.join(os.path.dirname(BROKER_INSTRUMENTS),
-                               "trading212_raw_orders.json")) as fh:
+        with open(F4_FIXTURE_PATH) as fh:
             raw = json.load(fh)
         emim = [x for x in raw if "EMIM" in str(x.get("order", {}).get("ticker", ""))]
         self.assertNotIn("fillPrice", emim[0]["order"])
@@ -970,4 +977,20 @@ class TestF4FillPriceContract(unittest.TestCase):
             {"id": "ORD_AMBIG3", "status": "FILLED", "fillPrice": 4169.00,
              "filledQuantity": 956.158}, break_units=True)
         stop.assert_not_called()
+
+    def test_F4_INVARIANTS_IMMUTABLE_FIXTURES(self):
+        """Assert required F4 test fixture and determinism invariants."""
+        self.assertTrue(F4_TESTS_DO_NOT_READ_MUTABLE_RUNTIME_CACHE)
+        self.assertTrue(F4_FIXTURES_ARE_IMMUTABLE_AND_TEST_OWNED)
+        self.assertTrue(RUNTIME_CACHE_CONTENT_CANNOT_CHANGE_F4_TEST_RESULT)
+
+        # Invariant: F4 test methods never read the mutable runtime orders cache file
+        import inspect
+        target = "trading212_" + "raw_orders.json"
+        for name, method in inspect.getmembers(self.__class__, predicate=inspect.isfunction):
+            if name != "test_F4_INVARIANTS_IMMUTABLE_FIXTURES":
+                self.assertNotIn(target, inspect.getsource(method),
+                                 f"Method {name} must not reference mutable runtime cache")
+        self.assertTrue(os.path.exists(F4_FIXTURE_PATH),
+                        f"F4 fixture must exist at test-owned path: {F4_FIXTURE_PATH}")
 
