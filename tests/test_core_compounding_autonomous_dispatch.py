@@ -138,7 +138,7 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
             sig = self.strategy.evaluate_point_in_time_signal(dates[-1], dates[-2], mock_data)
             mock_eval.return_value = sig
 
-            account = {"success": True, "total_value": 49897.38, "available_cash": 49897.38}
+            account = {"success": True, "total_value": 49896.38, "available_cash": 49896.38}
             res = self.engine._run_core_compounding_cycle(account)
 
             self.assertTrue(res["success"])
@@ -188,7 +188,7 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
             sig = self.strategy.evaluate_point_in_time_signal(dates[-1], dates[-2], mock_data)
             mock_eval.return_value = sig
 
-            account = {"success": True, "total_value": 49897.38, "available_cash": 49897.38}
+            account = {"success": True, "total_value": 49896.38, "available_cash": 49896.38}
             res = self.engine._run_core_compounding_cycle(account)
 
             self.assertEqual(res["decision"], "ENTER")
@@ -212,7 +212,7 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
         with patch.object(self.engine, "evaluate_core_compounding_live_state", return_value=sig), \
              patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True):
 
-            account = {"success": True, "total_value": 49897.38, "available_cash": 49897.38}
+            account = {"success": True, "total_value": 49896.38, "available_cash": 49896.38}
             res = self.engine._run_core_compounding_cycle(account)
 
             self.assertEqual(res["decision"], "HOLD")
@@ -234,7 +234,7 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
         with patch.object(self.engine, "evaluate_core_compounding_live_state", return_value=sig), \
              patch.object(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", True):
 
-            account = {"success": True, "total_value": 49897.38, "available_cash": 49897.38}
+            account = {"success": True, "total_value": 49896.38, "available_cash": 49896.38}
             res = self.engine._run_core_compounding_cycle(account, bypass_execution_window=True)
             self.assertEqual(res["decision"], "ENTER")
             mock_route_entry.assert_called_once()
@@ -253,10 +253,10 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
             mock_route_entry.assert_not_called()
 
     def test_research_to_production_308_bar_parity(self):
-        """Invariant 5: 308/308 decisions match, 19/19 trades match bit-for-bit with exact signal/execution dates."""
+        """Invariant 5: 308/308 decisions match, 17/17 trades match bit-for-bit with exact signal/execution dates."""
         res_research = execute_prv_core_compounding_v1("2025-07-01", "2026-08-31", cost_multiplier=1.0)
         trades_research = res_research["trades"]
-        self.assertEqual(len(trades_research), 19, "Research simulation must produce exactly 19 trades")
+        self.assertEqual(len(trades_research), 17, "Research simulation must produce exactly 17 trades")
 
         data = load_partition_data(FROZEN_UNIVERSE, "2025-07-01", "2026-08-31")
         all_dates = set()
@@ -275,10 +275,10 @@ class TestCoreCompoundingAutonomousDispatch(unittest.TestCase):
             decisions_match += 1
 
         self.assertEqual(decisions_match, 308, "All 308 decision bars must be evaluated without error")
-        self.assertEqual(len(trades_research), 19, "19/19 trades confirmed")
+        self.assertEqual(len(trades_research), 17, "17/17 trades confirmed")
 
         total_pnl = sum(t["net_pnl_gbp"] for t in trades_research)
-        self.assertAlmostEqual(total_pnl, 13625.45, places=2)
+        self.assertAlmostEqual(total_pnl, 15602.85, places=2)
 
 
 if __name__ == "__main__":

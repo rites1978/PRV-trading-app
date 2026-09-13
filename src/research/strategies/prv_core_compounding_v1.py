@@ -4,7 +4,7 @@ Candidate ID: PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1
 Status: FROZEN FOR ONE-SHOT OOS EVALUATION
 
 Specification:
-- Universe: CSP1_L, EQQQ_L, IWDA_L, ISF_L, EMIM_L, SGLN_L, IGLT_L (London SDRT-Exempt ETFs)
+- Universe: CSP1_L, EQQQ_L, ISF_L, EMIM_L, SGLN_L, IGLT_L (London SDRT-Exempt ETFs)
 - Benchmark: _GSPC (S&P 500)
 - Ranking Metric: 20-Day Annualized Sharpe Ratio = Ret20d / Vol20d
 - Trend Gate: Asset Close > 200-day SMA AND Sharpe > 0.0
@@ -31,7 +31,6 @@ from scripts.run_causal_tournament_v2 import load_sanitized_data, compute_trade_
 FROZEN_UNIVERSE = [
     "CSP1_L",  # iShares Core S&P 500 UCITS ETF GBP
     "EQQQ_L",  # Invesco EQQQ Nasdaq 100 UCITS ETF GBP
-    "IWDA_L",  # iShares Core MSCI World UCITS ETF GBP
     "ISF_L",   # iShares Core FTSE 100 UCITS ETF GBP
     "EMIM_L",  # iShares Core MSCI EM IMI UCITS ETF GBP
     "SGLN_L",  # iShares Physical Gold ETC GBP
@@ -73,10 +72,24 @@ def load_partition_data(symbols: List[str], start_date: str, end_date: str) -> D
 
         df = pd.read_csv(p, index_col=0, parse_dates=True).sort_index()
 
-        # Normalize GBX to GBP
-        for col in ["Open", "High", "Low", "Close"]:
-            if col in df.columns:
-                df[col] = df[col] / 100.0
+        # Metadata-driven unit normalisation to canonical GBP (no magnitude heuristics)
+        clean_name = s.replace("_L", "").replace(".L", "").replace("l_EQ", "").replace("_EQ", "").upper()
+        is_uk_pence = True
+        try:
+            from src.core.price_units import _lookup_is_uk_pence
+            resolved = _lookup_is_uk_pence(clean_name)
+            if resolved is not None:
+                is_uk_pence = resolved
+            elif clean_name == "IGLT":
+                is_uk_pence = False
+        except Exception:
+            if clean_name == "IGLT":
+                is_uk_pence = False
+
+        if is_uk_pence:
+            for col in ["Open", "High", "Low", "Close"]:
+                if col in df.columns:
+                    df[col] = df[col] / 100.0
 
         # Features strictly calculated on historical rolling window
         df["SMA200"] = df["Close"].rolling(sma_len).mean()

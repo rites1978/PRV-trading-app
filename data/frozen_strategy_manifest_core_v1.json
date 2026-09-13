@@ -4,17 +4,16 @@
   "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
   "architecture_class": "PRV_CORE_COMPOUNDING_ENGINE",
   "strategy_file": "src/research/strategies/prv_core_compounding_v1.py",
-  "strategy_file_sha256": "9f4942f11bd56a87cd2c651a24eff2f64a528d46f9ba95be7bb33b7589189929",
+  "strategy_file_sha256": "740b8b834a83fcde653c2877ccd16d3fc2e72516956308a2722c6f2b8d34f307",
   "frozen_universe": [
     "CSP1_L",
     "EQQQ_L",
-    "IWDA_L",
     "ISF_L",
     "EMIM_L",
     "SGLN_L",
     "IGLT_L"
   ],
-  "frozen_universe_sha256": "d8b857e9961412310e7d4a962a186144154dbef6cc94a92bbe16a3c362a4204c",
+  "frozen_universe_sha256": "d706a0f5339ff7c41ad6aaf53e8a82095a9865365e02e3cbae00596127cdc7d0",
   "frozen_parameters": {
     "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
     "architecture_class": "PRV_CORE_COMPOUNDING_ENGINE",
@@ -100,5 +99,5 @@
     "duration_months": 14
   },
   "operating_mandate": "CORE_COMPOUNDING_ENGINE_ONLY (Opportunity Engine decoupled)",
-  "master_manifest_sha256": "e5026d52086a5cdf5597cccbba96233a3f263411d84dea8bd3e36891d60be361"
+  "master_manifest_sha256": "5a5a9396c13b605d57336455d93f5ce6c5067924f180656172861bf521bb1d06"
 }

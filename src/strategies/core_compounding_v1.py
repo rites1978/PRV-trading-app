@@ -8,7 +8,7 @@ Cryptographic Invariants:
 - Research Strategy Code SHA-256: 9f4942f11bd56a87cd2c651a24eff2f64a528d46f9ba95be7bb33b7589189929
 
 Specification:
-1. Universe: CSP1, EQQQ, IWDA/SWDA, ISF, EMIM, SGLN, IGLT (London SDRT-Exempt ETFs)
+1. Universe: CSP1, EQQQ, ISF, EMIM, SGLN, IGLT (London SDRT-Exempt ETFs)
 2. Ranking Metric: 20-Day Annualized Sharpe Momentum = Ret20d / Vol20d
 3. Trend Gate: Asset Day T-1 Close > 200-day SMA AND Sharpe Momentum > 0.0
 4. Rebalance Horizon: 10 trading days (bi-weekly rotation)
@@ -29,8 +29,8 @@ import numpy as np
 
 logger = logging.getLogger("core_compounding_v1")
 
-EXPECTED_MANIFEST_SHA256 = "e5026d52086a5cdf5597cccbba96233a3f263411d84dea8bd3e36891d60be361"
-EXPECTED_RESEARCH_CODE_SHA256 = "9f4942f11bd56a87cd2c651a24eff2f64a528d46f9ba95be7bb33b7589189929"
+EXPECTED_MANIFEST_SHA256 = "5a5a9396c13b605d57336455d93f5ce6c5067924f180656172861bf521bb1d06"
+EXPECTED_RESEARCH_CODE_SHA256 = "740b8b834a83fcde653c2877ccd16d3fc2e72516956308a2722c6f2b8d34f307"
 
 
 class CoreCompoundingStrategy:
@@ -38,7 +38,7 @@ class CoreCompoundingStrategy:
     ARCHITECTURE_CLASS = "PRV_CORE_COMPOUNDING_ENGINE"
     STATUS = "RATIFIED_FOR_PRACTICE_PRODUCTION_INTEGRATION"
     
-    # Exact 7-Instrument Certified Universe
+    # Exact 6-Instrument Certified Universe
     CERTIFIED_UNIVERSE = [
         {
             "symbol": "CSP1",
@@ -60,20 +60,6 @@ class CoreCompoundingStrategy:
             "isin": "IE0032077012",
             "name": "Invesco EQQQ Nasdaq-100 UCITS ETF GBP",
             "asset_class": "Equities (US Tech / Nasdaq)",
-            "currency": "GBX",
-            "is_uk_pence": True,
-            "sdrt_exempt": True,
-            "broker_allowed_precision": 3,
-            "broker_allowed_increment": 0.001
-        },
-        {
-            "symbol": "IWDA",
-            "yf_ticker": "IWDA.L",
-            "t212_ticker": "SWDAl_EQ",
-            "t212_ticker_alt": "IWDAl_EQ",
-            "isin": "IE00B4L5Y983",
-            "name": "iShares Core MSCI World UCITS ETF GBP",
-            "asset_class": "Equities (Global Developed)",
             "currency": "GBX",
             "is_uk_pence": True,
             "sdrt_exempt": True,

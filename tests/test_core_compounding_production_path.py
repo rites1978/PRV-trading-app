@@ -376,7 +376,7 @@ class TestCoreCompoundingProductionPath(unittest.TestCase):
         """
         # Feed missing IGLT
         feed_missing_iglt = self._create_synthetic_feed(emim_qualifies=True, exclude_ticker="IGLT")
-        self.assertEqual(len(feed_missing_iglt), 6)
+        self.assertEqual(len(feed_missing_iglt), len(core_compounding_strategy.CERTIFIED_UNIVERSE) - 1)
 
         # Production evaluation
         with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed_missing_iglt.get(t, pd.DataFrame())):

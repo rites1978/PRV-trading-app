@@ -44,6 +44,7 @@ class PRVQuantEngine:
     CORE_STRATEGY_IDS = ("PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1", "CORE_V1")
     V2_STRATEGY_IDS = ("V2", "ETF_V1", "PRV_HIT_AND_RUN_ETF_V1")
     LEGACY_STRATEGY_IDS = ("V1",)
+    NO_NEW_ENTRY_FROM_FALLBACK_NAV_OR_CASH: bool = True
 
     _instance = None
     _lock = threading.Lock()
@@ -1249,8 +1250,25 @@ class PRVQuantEngine:
         from src.strategies.core_compounding_v1 import core_compounding_strategy
         from datetime import time as dtime
 
-        total_nav = float(account.get("total_value", 49897.38))
-        available_cash = float(account.get("available_cash", 49897.38))
+        total_nav: Optional[float] = None
+        available_cash: Optional[float] = None
+        account_authoritative: bool = False
+
+        if isinstance(account, dict) and account.get("success", True) is not False:
+            raw_nav = account.get("total_value") if "total_value" in account else account.get("total")
+            raw_cash = account.get("available_cash") if "available_cash" in account else (
+                account.get("free_cash") if "free_cash" in account else account.get("free")
+            )
+            if raw_nav is not None and raw_cash is not None:
+                try:
+                    parsed_nav = float(raw_nav)
+                    parsed_cash = float(raw_cash)
+                    if parsed_nav > 0 and parsed_cash >= 0 and not np.isnan(parsed_nav) and not np.isnan(parsed_cash):
+                        total_nav = parsed_nav
+                        available_cash = parsed_cash
+                        account_authoritative = True
+                except (ValueError, TypeError):
+                    account_authoritative = False
         open_positions, positions_fresh = self.fetch_positions_authoritative(broker)
         open_orders, orders_fresh = self.fetch_orders_authoritative(broker)
 
@@ -1582,6 +1600,10 @@ class PRVQuantEngine:
                     elif not positions_fresh or not orders_fresh:
                         decision = "HOLD"
                         reason = f"FAIL_CLOSED: Broker state not authoritative (positions_fresh={positions_fresh}, orders_fresh={orders_fresh}). New entry blocked until broker connection confirmed."
+                        logger.error(reason)
+                    elif not account_authoritative or total_nav is None or available_cash is None:
+                        decision = "HOLD"
+                        reason = "FAIL_CLOSED: MISSING_AUTHORITATIVE_ACCOUNT_STATE"
                         logger.error(reason)
                     elif available_cash < 1000.0:
                         decision = "HOLD"

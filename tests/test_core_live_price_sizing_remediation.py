@@ -387,24 +387,26 @@ class TestCoreLivePriceSizingRemediation(unittest.TestCase):
         nav = 49896.38
         deployable = min(40000.0, nav, nav * 0.80 - 15.0)
 
-        # 10a. Verify IWDA is strictly blocked in engine & order router
-        feed_iwda = self._create_synthetic_feed(top_symbol="IWDA", emim_close=114.0)
-        mock_place = MagicMock()
-
-        with patch.object(market_data, "fetch_history", side_effect=lambda t, **kwargs: feed_iwda.get(t, pd.DataFrame())), \
-             patch.object(market_data, "get_current_executable_price", return_value=1.468), \
-             patch.object(broker, "get_open_positions", side_effect=provenance_aware([])), \
-             patch.object(broker, "get_open_orders", side_effect=provenance_aware([])), \
-             patch.object(broker, "place_limit_order", mock_place):
-
-            res = self.engine._run_core_compounding_cycle(
-                account={"total_value": nav, "available_cash": nav},
-                bypass_execution_window=True
-            )
-
-            self.assertEqual(res["decision"], "HOLD")
-            self.assertIn("IWDA is blocked from execution", res["reason"])
-            self.assertEqual(mock_place.call_count, 0)  # IWDA NEVER calls broker!
+        # 10a. Verify IWDA is completely absent from universe and blocked in order router
+        self.assertFalse(any(inst["symbol"] == "IWDA" for inst in core_compounding_strategy.CERTIFIED_UNIVERSE))
+        from src.execution.order_router import order_router
+        can_route, route_reason, route_details = order_router.route_entry_order(
+            symbol="IWDA",
+            t212_ticker="IWDAl_EQ",
+            quantity=100.0,
+            price=1.468,
+            target_price=1.60,
+            stop_loss_price=1.40,
+            sector="Equities",
+            confidence_score=0.8,
+            market_regime="BULLISH",
+            agent_votes={"TrendAgent": "BUY"},
+            risk_approved=True,
+            bypass_audit_freeze=True,
+            strategy_id="PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
+        )
+        self.assertFalse(can_route)
+        self.assertIn("IWDA is blocked from execution", route_reason)
 
         # 10b. Verify IGLT sizing in GBP (£9.55 -> ~4170 shares)
         iglt_price = 9.5575

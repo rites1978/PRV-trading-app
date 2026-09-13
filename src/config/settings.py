@@ -56,17 +56,17 @@ class TradingSettings(BaseModel):
     MAX_DEPLOYMENT_BULL: float = 0.55       # 45%-55% (Target 55%) in bull markets (capped by 45% cash floor)
 
     # 🏛️ Daily Net Profit Objective & Anti-Overtrading Mandate
-    BASE_TRADING_CAPITAL: float = 49897.38
-    REFERENCE_BASE_CAPITAL: float = 49897.38
-    MAX_DEPLOYABLE_TRADING_CAPITAL: float = 49897.38
-    MAX_NORMAL_DEPLOYABLE_CAPITAL: float = 49897.38
+    BASE_TRADING_CAPITAL: float = 49896.38
+    REFERENCE_BASE_CAPITAL: float = 49896.38
+    MAX_DEPLOYABLE_TRADING_CAPITAL: float = 49896.38
+    MAX_NORMAL_DEPLOYABLE_CAPITAL: float = 49896.38
     
     # Permanent Invariants & Strategy Governance
     RATIFIED_STRATEGY_ID: str = "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"
     RATIFIED_COMMIT_SHA: str = "auto"
-    FROZEN_MANIFEST_SHA256: str = "e5026d52086a5cdf5597cccbba96233a3f263411d84dea8bd3e36891d60be361"
-    FROZEN_CODE_SHA256: str = "9f4942f11bd56a87cd2c651a24eff2f64a528d46f9ba95be7bb33b7589189929"
-    CORE_COMPOUNDING_V1_FORWARD_BASELINE_NAV: float = 49897.38
+    FROZEN_MANIFEST_SHA256: str = "4dbeb3a2120ab26aaf0010a10927c1870a376b6ad0e9f8f6f571821dbdb83da0"
+    FROZEN_CODE_SHA256: str = "2798bce051d7ed2b04149dace45d923dd118c51bd9476416815d877d1b2ab3b2"
+    CORE_COMPOUNDING_V1_FORWARD_BASELINE_NAV: float = 49896.38
     CORE_COMPOUNDING_V1_STRATEGY_PNL_AT_LAUNCH: float = 0.00
 
     # Corridor Policy & £100 Realised-Net Governor:

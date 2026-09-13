@@ -147,7 +147,7 @@ class StrategyRegistry:
 
         # 4. Ratified Core Compounding Engine: PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1
         core_rules = {
-            "universe": ["CSP1.L", "EQQQ.L", "IWDA.L", "ISF.L", "EMIM.L", "SGLN.L", "IGLT.L"],
+            "universe": ["CSP1.L", "EQQQ.L", "ISF.L", "EMIM.L", "SGLN.L", "IGLT.L"],
             "mom_lookback_bars": 20,
             "vol_lookback_bars": 20,
             "rebalance_days": 10,
