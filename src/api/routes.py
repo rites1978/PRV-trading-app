@@ -40,6 +40,11 @@ def on_startup():
     # It cannot submit, cancel or modify orders, and never invokes strategy or
     # execution logic.
     broker.start_background_sync(interval_seconds=60)
+    try:
+        from src.monitoring.memory_telemetry import start_memory_telemetry_worker
+        start_memory_telemetry_worker(interval_seconds=300)
+    except Exception as e:
+        logger.error(f"Failed to initialize memory telemetry worker: {e}")
 
     # FAIL-CLOSED: a deployment must never autostart autonomous trading. The engine
     # starts only on an explicit approved opt-in (PRV_AUTORUN_ENGINE=true). Absent,
@@ -99,6 +104,15 @@ def health_check():
         "execution_authority": exec_authority,
         "active_strategy_id": active_strat
     }
+
+@app.get("/api/diagnostics/memory")
+def get_memory_diagnostics():
+    """
+    Read-only diagnostic memory telemetry endpoint.
+    Performs zero broker calls, zero DB writes, zero market-data calls, and zero execution actions.
+    """
+    from src.monitoring.memory_telemetry import get_memory_telemetry
+    return get_memory_telemetry()
 
 @app.get("/api/strategy/core_compounding/status")
 def get_core_compounding_status():

@@ -479,6 +479,35 @@ class TestTrading212RateLimiter(unittest.TestCase):
                         self.assertNotIn("requests.post(", content, f"{rel_path} bypasses broker for Trading212 API")
                         self.assertNotIn("requests.delete(", content, f"{rel_path} bypasses broker for Trading212 API")
 
+    def test_call_history_bounded_to_max_1000_and_retains_newest(self):
+        """
+        Prove:
+        1. call_history retains <= 1000 entries (MAX_CALL_HISTORY).
+        2. When exceeding 1000 entries, the newest entries are retained and oldest dropped.
+        3. Rate limiter behavior and quota timing are completely unchanged.
+        """
+        for i in range(1500):
+            self.clock.current_time += 1.0
+            self.limiter.acquire("GET", "equity/portfolio")
+
+        # 1. Retained count must be exactly 1000 (never exceeds 1000)
+        self.assertEqual(len(self.limiter.call_history), 1000)
+        self.assertLessEqual(len(self.limiter.call_history), 1000)
+
+        # 2. Newest entries retained: oldest retained call is call index 500
+        oldest_retained = self.limiter.call_history[0]
+        newest_retained = self.limiter.call_history[-1]
+
+        # Initial clock: 1000.0. Call 500 at 1501.0, Call 1499 at 2500.0.
+        self.assertEqual(oldest_retained[1], 1501.0)
+        self.assertEqual(newest_retained[1], 2500.0)
+
+        # 3. Rate limiter enforcement continues to work identically after 1000 entries
+        w = self.limiter.acquire("GET", "equity/portfolio")
+        self.assertEqual(w, 1.0)
+        self.assertEqual(len(self.limiter.call_history), 1000)
+        self.assertEqual(self.limiter.call_history[-1][1], 2501.0)
+
 
 if __name__ == "__main__":
     unittest.main()

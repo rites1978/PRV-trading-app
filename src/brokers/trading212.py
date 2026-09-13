@@ -6,8 +6,9 @@ Ensures zero-drop parity between Trading212, backend APIs, and dashboard DOM.
 import time
 import threading
 import logging
+from collections import deque
 import requests
-from typing import Dict, Any, List, Optional, Tuple, Union
+from typing import Dict, Any, List, Optional, Tuple, Union, Deque
 from datetime import datetime, timezone
 from src.config.settings import settings
 from src.database.db import db
@@ -65,18 +66,21 @@ class Trading212RateLimiter:
         EndpointCategory.DELETE_ORDER: 1.2,        # 50 req / 60s (1.2s minimum spacing)
         EndpointCategory.DEFAULT: 1.0,             # 1 req / 1s fallback
     }
+    MAX_CALL_HISTORY: int = 1000
 
     def __init__(
         self,
         account_id: str = "default",
         time_fn: Optional[Any] = None,
         sleep_fn: Optional[Any] = None,
+        max_history: int = MAX_CALL_HISTORY,
     ):
         self.account_id = account_id
         self._time_fn = time_fn or time.time
         self._sleep_fn = sleep_fn or time.sleep
         self._lock = threading.RLock()
-        self.call_history: List[Tuple[str, float, float]] = []
+        self.max_history = max_history
+        self.call_history: Deque[Tuple[str, float, float]] = deque(maxlen=max_history)
 
         self._buckets: Dict[str, EndpointQuota] = {}
         for cat, default_interval in self.DEFAULT_QUOTAS.items():
