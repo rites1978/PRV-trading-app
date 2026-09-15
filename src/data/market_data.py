@@ -1,28 +1,50 @@
 import time
 import yfinance as yf
+from yfinance.data import new_session
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, Optional, Tuple
 
 class MarketDataProvider:
-    def __init__(self):
+    def __init__(self, request_timeout: float = 7.0):
         self._cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
         self._snapshot_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._cache_ttl_seconds: float = 1800.0  # 30-minute memory cache
         self._cache_max_size: int = 25           # Bounded history cache
         self._snapshot_cache_max_size: int = 150 # Bounded snapshot cache
+        self.request_timeout: float = request_timeout
+        self._session = None
+        self._init_session()
 
-    def fetch_history(self, yf_ticker: str, period: str = "6mo", interval: str = "1d") -> pd.DataFrame:
-        """Fetch historical price series from Yahoo Finance with bounded in-memory caching and fallback."""
+    def _init_session(self):
+        try:
+            self._session = new_session()
+            if hasattr(self._session, "timeout"):
+                self._session.timeout = self.request_timeout
+        except Exception as e:
+            print(f"[MarketData Warning] Failed to initialize bounded session: {e}")
+            self._session = None
+
+    def get_session(self):
+        if self._session is None:
+            self._init_session()
+        elif hasattr(self._session, "timeout") and self._session.timeout != self.request_timeout:
+            self._session.timeout = self.request_timeout
+        return self._session
+
+    def fetch_history(self, yf_ticker: str, period: str = "6mo", interval: str = "1d", timeout: Optional[float] = None) -> pd.DataFrame:
+        """Fetch historical price series from Yahoo Finance with bounded in-memory caching, hard HTTP timeout, and fallback."""
         now = time.time()
         if yf_ticker in self._cache:
             ts, cached_df = self._cache[yf_ticker]
             if (now - ts) < self._cache_ttl_seconds and not cached_df.empty:
                 return cached_df.copy()
 
+        req_timeout = timeout or self.request_timeout
         try:
-            stock = yf.Ticker(yf_ticker)
-            df = stock.history(period=period, interval=interval)
+            sess = self.get_session()
+            stock = yf.Ticker(yf_ticker, session=sess)
+            df = stock.history(period=period, interval=interval, timeout=req_timeout)
             if not df.empty:
                 df = df.dropna(subset=['Close'])
             if not df.empty and len(df) >= 1:
@@ -41,18 +63,20 @@ class MarketDataProvider:
                 return self._cache[yf_ticker][1].copy()
             return pd.DataFrame()
 
-    def get_current_executable_price(self, yf_ticker: str, is_uk_pence: bool = True) -> Optional[float]:
+    def get_current_executable_price(self, yf_ticker: str, is_uk_pence: bool = True, timeout: Optional[float] = None) -> Optional[float]:
         """
         Authoritative current executable price lookup immediately before broker submission.
         Returns price in GBP (normalized if UK pence), or None if unavailable/invalid.
-        Never returns 0.0 or negative prices. Never falls back to stale history.
+        Applies hard HTTP connect/read timeout at the network layer. Never returns 0.0 or negative prices.
         """
+        req_timeout = timeout or min(self.request_timeout, 4.0)
         try:
-            stock = yf.Ticker(yf_ticker)
+            sess = self.get_session()
+            stock = yf.Ticker(yf_ticker, session=sess)
             fast = stock.fast_info
             price = getattr(fast, "last_price", None)
             if price is None or np.isnan(price) or price <= 0:
-                df = stock.history(period="1d", interval="1m")
+                df = stock.history(period="1d", interval="1m", timeout=req_timeout)
                 if not df.empty:
                     price = float(df["Close"].iloc[-1])
             if price is not None and not np.isnan(price) and price > 0:

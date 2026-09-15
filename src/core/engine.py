@@ -1196,36 +1196,43 @@ class PRVQuantEngine:
         today_date_str = session_ctx["cur_date_str"]
 
         data = {}
+        missing_feeds = []
         for inst in core_compounding_strategy.CERTIFIED_UNIVERSE:
             sym = inst["symbol"]
             yf_t = inst["yf_ticker"]
-            df = market_data.fetch_history(yf_t, period="2y", interval="1d")
-            if df.empty:
+            try:
+                df = market_data.fetch_history(yf_t, period="2y", interval="1d")
+                if df.empty:
+                    missing_feeds.append(sym)
+                    continue
+                df = df.copy()
+                is_uk_pence = inst.get("is_uk_pence", True)
+                if is_uk_pence:
+                    for col in ["Open", "High", "Low", "Close"]:
+                        if col in df.columns:
+                            df[col] = df[col] / 100.0
+
+                # Dynamic intraday update: incorporate live executable price at exact scan time
+                if is_market_open and not observation_date:
+                    live_p = market_data.get_current_executable_price(yf_t, is_uk_pence=is_uk_pence)
+                    if live_p is not None and live_p > 0:
+                        last_idx = df.index[-1]
+                        if str(last_idx)[:10] == today_date_str:
+                            df.loc[last_idx, "Close"] = live_p
+                            if "High" in df.columns:
+                                df.loc[last_idx, "High"] = max(float(df.loc[last_idx, "High"]), live_p)
+                            if "Low" in df.columns:
+                                df.loc[last_idx, "Low"] = min(float(df.loc[last_idx, "Low"]), live_p)
+
+                df["SMA200"] = df["Close"].rolling(200).mean()
+                df["MOM"] = df["Close"].pct_change(20)
+                df["Vol20"] = df["Close"].pct_change().rolling(20).std() * np.sqrt(252)
+                df["MOM_SHARPE"] = df["MOM"] / (df["Vol20"] + 1e-4)
+                data[f"{sym}_L"] = df
+            except Exception as item_err:
+                logger.warning(f"Market feed error for {sym} ({yf_t}): {item_err}")
+                missing_feeds.append(sym)
                 continue
-            df = df.copy()
-            is_uk_pence = inst.get("is_uk_pence", True)
-            if is_uk_pence:
-                for col in ["Open", "High", "Low", "Close"]:
-                    if col in df.columns:
-                        df[col] = df[col] / 100.0
-
-            # Dynamic intraday update: incorporate live executable price at exact scan time
-            if is_market_open and not observation_date:
-                live_p = market_data.get_current_executable_price(yf_t, is_uk_pence=is_uk_pence)
-                if live_p is not None and live_p > 0:
-                    last_idx = df.index[-1]
-                    if str(last_idx)[:10] == today_date_str:
-                        df.loc[last_idx, "Close"] = live_p
-                        if "High" in df.columns:
-                            df.loc[last_idx, "High"] = max(float(df.loc[last_idx, "High"]), live_p)
-                        if "Low" in df.columns:
-                            df.loc[last_idx, "Low"] = min(float(df.loc[last_idx, "Low"]), live_p)
-
-            df["SMA200"] = df["Close"].rolling(200).mean()
-            df["MOM"] = df["Close"].pct_change(20)
-            df["Vol20"] = df["Close"].pct_change().rolling(20).std() * np.sqrt(252)
-            df["MOM_SHARPE"] = df["MOM"] / (df["Vol20"] + 1e-4)
-            data[f"{sym}_L"] = df
 
         # Incomplete universe handling: Match frozen research rules
         # If an individual ETF is missing, log warning and rank available remainder per frozen research rules
@@ -1245,7 +1252,8 @@ class PRVQuantEngine:
                 "timestamp": now_uk.strftime("%Y-%m-%d %H:%M:%S")
             }
         elif len(data) < len(core_compounding_strategy.CERTIFIED_UNIVERSE):
-            logger.warning(f"Market feed missing {len(core_compounding_strategy.CERTIFIED_UNIVERSE) - len(data)} ETFs. Ranking available remainder per frozen research rules.")
+            missing_str = ", ".join(missing_feeds) if missing_feeds else f"{len(core_compounding_strategy.CERTIFIED_UNIVERSE) - len(data)} missing"
+            logger.warning(f"Market feed missing {len(core_compounding_strategy.CERTIFIED_UNIVERSE) - len(data)} ETFs ({missing_str}). Ranking available remainder.")
 
         # Determine observation bar
         any_df = next(iter(data.values()))
@@ -1275,6 +1283,14 @@ class PRVQuantEngine:
                 data[k].loc[current_bar] = np.nan
 
         sig = core_compounding_strategy.evaluate_point_in_time_signal(current_bar, prev_bar, data)
+        if len(data) < len(core_compounding_strategy.CERTIFIED_UNIVERSE):
+            missing_desc = ", ".join(missing_feeds) if missing_feeds else f"{len(core_compounding_strategy.CERTIFIED_UNIVERSE) - len(data)} missing"
+            logger.warning(f"Market feed incomplete: {len(data)}/6 ETFs available ({missing_desc}). Fail-closed: entry disabled on partial data.")
+            sig["decision"] = "HOLD_CASH"
+            sig["reason"] = f"INCOMPLETE_UNIVERSE_DATA: {len(data)}/6 ETFs available ({missing_desc}). Refusing to trade on partial cross-sectional data."
+            sig["selected_symbol"] = None
+            sig["selected_t212_ticker"] = None
+            sig["selected_score"] = 0.0
         sig["as_of_scan_time"] = now_uk.strftime("%Y-%m-%d %H:%M:%S %Z")
         sig["scan_type"] = "CONTINUOUS_REGULAR_MARKET_SESSION" if is_market_open else "OUTSIDE_MARKET_HOURS"
         sig["intended_execution_window"] = session_ctx["intended_execution_window"]
@@ -1670,6 +1686,10 @@ class PRVQuantEngine:
             self.last_decision = "HOLD"
             self.last_no_trade_reason = f"RECONCILIATION_COMPLETED: {recon_msg}"
             self.last_scan_completed_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            self.scan_cycles_today += 1
+            self.securities_scanned_last_cycle = len(core_compounding_strategy.CERTIFIED_UNIVERSE)
+            self.next_scan_time = time.time() + self.scan_interval
+            self.next_scan_timestamp = datetime.fromtimestamp(self.next_scan_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             return {
                 "success": True,
                 "decision": "HOLD",
@@ -1810,6 +1830,10 @@ class PRVQuantEngine:
                 self.last_decision = "HOLD"
                 self.last_no_trade_reason = f"SESSION_CLOSE: Handled working entry orders at session close ({regular_close.strftime('%H:%M:%S')} London Time)."
                 self.last_scan_completed_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                self.scan_cycles_today += 1
+                self.securities_scanned_last_cycle = len(core_compounding_strategy.CERTIFIED_UNIVERSE)
+                self.next_scan_time = time.time() + self.scan_interval
+                self.next_scan_timestamp = datetime.fromtimestamp(self.next_scan_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                 return {
                     "success": True,
                     "decision": "HOLD",
@@ -2126,6 +2150,11 @@ class PRVQuantEngine:
                                         elif prompt_data.get("halt"):
                                             self.last_decision = f"HALT: {prompt_msg}"
                                             self.last_execution_error = prompt_msg
+                                            self.last_scan_completed_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                                            self.scan_cycles_today += 1
+                                            self.securities_scanned_last_cycle = len(core_compounding_strategy.CERTIFIED_UNIVERSE)
+                                            self.next_scan_time = time.time() + self.scan_interval
+                                            self.next_scan_timestamp = datetime.fromtimestamp(self.next_scan_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                                             return {"success": False, "halt": True, "error": prompt_msg}
                                         elif prompt_data.get("status") == "UNKNOWN_PENDING_RECONCILIATION":
                                             self.mark_signal_bar_executed(dedup_key)
@@ -2206,6 +2235,12 @@ class PRVQuantEngine:
         self.last_decision = decision
         self.last_no_trade_reason = reason
         self.last_scan_completed_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        self.scan_cycles_today += 1
+        self.securities_scanned_last_cycle = len(core_compounding_strategy.CERTIFIED_UNIVERSE)
+        self.raw_candidates_last_cycle = sig.get("eligible_candidates_count", 0) if isinstance(sig, dict) else 0
+        self.final_approvals_last_cycle = 1 if decision == "ENTER" else 0
+        self.next_scan_time = time.time() + self.scan_interval
+        self.next_scan_timestamp = datetime.fromtimestamp(self.next_scan_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         self.latest_core_compounding_status = {
             "timestamp": self.last_scan_completed_timestamp,
             "decision": decision,
@@ -2736,6 +2771,9 @@ class PRVQuantEngine:
                 except Exception:
                     pass
             finally:
+                if not self.next_scan_time or self.next_scan_time <= time.time():
+                    self.next_scan_time = time.time() + self.scan_interval
+                    self.next_scan_timestamp = datetime.fromtimestamp(self.next_scan_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                 import gc
                 gc.collect()
                 
