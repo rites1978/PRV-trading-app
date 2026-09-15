@@ -310,8 +310,26 @@ class PRVQuantEngine:
             "last_no_trade_reason": self.last_no_trade_reason,
             "rejection_breakdown": self.rejection_breakdown,
             "top_rejected_candidates": self.top_rejected_candidates[:5],
-            "last_execution_error": self.last_execution_error
+            "last_execution_error": self.last_execution_error,
+            "broker_universe_telemetry": self._get_broker_discovery_telemetry(),
+            "open_markets": self._get_open_markets_telemetry()
         }
+
+    def _get_broker_discovery_telemetry(self) -> Dict[str, Any]:
+        """Extracts broker-derived universe discovery telemetry safely."""
+        try:
+            from src.data.broker_discovery import broker_discovery
+            return broker_discovery.get_discovery_telemetry()
+        except Exception as e:
+            return {"error": str(e), "BROKER_API_DISCOVERED": 0, "BROKER_API_TRADABLE": 0}
+
+    def _get_open_markets_telemetry(self) -> List[str]:
+        """Extracts currently open exchanges dynamically."""
+        try:
+            from src.data.market_session_router import market_session_router
+            return market_session_router.get_open_markets()
+        except Exception as e:
+            return []
 
     def get_watchdog_status(self) -> Dict[str, Any]:
         """Watchdog health, heartbeat, and restart recovery status."""
@@ -2379,8 +2397,15 @@ class PRVQuantEngine:
                 is_uk = (item["country"] == "UK")
                 is_uk_pence = item.get("is_uk_pence", False)
 
-                # Market Hours Gate: Only scan assets when their domestic exchange is active
-                if not market_hours.is_asset_market_open(item.get("country", "US")):
+                # Market Hours Gate: Only scan assets when their exchange session is active
+                from src.data.market_session_router import market_session_router
+                sched_id = item.get("workingScheduleId")
+                if sched_id is not None:
+                    is_cand_open, _ = market_session_router.is_schedule_open(int(sched_id))
+                else:
+                    is_cand_open = market_hours.is_asset_market_open(item.get("country", "US"))
+
+                if not is_cand_open:
                     return None
 
                 # Event Risk Blackout Gate
@@ -2397,8 +2422,9 @@ class PRVQuantEngine:
                 if existing_pos and t212_ticker not in closed_trades:
                     current_holding_val = float(existing_pos.get("quantity", 0)) * float(existing_pos.get("currentPrice", 0))
 
-                snapshot = market_data.get_market_snapshot(yf_ticker, is_uk_pence=is_uk_pence)
-                if not snapshot.get("success"):
+                from src.data.bulk_market_data import bulk_market_data
+                snapshot = bulk_snaps.get(t212_ticker) if ('bulk_snaps' in locals() and bulk_snaps and t212_ticker in bulk_snaps) else bulk_market_data.get_market_snapshot(item, is_uk_pence=is_uk_pence)
+                if not snapshot or not snapshot.get("success"):
                     return None
 
                 # Signal Bar De-duplication Gate: Prevents repeated entries across 3-minute scans on the same daily bar
@@ -2552,6 +2578,9 @@ class PRVQuantEngine:
                 return None
 
         import gc
+        from src.data.bulk_market_data import bulk_market_data
+        bulk_snaps = bulk_market_data.fetch_bulk_snapshots(universe)
+
         with ThreadPoolExecutor(max_workers=2) as executor:
             scanned_results = list(executor.map(_evaluate_single_candidate, universe))
 
@@ -2743,8 +2772,10 @@ class PRVQuantEngine:
             try:
                 self.last_heartbeat_time = time.time()
                 self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
+                from src.data.market_session_router import market_session_router
+                is_router_open = market_session_router.is_any_market_open()
                 m_status = market_hours.get_market_status()
-                is_open = m_status.get("any_market_open", False)
+                is_open = is_router_open or m_status.get("any_market_open", False)
                 
                 # Session transition alerts
                 if last_open_state is not None:

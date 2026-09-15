@@ -98,5 +98,9 @@ class MarketSessionRouter:
         return open_list
 
 
-from typing import Tuple
+    def is_any_market_open(self, utc_dt: Optional[datetime] = None) -> bool:
+        """Returns True if at least one exchange in the universe is open for regular trading."""
+        return len(self.get_open_markets(utc_dt=utc_dt)) > 0
+
+
 market_session_router = MarketSessionRouter()
