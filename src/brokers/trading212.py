@@ -67,6 +67,78 @@ class Trading212RateLimiter:
         EndpointCategory.DEFAULT: 1.0,             # 1 req / 1s fallback
     }
     MAX_CALL_HISTORY: int = 1000
+    MAX_RATE_LIMIT_WAIT_SECONDS: float = 60.0
+
+    @classmethod
+    def parse_ratelimit_reset(
+        cls,
+        header_val: Any,
+        now: Optional[float] = None,
+        max_wait: float = MAX_RATE_LIMIT_WAIT_SECONDS,
+    ) -> Optional[float]:
+        """
+        Parses rate-limit reset or retry-after header value.
+        Detects whether the value is an absolute Unix epoch or relative seconds.
+        Validates, bounds, and rejects/fails closed on:
+          - malformed / unparseable values
+          - negative waits
+          - implausibly large / absurd waits
+        Returns wait_seconds (float) in [0.0, max_wait], or None if rejected.
+        """
+        if header_val is None:
+            return None
+
+        if now is None:
+            now = time.time()
+
+        # Step 1: Parse numeric value
+        try:
+            import math
+            val_str = str(header_val).strip()
+            val = float(val_str)
+            if math.isnan(val) or math.isinf(val):
+                return None
+        except (ValueError, TypeError):
+            try:
+                from email.utils import parsedate_to_datetime
+                dt = parsedate_to_datetime(str(header_val).strip())
+                val = dt.timestamp()
+            except Exception:
+                return None
+
+        # Step 2: Detect whether absolute Unix epoch or relative seconds
+        is_absolute = False
+        val_sec = val
+        if val >= 100_000_000_000:
+            # Absolute epoch in milliseconds
+            val_sec = val / 1000.0
+            is_absolute = True
+        elif val >= 1_000_000_000:
+            # Standard Unix epoch in seconds (>= year 2001)
+            val_sec = val
+            is_absolute = True
+        elif now > 60.0 and val >= (now * 0.5) and val > 60.0:
+            # Mocked/custom clock epoch
+            val_sec = val
+            is_absolute = True
+
+        # Step 3: Compute wait_seconds
+        if is_absolute:
+            wait_seconds = val_sec - now
+        else:
+            wait_seconds = val
+
+        # Step 4: Reject / fail closed on negative waits
+        if is_absolute and -5.0 <= wait_seconds < 0.0:
+            wait_seconds = 0.0
+        elif wait_seconds < 0.0:
+            return None
+
+        # Step 5: Reject / bound safely on implausibly large / absurd waits
+        if wait_seconds > max_wait:
+            return None
+
+        return round(float(wait_seconds), 4)
 
     def __init__(
         self,
@@ -150,13 +222,16 @@ class Trading212RateLimiter:
 
             # 1. If quota exhausted or locked by 429 / x-ratelimit-reset
             if bucket.remaining is not None and bucket.remaining <= 0 and bucket.reset_time > now:
-                wait_time = max(wait_time, bucket.reset_time - now)
+                raw_wait = bucket.reset_time - now
+                if raw_wait > 0.0:
+                    wait_time = max(wait_time, min(raw_wait, self.MAX_RATE_LIMIT_WAIT_SECONDS))
             else:
                 elapsed = now - bucket.last_request_time
                 if elapsed < bucket.min_interval:
-                    wait_time = max(wait_time, bucket.min_interval - elapsed)
+                    wait_time = max(wait_time, min(bucket.min_interval - elapsed, self.MAX_RATE_LIMIT_WAIT_SECONDS))
 
             if wait_time > 0.0:
+                wait_time = min(wait_time, self.MAX_RATE_LIMIT_WAIT_SECONDS)
                 sleep_fn(wait_time)
                 now = time_fn()
 
@@ -216,25 +291,17 @@ class Trading212RateLimiter:
                     pass
 
             if h_reset is not None:
-                try:
-                    reset_delta = float(h_reset)
-                    bucket.reset_time = now + reset_delta
-                except ValueError:
-                    pass
+                reset_wait = self.parse_ratelimit_reset(h_reset, now)
+                if reset_wait is not None:
+                    bucket.reset_time = now + reset_wait
 
             status_code = getattr(response, "status_code", 200)
             if status_code == 429:
                 retry_delta = None
                 if h_retry is not None:
-                    try:
-                        retry_delta = float(h_retry)
-                    except ValueError:
-                        pass
-                elif h_reset is not None:
-                    try:
-                        retry_delta = float(h_reset)
-                    except ValueError:
-                        pass
+                    retry_delta = self.parse_ratelimit_reset(h_retry, now)
+                if retry_delta is None and h_reset is not None:
+                    retry_delta = self.parse_ratelimit_reset(h_reset, now)
                 if retry_delta is None:
                     retry_delta = bucket.default_interval
                 bucket.reset_time = now + retry_delta
