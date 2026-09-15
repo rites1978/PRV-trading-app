@@ -954,7 +954,8 @@ class PRVQuantEngine:
         session_ctx = self.get_core_compounding_session_context(dt=current_time)
         now_uk = session_ctx["now_uk"]
         cur_t = now_uk.time()
-        is_past_window = session_ctx["is_trading_day"] and (cur_t >= dtime(8, 5, 0)) and not bypass_execution_window
+        regular_close = session_ctx.get("regular_close", dtime(16, 30, 0))
+        is_past_window = session_ctx["is_trading_day"] and (cur_t >= regular_close) and not bypass_execution_window
 
         # Verify authoritative provenance of broker state
         if open_positions is None:
@@ -1128,19 +1129,20 @@ class PRVQuantEngine:
         is_holiday = holiday is not None
         is_trading_day = not is_weekend and not is_holiday
 
-        # 2. Execution window check: 08:00:00 to 08:05:00 BST
-        window_start = dtime(8, 0, 0)
-        window_end = dtime(8, 5, 0)
-        is_window = is_trading_day and (window_start <= cur_t < window_end)
+        # 2. Regular market session check: 08:00:00 to 16:30:00 London Time (12:30 on UK early close)
+        regular_open = dtime(8, 0, 0)
+        regular_close = dtime(12, 30, 0) if exchange_calendar.is_uk_early_close(cur_d) else dtime(16, 30, 0)
+        is_window = is_trading_day and (regular_open <= cur_t < regular_close)
 
         # 3. Determine intended execution session
         next_session = self.get_next_valid_lse_session(cur_d.strftime("%Y-%m-%d"))
-        if is_trading_day and cur_t < window_end:
+        if is_trading_day and cur_t < regular_close:
             intended_session = cur_d.strftime("%Y-%m-%d")
         else:
             intended_session = next_session
 
         expected_completed = self.get_expected_latest_completed_session(now_uk)
+        intended_window = f"08:00:00-{regular_close.strftime('%H:%M:%S')} London Time"
 
         return {
             "current_uk_time": now_uk.strftime("%Y-%m-%d %H:%M:%S %Z"),
@@ -1153,14 +1155,22 @@ class PRVQuantEngine:
             "intended_execution_session": intended_session,
             "next_execution_session": next_session,
             "expected_completed_session": expected_completed,
-            "intended_execution_window": "08:00:00-08:05:00 BST"
+            "intended_execution_window": intended_window,
+            "regular_open": regular_open,
+            "regular_close": regular_close,
         }
 
-    def evaluate_core_compounding_live_state(self, observation_date: Optional[str] = None) -> Dict[str, Any]:
+    def evaluate_core_compounding_live_state(
+        self,
+        observation_date: Optional[str] = None,
+        current_time: Optional[datetime] = None
+    ) -> Dict[str, Any]:
         """
-        Evaluates point-in-time signal and cross-sectional ranking across the 7 certified ETFs.
-        Strictly observes completed Day T-1 close data with ZERO lookahead.
-        Fails closed if the 7-asset universe is incomplete or if feeds are stale.
+        Evaluates point-in-time signal and cross-sectional ranking across the certified 6-ETF universe.
+        Generates a fresh opportunity assessment using live data available at the exact scan time.
+        During regular market hours (08:00-16:30 London Time), dynamically incorporates live executable
+        prices into today's bar so momentum, volatility, and Sharpe scores reflect current market reality.
+        Fails closed if the universe is empty or if feeds are stale.
         """
         from src.strategies.core_compounding_v1 import core_compounding_strategy
         from zoneinfo import ZoneInfo
@@ -1170,7 +1180,20 @@ class PRVQuantEngine:
         core_compounding_strategy.verify_cryptographic_integrity()
 
         tz_london = ZoneInfo("Europe/London")
-        now_uk = datetime.now(tz_london)
+        if current_time is not None:
+            if current_time.tzinfo is None:
+                now_uk = current_time.replace(tzinfo=tz_london)
+            else:
+                now_uk = current_time.astimezone(tz_london)
+        else:
+            now_uk = datetime.now(tz_london)
+
+        session_ctx = self.get_core_compounding_session_context(dt=now_uk)
+        is_trading_day = session_ctx["is_trading_day"]
+        regular_open = session_ctx.get("regular_open", dtime(8, 0, 0))
+        regular_close = session_ctx.get("regular_close", dtime(16, 30, 0))
+        is_market_open = is_trading_day and (regular_open <= now_uk.time() < regular_close)
+        today_date_str = session_ctx["cur_date_str"]
 
         data = {}
         for inst in core_compounding_strategy.CERTIFIED_UNIVERSE:
@@ -1180,10 +1203,23 @@ class PRVQuantEngine:
             if df.empty:
                 continue
             df = df.copy()
-            if inst.get("is_uk_pence", True):
+            is_uk_pence = inst.get("is_uk_pence", True)
+            if is_uk_pence:
                 for col in ["Open", "High", "Low", "Close"]:
                     if col in df.columns:
                         df[col] = df[col] / 100.0
+
+            # Dynamic intraday update: incorporate live executable price at exact scan time
+            if is_market_open and not observation_date:
+                live_p = market_data.get_current_executable_price(yf_t, is_uk_pence=is_uk_pence)
+                if live_p is not None and live_p > 0:
+                    last_idx = df.index[-1]
+                    if str(last_idx)[:10] == today_date_str:
+                        df.loc[last_idx, "Close"] = live_p
+                        if "High" in df.columns:
+                            df.loc[last_idx, "High"] = max(float(df.loc[last_idx, "High"]), live_p)
+                        if "Low" in df.columns:
+                            df.loc[last_idx, "Low"] = min(float(df.loc[last_idx, "Low"]), live_p)
 
             df["SMA200"] = df["Close"].rolling(200).mean()
             df["MOM"] = df["Close"].pct_change(20)
@@ -1194,7 +1230,7 @@ class PRVQuantEngine:
         # Incomplete universe handling: Match frozen research rules
         # If an individual ETF is missing, log warning and rank available remainder per frozen research rules
         if len(data) == 0:
-            msg = "UNIVERSE_DATA_EMPTY_FAIL_CLOSED: 0/7 ETFs available in market data feed."
+            msg = "UNIVERSE_DATA_EMPTY_FAIL_CLOSED: 0/6 ETFs available in market data feed."
             logger.warning(msg)
             return {
                 "strategy_id": core_compounding_strategy.STRATEGY_ID,
@@ -1205,30 +1241,33 @@ class PRVQuantEngine:
                 "reason": msg,
                 "rankings": [],
                 "eligible_candidates_count": 0,
-                "as_of_date": now_uk.strftime("%Y-%m-%d"),
+                "as_of_date": today_date_str,
                 "timestamp": now_uk.strftime("%Y-%m-%d %H:%M:%S")
             }
         elif len(data) < len(core_compounding_strategy.CERTIFIED_UNIVERSE):
             logger.warning(f"Market feed missing {len(core_compounding_strategy.CERTIFIED_UNIVERSE) - len(data)} ETFs. Ranking available remainder per frozen research rules.")
 
-        # Determine completed observation bar
+        # Determine observation bar
         any_df = next(iter(data.values()))
         dates = sorted(list(any_df.index))
 
-        today_date_str = now_uk.strftime("%Y-%m-%d")
         if observation_date:
             target_ts = pd.Timestamp(observation_date)
             prev_bars = [d for d in dates if d <= target_ts]
             prev_bar = prev_bars[-1] if prev_bars else dates[-1]
             current_bar = target_ts
-        elif str(dates[-1])[:10] == today_date_str and now_uk.time() < dtime(16, 30):
-            # Today's bar is incomplete intraday; observe completed bar T-1
+        elif is_market_open and str(dates[-1])[:10] == today_date_str:
+            # Active regular trading session on live data: evaluate point-in-time ranking on fresh scan-time data!
+            prev_bar = dates[-1]
+            current_bar = dates[-1]
+        elif str(dates[-1])[:10] == today_date_str and now_uk.time() < regular_open:
+            # Pre-market: observe completed bar T-1
             prev_bar = dates[-2] if len(dates) >= 2 else dates[-1]
             current_bar = dates[-1]
         else:
-            # Last bar in feed is completed
+            # Post-close, weekend, or historical feed: last bar in feed is completed
             prev_bar = dates[-1]
-            current_bar = pd.Timestamp(now_uk.strftime("%Y-%m-%d"))
+            current_bar = pd.Timestamp(today_date_str) if str(dates[-1])[:10] == today_date_str else dates[-1]
 
         # Ensure current_bar is present in df index for signal evaluator
         for k in data:
@@ -1236,6 +1275,9 @@ class PRVQuantEngine:
                 data[k].loc[current_bar] = np.nan
 
         sig = core_compounding_strategy.evaluate_point_in_time_signal(current_bar, prev_bar, data)
+        sig["as_of_scan_time"] = now_uk.strftime("%Y-%m-%d %H:%M:%S %Z")
+        sig["scan_type"] = "CONTINUOUS_REGULAR_MARKET_SESSION" if is_market_open else "OUTSIDE_MARKET_HOURS"
+        sig["intended_execution_window"] = session_ctx["intended_execution_window"]
         self.latest_core_compounding_signal = sig
         return sig
 
@@ -1640,13 +1682,16 @@ class PRVQuantEngine:
         cur_d_str = session_ctx["cur_date_str"]
         cur_t = now_uk.time()
         is_trading_day = session_ctx["is_trading_day"]
-        is_past_window = is_trading_day and (cur_t >= dtime(8, 5, 0)) and not bypass_execution_window
+        regular_open = session_ctx.get("regular_open", dtime(8, 0, 0))
+        regular_close = session_ctx.get("regular_close", dtime(16, 30, 0))
+        is_past_window = is_trading_day and (cur_t >= regular_close) and not bypass_execution_window
+        window_desc = session_ctx.get("intended_execution_window", f"08:00:00-{regular_close.strftime('%H:%M:%S')} London Time")
 
         etf_tickers_upper = {inst["t212_ticker"].upper() for inst in core_compounding_strategy.CERTIFIED_UNIVERSE} | {inst["symbol"].upper() for inst in core_compounding_strategy.CERTIFIED_UNIVERSE}
 
         stops_synced_in_window_close = set()
 
-        # 0b. Strict Window-Close Enforcement: Cancel working limit entry orders if window closed
+        # 0b. Strict Session-Close Enforcement: Cancel working limit entry orders if session closed
         if is_past_window:
             working_limit_orders = [
                 o for o in open_orders
@@ -1683,7 +1728,7 @@ class PRVQuantEngine:
                         db.update_core_compounding_decision_status(
                             dedup_key=dedup_key,
                             status="WINDOW_CLOSE_PENDING_RECONCILIATION",
-                            notes=f"Window close cancel pending reconciliation: post-cancel refresh not authoritative (orders_fresh={orders_fresh}, positions_fresh={positions_fresh}, cancel_ok={cancel_ok})."
+                            notes=f"Session close cancel pending reconciliation: post-cancel refresh not authoritative (orders_fresh={orders_fresh}, positions_fresh={positions_fresh}, cancel_ok={cancel_ok})."
                         )
                         logger.warning(
                             f"WINDOW_CLOSE_PENDING_RECONCILIATION: Order {w_id} ({w_ticker}) post-cancel refresh not authoritative (orders_fresh={orders_fresh}, positions_fresh={positions_fresh}). "
@@ -1718,7 +1763,7 @@ class PRVQuantEngine:
                         db.update_core_compounding_decision_status(
                             dedup_key=dedup_key,
                             status="WINDOW_CLOSE_PENDING_RECONCILIATION",
-                            notes=f"Window close cancel pending reconciliation: cancel_ok={cancel_ok}, order_present={order_still_present}, err={err_msg}, pre_qty={pre_cancel_filled_qty}, refreshed_qty={post_cancel_final_filled_qty}"
+                            notes=f"Session close cancel pending reconciliation: cancel_ok={cancel_ok}, order_present={order_still_present}, err={err_msg}, pre_qty={pre_cancel_filled_qty}, refreshed_qty={post_cancel_final_filled_qty}"
                         )
                         logger.warning(
                             f"WINDOW_CLOSE_PENDING_RECONCILIATION: Order {w_id} ({w_ticker}) cancel inconclusive (cancel_ok={cancel_ok}, present={order_still_present}). "
@@ -1742,14 +1787,14 @@ class PRVQuantEngine:
                             stops_synced_in_window_close.add(w_ticker.upper())
                             if stop_res and stop_res.get("success"):
                                 terminal_state = "PARTIALLY_FILLED_WINDOW_CLOSED"
-                                note_text = f"Window closed at 08:05:00 BST. Confirmed limit order {w_id} cancelled/terminal at broker. Position retained: {post_cancel_final_filled_qty} shares with confirmed protective stop."
+                                note_text = f"Session closed at {regular_close.strftime('%H:%M:%S')} London Time. Confirmed limit order {w_id} cancelled/terminal at broker. Position retained: {post_cancel_final_filled_qty} shares with confirmed protective stop."
                             else:
                                 stop_err = stop_res.get("error", stop_res.get("action", "unconfirmed stop")) if stop_res else "unconfirmed stop"
                                 terminal_state = "WINDOW_CLOSE_PENDING_RECONCILIATION"
-                                note_text = f"Window closed at 08:05:00 BST. Confirmed limit order {w_id} cancelled/terminal at broker. Position retained: {post_cancel_final_filled_qty} shares, but protective stop unconfirmed ({stop_err})."
+                                note_text = f"Session closed at {regular_close.strftime('%H:%M:%S')} London Time. Confirmed limit order {w_id} cancelled/terminal at broker. Position retained: {post_cancel_final_filled_qty} shares, but protective stop unconfirmed ({stop_err})."
                         else:
                             terminal_state = "EXPIRED_MISSED_WINDOW"
-                            note_text = f"Window closed at 08:05:00 BST. Confirmed unfilled limit order {w_id} cancelled/absent at broker. Signal expired without fill (no carry)."
+                            note_text = f"Session closed at {regular_close.strftime('%H:%M:%S')} London Time. Confirmed unfilled limit order {w_id} cancelled/absent at broker. Signal expired without fill (no carry)."
 
                         db.update_core_compounding_decision_status(
                             dedup_key=dedup_key,
@@ -1763,17 +1808,17 @@ class PRVQuantEngine:
                 open_positions, positions_fresh = self.fetch_positions_authoritative(broker)
 
                 self.last_decision = "HOLD"
-                self.last_no_trade_reason = "WINDOW_CLOSE: Handled working entry orders at window close (08:05:00 BST)."
+                self.last_no_trade_reason = f"SESSION_CLOSE: Handled working entry orders at session close ({regular_close.strftime('%H:%M:%S')} London Time)."
                 self.last_scan_completed_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                 return {
                     "success": True,
                     "decision": "HOLD",
-                    "reason": "WINDOW_CLOSE: Handled working entry orders at window close.",
+                    "reason": f"SESSION_CLOSE: Handled working entry orders at session close ({regular_close.strftime('%H:%M:%S')} London Time).",
                     "executed_trades": []
                 }
 
         # 1. Evaluate Point-in-Time Signal & Cross-Sectional Ranking
-        sig = self.evaluate_core_compounding_live_state()
+        sig = self.evaluate_core_compounding_live_state(current_time=current_time)
         full_rankings = sig.get("rankings", [])
         selected_symbol = sig.get("selected_symbol")
         selected_ticker = sig.get("selected_t212_ticker")
@@ -1849,46 +1894,40 @@ class PRVQuantEngine:
                 decision = "HOLD"
                 reason = f"HOLDING_ACTIVE_POSITION: Holding {qty} shares of {held_ticker} @ £{avg_price_gbp:.4f} (Cur £{cur_price_gbp:.4f}, Stop £{stop_price_gbp_val:.4f}). Next rebalance check pending."
         else:
-            # 4. No Open Position: Evaluate Entry Signal
+            # 4. No Open Position: Evaluate Fresh Entry Opportunity
             raw_decision = sig.get("decision", "HOLD_CASH")
+            is_window = bypass_execution_window or session_ctx.get("is_execution_window", False)
+
             if raw_decision == "ENTER" and selected_symbol and selected_ticker:
                 dedup_key = f"CORE_{selected_ticker}_{obs_bar_str}"
 
-                # Deduplication check: not already executed on this observation bar today, and no working order at broker
-                is_dedup = (
-                    self.is_signal_bar_already_executed(dedup_key)
-                    or any(o.get("ticker") == selected_ticker for o in open_orders)
+                # Deduplication check: prevent duplicate order if already executed on this bar, or working order exists
+                has_working_order = any(
+                    str(o.get("ticker", "")).upper() in etf_tickers_upper and str(o.get("type", "")).upper() != "STOP"
+                    for o in open_orders
                 )
 
-                is_window = bypass_execution_window or session_ctx.get("is_execution_window", False)
+                latest_dec = db.get_latest_core_compounding_decision()
+                has_inflight_decision = bool(
+                    latest_dec
+                    and latest_dec.get("execution_status") in ("DISPATCHING", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "UNKNOWN_PENDING_RECONCILIATION")
+                )
+
+                is_dedup = (
+                    self.is_signal_bar_already_executed(dedup_key)
+                    or has_working_order
+                    or has_inflight_decision
+                )
 
                 if is_dedup:
                     decision = "HOLD"
                     reason = f"DEDUP: Signal for {selected_symbol} on bar {obs_bar_str} already executed or working order exists."
                 elif not is_window:
-                    # Strict Frozen Research Semantics: Market open execution window (08:00:00-08:05:00 BST)
-                    if cur_t < dtime(8, 0):
-                        decision = "HOLD"
-                        reason = f"AWAITING_EXECUTION_WINDOW: Signal for {selected_symbol} on bar {obs_bar_str} scheduled for market open at 08:00:00 BST on {signal_execution_session}."
+                    decision = "HOLD"
+                    if cur_t < regular_open:
+                        reason = f"AWAITING_MARKET_OPEN: LSE regular session opens at {regular_open.strftime('%H:%M:%S')} London Time on {intended_session}."
                     else:
-                        self.mark_signal_bar_executed(dedup_key)
-                        decision = "HOLD"
-                        reason = f"SIGNAL_EXPIRED: 08:00:00-08:05:00 BST market open execution window for session {signal_execution_session} has elapsed. Next execution window opens at 08:00:00 BST on {next_session}."
-                        try:
-                            db.save_core_compounding_decision({
-                                "strategy_id": "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1",
-                                "dedup_key": dedup_key,
-                                "signal_bar_date": obs_bar_str,
-                                "signal_generated_at": datetime.now(timezone.utc).isoformat(),
-                                "target_instrument": selected_ticker,
-                                "target_score": selected_score,
-                                "intended_execution_session": signal_execution_session,
-                                "intended_execution_window": "08:00:00-08:05:00 BST",
-                                "execution_status": "EXPIRED_MISSED_WINDOW",
-                                "notes": reason
-                            })
-                        except Exception:
-                            pass
+                        reason = f"MARKET_CLOSED: LSE regular session closed at {regular_close.strftime('%H:%M:%S')} London Time. Next session opens at {regular_open.strftime('%H:%M:%S')} London Time on {next_session}."
                 elif not settings.PRACTICE_NEW_ENTRIES_ALLOWED:
                     decision = "HOLD"
                     reason = f"PRACTICE_NEW_ENTRIES_ALLOWED=False: Signal {selected_symbol} generated (Sharpe {selected_score:+.4f}), but new entries are locked."
@@ -1953,7 +1992,7 @@ class PRVQuantEngine:
                                 "target_instrument": selected_ticker,
                                 "target_score": selected_score,
                                 "intended_execution_session": signal_execution_session,
-                                "intended_execution_window": "08:00:00-08:05:00 BST",
+                                "intended_execution_window": window_desc,
                                 "execution_status": "REJECTED_NON_RETRYABLE_FOR_SIGNAL",
                                 "notes": reason
                             })
@@ -1981,7 +2020,7 @@ class PRVQuantEngine:
                                     "target_instrument": selected_ticker,
                                     "target_score": selected_score,
                                     "intended_execution_session": signal_execution_session,
-                                    "intended_execution_window": "08:00:00-08:05:00 BST",
+                                    "intended_execution_window": window_desc,
                                     "execution_status": "REJECTED_NON_RETRYABLE_FOR_SIGNAL",
                                     "notes": reason
                                 })
@@ -2029,7 +2068,7 @@ class PRVQuantEngine:
                                         "target_instrument": selected_ticker,
                                         "target_score": selected_score,
                                         "intended_execution_session": signal_execution_session,
-                                        "intended_execution_window": "08:00:00-08:05:00 BST",
+                                        "intended_execution_window": window_desc,
                                         "execution_status": "DISPATCHING",
                                         "notes": f"Target {selected_symbol} selected (#1 20d Sharpe {selected_score:+.4f}). Signal £{signal_price:.4f}, Live £{live_exec_price:.4f}, Sizing £{sizing_price:.4f}."
                                     })
@@ -2155,7 +2194,13 @@ class PRVQuantEngine:
                                         reason = f"ORDER_ROUTING_REJECTED: {route_msg}"
             else:
                 decision = "HOLD"
-                reason = sig.get("reason") or "No ETF in certified universe met dual criteria (Close > 200-day SMA AND 20d Sharpe Momentum > 0.0). Preserving capital in cash."
+                if not is_window:
+                    if cur_t < regular_open:
+                        reason = f"AWAITING_MARKET_OPEN: LSE regular session opens at {regular_open.strftime('%H:%M:%S')} London Time on {intended_session}."
+                    else:
+                        reason = f"MARKET_CLOSED: LSE regular session closed at {regular_close.strftime('%H:%M:%S')} London Time. Next session opens at {regular_open.strftime('%H:%M:%S')} London Time on {next_session}."
+                else:
+                    reason = sig.get("reason") or "No ETF in certified universe met dual criteria (Close > 200-day SMA AND 20d Sharpe Momentum > 0.0). Preserving capital in cash."
 
         # Update telemetry
         self.last_decision = decision

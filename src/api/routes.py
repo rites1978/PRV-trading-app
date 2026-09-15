@@ -162,7 +162,7 @@ def get_core_compounding_status():
         "pending_decision": db.get_latest_core_compounding_decision(),
         "intended_execution_session": (status_data.get("intended_execution_session") or "2026-09-09") if isinstance(status_data, dict) else "2026-09-09",
         "next_execution_session": (status_data.get("next_execution_session") or "2026-09-10") if isinstance(status_data, dict) else "2026-09-10",
-        "intended_execution_window": "08:00:00-08:05:00 BST",
+        "intended_execution_window": "REGULAR_MARKET_SESSION (08:00-16:30 London Time)",
         "forward_practice_evidence": {
             "record_type": "FORWARD_PRACTICE_EVIDENCE",
             "autonomous_trades_count": 0,
