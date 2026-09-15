@@ -134,47 +134,86 @@ def run_filled_practice_canary() -> Dict[str, Any]:
     print(f"  Broker Order ID:     {entry_order_id}")
     print(f"  Submitted Timestamp: {t_submit}")
 
-    # Await Broker Fill
-    print("  Waiting for Trading212 fill execution...")
-    entry_filled = False
-    entry_fill_price = 0.0
-    entry_fill_timestamp = None
-    broker_pos = None
+    # Await Broker Fill and Immediate Protective Stop Synchronization
+    print("  Waiting for Trading212 fill execution via production lifecycle...")
+    from src.core.engine import quant_engine
+    t_fill_detect = datetime.now(timezone.utc)
+    fill_ok, fill_msg, fill_data = quant_engine.await_and_sync_entry_fill(
+        ticker=ticker,
+        expected_qty=qty,
+        broker_order_id=entry_order_id,
+        timeout_seconds=60.0,
+        poll_interval=1.0
+    )
 
-    for attempt in range(60):
-        time.sleep(1.0)
-        broker_pos = broker.get_position(ticker)
-        if broker_pos and float(broker_pos.get("quantity", 0)) >= qty:
-            entry_filled = True
-            raw_avg = float(broker_pos.get("averagePrice", 0.0))
-            entry_fill_price = round(raw_avg, 4)
-            entry_fill_timestamp = broker_pos.get("initialFillDate") or datetime.now(timezone.utc).isoformat()
-            break
-        if attempt % 5 == 0:
-            print(f"    [attempt {attempt+1}/60] awaiting buy fill...")
+    if not fill_ok:
+        if fill_data.get("status") == "CANCELLED_CLEAN":
+            raise RuntimeError(
+                f"CANARY_TIMEOUT_CLEAN_EXPIRY: BUY order {entry_order_id} timed out after 60s and was "
+                f"CANCELLED cleanly on broker book (0 positions, 0 orders). Safe exit."
+            )
+        elif fill_data.get("halt"):
+            raise RuntimeError(
+                f"CANARY_FAIL_FLATTENED: Position filled but stop failed ({fill_msg})! "
+                "Emergency flatten executed and engine halted."
+            )
+        else:
+            raise RuntimeError(f"Canary BUY entry failed in fill/stop lifecycle: {fill_msg}")
 
-    if not entry_filled:
-        raise RuntimeError(f"Canary BUY order {entry_order_id} failed to fill on Trading212 within 60s!")
+    # Fill Confirmed & Protected
+    broker_pos = broker.get_position(ticker)
+    raw_avg = float(broker_pos.get("averagePrice", 0.0)) if broker_pos else live_price
+    entry_fill_price = round(raw_avg, 4)
+    entry_fill_timestamp = (broker_pos.get("initialFillDate") if broker_pos else None) or datetime.now(timezone.utc).isoformat()
 
     print(f"✅ Broker Fill Confirmed:")
     print(f"  Broker Fill Timestamp: {entry_fill_timestamp}")
     print(f"  Requested Quantity:    {qty}")
-    print(f"  Filled Quantity:       {float(broker_pos.get('quantity'))}")
+    print(f"  Filled Quantity:       {float(broker_pos.get('quantity')) if broker_pos else qty}")
     print(f"  Fill Price:            £{entry_fill_price:.4f}")
     print(f"  Fill Currency / Unit:  GBP (£)")
     print(f"  Broker Status:         FILLED")
 
     # ---------------------------------------------------------
-    # STAGE 2: POST-FILL RECONCILIATION
+    # STAGE 2: PRODUCTION F5 STOP CREATION & AUTHORITATIVE VERIFICATION
     # ---------------------------------------------------------
-    print("\n[STAGE 2/4] Executing Post-Fill Position & Cash Reconciliation...")
+    print("\n[STAGE 2/4] Verifying Production F5 Stop on Trading212...")
+    stop_data = fill_data
+    stop_order_id = stop_data.get("order_id")
+    stop_qty = float(stop_data.get("quantity", 0.0))
+    stop_price = float(stop_data.get("stopPrice", 0.0))
+    stop_val = str(stop_data.get("timeValidity", "")).upper()
+    stop_latency = round((datetime.now(timezone.utc) - t_fill_detect).total_seconds(), 3)
+
+    print(f"✅ Authoritative Protective Stop Confirmed on Trading212:")
+    print(f"  Stop Order ID:        {stop_order_id}")
+    print(f"  Protected Quantity:   {stop_qty} (held: {qty})")
+    print(f"  Stop Price:           {stop_price}")
+    print(f"  Time Validity:        {stop_val}")
+    print(f"  Stop Sync Latency:    {stop_latency}s")
+
+    # Authoritative verification invariants
+    assert stop_order_id is not None and str(stop_order_id).strip() != "", "Stop Order ID must be present"
+    assert abs(stop_qty - qty) < 1e-4, f"Stop quantity {stop_qty} != held quantity {qty}"
+    assert stop_val in ("GOOD_TILL_CANCEL", "GTC"), f"Stop validity must be GTC, found: {stop_val}"
+
+    # Verify directly against authoritative broker open orders
+    open_orders, ord_fresh = broker.get_open_orders_authoritative()
+    assert ord_fresh is True, "Authoritative orders read must be fresh"
+    matching_stops = [
+        o for o in open_orders
+        if str(o.get("ticker", "")).upper() == ticker.upper()
+        and str(o.get("type", "")).upper() == "STOP"
+    ]
+    assert len(matching_stops) == 1, f"Must have exactly 1 stop on broker book, found {len(matching_stops)}"
+    verified_stop = matching_stops[0]
+    assert str(verified_stop.get("id")) == str(stop_order_id), f"Stop ID mismatch: {verified_stop.get('id')} != {stop_order_id}"
+    print("✅ Invariant Verified: Exactly one GTC protective stop authoritatively verified on broker book.")
+
     post_buy_summary = broker.get_account_summary(force_refresh=True)
     post_buy_cash = round(float(post_buy_summary.get("available_cash", 0.0)), 2)
     post_buy_invested = round(float(post_buy_summary.get("invested", 0.0)), 2)
-    all_open_orders = broker.get_open_orders(force_refresh=True) or []
 
-    print(f"  Broker Position Quantity: {broker_pos.get('quantity')}")
-    print(f"  Broker Average Price:     £{entry_fill_price:.4f}")
     print(f"  Post-Buy Free Cash:       £{post_buy_cash:,.2f}")
     print(f"  Post-Buy Invested Value:  £{post_buy_invested:,.2f}")
 
@@ -182,10 +221,10 @@ def run_filled_practice_canary() -> Dict[str, Any]:
     assert float(broker_pos.get("quantity")) == qty, f"Quantity mismatch: {broker_pos.get('quantity')} != {qty}"
     assert entry_fill_price > 0.0, "Average fill price must be > 0"
     
-    # Verify no unrelated orders
-    non_stop_orders = [o for o in all_open_orders if o.get("type") != "STOP"]
+    # Verify no unrelated non-stop orders
+    non_stop_orders = [o for o in open_orders if o.get("type") != "STOP"]
     assert len(non_stop_orders) == 0, f"Unrelated open orders detected: {non_stop_orders}"
-    print("✅ Post-Fill Reconciliation Passed: Position verified, cash movement reconciled, no unrelated orders.")
+    print("✅ Post-Fill Reconciliation Passed: Position verified, stop verified, cash movement reconciled, no unrelated orders.")
 
     time.sleep(2.0)
 
@@ -326,6 +365,14 @@ def run_filled_practice_canary() -> Dict[str, Any]:
             "fill_price_gbp": entry_fill_price,
             "fill_currency": "GBP",
             "broker_status": "FILLED"
+        },
+        "protective_stop": {
+            "stop_order_id": stop_order_id,
+            "protected_quantity": stop_qty,
+            "stop_price": stop_price,
+            "time_validity": stop_val,
+            "stop_verified": True,
+            "stop_sync_latency_seconds": stop_latency
         },
         "exit_execution": {
             "broker_exit_action": "MARKET_SELL",

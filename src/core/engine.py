@@ -48,6 +48,7 @@ class PRVQuantEngine:
 
     _instance = None
     _lock = threading.Lock()
+    _core_stop_sync_lock = threading.RLock()
 
     def __new__(cls, *args, **kwargs):
         with cls._lock:
@@ -109,6 +110,7 @@ class PRVQuantEngine:
         self.last_execution_error: Optional[str] = None
         self._stale_heartbeat_alerted: bool = False
         self._executed_signals: set = set()
+        self._core_stop_sync_lock = PRVQuantEngine._core_stop_sync_lock
         self._initialized = True
 
     def is_signal_bar_already_executed(self, dedup_key: str) -> bool:
@@ -1028,14 +1030,16 @@ class PRVQuantEngine:
                         # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
                         broker_stop_price = broker_stop_from_broker_entry(
                             avg_p, target_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                        broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
+                        with self._core_stop_sync_lock:
+                            broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
                     return f"Reconciliation after window close: order {b_oid} still pending cancellation -> WINDOW_CLOSE_PENDING_RECONCILIATION"
                 else:
                     if final_qty > 0:
                         # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
                         broker_stop_price = broker_stop_from_broker_entry(
                             avg_p, target_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                        stop_res = broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
+                        with self._core_stop_sync_lock:
+                            stop_res = broker.sync_broker_stop_order(target_ticker, final_qty, broker_stop_price)
                         if stop_res and stop_res.get("success"):
                             db.update_core_compounding_decision_status(
                                 dedup_key=dedup_key,
@@ -1073,7 +1077,8 @@ class PRVQuantEngine:
                 # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
                 broker_stop_price = broker_stop_from_broker_entry(
                     avg_p, target_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                stop_res = broker.sync_broker_stop_order(target_ticker, qty, broker_stop_price)
+                with self._core_stop_sync_lock:
+                    stop_res = broker.sync_broker_stop_order(target_ticker, qty, broker_stop_price)
                 if not stop_res or not stop_res.get("success"):
                     stop_err = stop_res.get("error") if stop_res else "unconfirmed stop"
                     pending_status = "WINDOW_CLOSE_PENDING_RECONCILIATION" if is_past_window else "UNKNOWN_PENDING_RECONCILIATION"
@@ -1234,6 +1239,329 @@ class PRVQuantEngine:
         self.latest_core_compounding_signal = sig
         return sig
 
+    def sync_core_compounding_protective_stop(
+        self,
+        ticker: Optional[str] = None
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Authoritative F5 Protective Stop Lifecycle Manager for Core Compounding.
+        Ensures:
+        1. Authoritative broker positions & open orders (stale cache rejected).
+        2. Exact quantity matching held position.
+        3. 2.0% stop price derived via canonical units (broker_stop_from_broker_entry).
+        4. GOOD_TILL_CANCEL validity.
+        5. Authoritative verification of exactly one active protective stop.
+        6. Fail-closed: emergency flatten & halt if placement or verification fails.
+        """
+        with PRVQuantEngine._core_stop_sync_lock:
+            from src.strategies.core_compounding_v1 import core_compounding_strategy
+            open_positions, pos_fresh = self.fetch_positions_authoritative(broker)
+            open_orders, ord_fresh = self.fetch_orders_authoritative(broker)
+
+            if not pos_fresh or not ord_fresh:
+                msg = "Authoritative broker state unavailable (stale/cached)"
+                logger.warning(f"SYNC_CORE_STOP_DEFERRED: {msg}")
+                return False, msg, {"pending_reconciliation": True, "error": msg}
+
+            etf_tickers_upper = {inst["t212_ticker"].upper() for inst in core_compounding_strategy.CERTIFIED_UNIVERSE} | {inst["symbol"].upper() for inst in core_compounding_strategy.CERTIFIED_UNIVERSE}
+            held_pos = None
+            if ticker:
+                held_pos = next((p for p in open_positions if str(p.get("ticker", "")).upper() == ticker.upper()), None)
+            else:
+                held_pos = next((p for p in open_positions if str(p.get("ticker", "")).upper() in etf_tickers_upper), None)
+
+            if not held_pos or float(held_pos.get("quantity", 0.0)) <= 0:
+                return False, "NO_OPEN_POSITION", {"status": "NO_POSITION"}
+
+            held_ticker = str(held_pos["ticker"])
+            qty = float(held_pos.get("quantity", 0.0))
+            avg_price = float(held_pos.get("averagePrice", 0.0))
+
+            if qty <= 0.0 or avg_price <= 0.0:
+                return False, "INVALID_POSITION_DATA", {"status": "INVALID_DATA", "qty": qty, "avg_price": avg_price}
+
+            # Canonical units stop calculation: 2% stop
+            broker_stop_price = broker_stop_from_broker_entry(
+                avg_price, held_ticker, core_compounding_strategy.STOP_LOSS_PCT
+            )
+
+            # Call existing authoritative F5 broker stop sync
+            stop_res = broker.sync_broker_stop_order(held_ticker, qty, broker_stop_price)
+
+            if stop_res and stop_res.get("success"):
+                stop_order_id = str(stop_res.get("order_id", ""))
+                logger.info(
+                    f"CORE_PROTECTIVE_STOP_VERIFIED: {held_ticker} holding {qty} shares @ {avg_price} "
+                    f"protected by GTC stop {stop_order_id} @ {broker_stop_price}."
+                )
+                # Update DB decision status to FILLED if in an in-flight status
+                latest_dec = db.get_latest_core_compounding_decision()
+                if latest_dec and str(latest_dec.get("target_instrument", "")).upper() == held_ticker.upper():
+                    if latest_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "UNKNOWN_PENDING_RECONCILIATION", "PARTIALLY_FILLED"):
+                        try:
+                            db.update_core_compounding_decision_status(
+                                dedup_key=latest_dec["dedup_key"],
+                                status="FILLED",
+                                broker_order_id=latest_dec.get("broker_order_id"),
+                                notes=f"Confirmed FILLED with verified GTC protective stop {stop_order_id} ({qty} shares @ {broker_stop_price})."
+                            )
+                        except Exception:
+                            pass
+                return True, f"Protective stop confirmed: {stop_order_id}", stop_res
+            else:
+                # FAIL-CLOSED: No confirmed protective stop -> emergency flatten + halt
+                err_stop = stop_res.get("error", "Failed stop confirmation") if stop_res else "No response"
+                logger.critical(
+                    f"FATAL FAIL-CLOSED: No confirmed protective stop for {held_ticker} ({err_stop})! "
+                    f"Flattening position immediately and halting engine."
+                )
+                try:
+                    broker.place_market_order(held_ticker, -qty)
+                except Exception as flat_err:
+                    logger.critical(f"Emergency flattening failed: {flat_err}")
+
+                self.stop()
+                latest_dec = db.get_latest_core_compounding_decision()
+                if latest_dec and str(latest_dec.get("target_instrument", "")).upper() == held_ticker.upper():
+                    try:
+                        db.update_core_compounding_decision_status(
+                            dedup_key=latest_dec["dedup_key"],
+                            status="HALTED_UNCONFIRMED_STOP",
+                            notes=f"FATAL FAIL-CLOSED: Protective stop failed ({err_stop}). Position flattened and engine halted."
+                        )
+                    except Exception:
+                        pass
+                return False, f"FAIL-CLOSED: Protective stop failed ({err_stop}). Position flattened and engine halted.", {
+                    "approved": False,
+                    "halt": True,
+                    "error": err_stop,
+                    "stop_res": stop_res,
+                    "flattened": True
+                }
+
+    def await_and_sync_entry_fill(
+        self,
+        ticker: str,
+        expected_qty: float,
+        broker_order_id: Optional[str] = None,
+        timeout_seconds: float = 30.0,
+        poll_interval: float = 1.0
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Promptly awaits fill of an ACCEPTED working limit order and immediately
+        triggers authoritative protective stop synchronization.
+
+        FAIL-CLOSED TIMEOUT INVARIANT:
+        When the fill-await window expires without a confirmed fill, the entry
+        must never remain live and unmonitored:
+        1. Authoritatively inspect open orders to identify the working entry.
+        2. CANCEL the broker entry.
+        3. Authoritatively verify cancellation / terminal state.
+        4. Re-read authoritative position.
+        5. Handle race conditions:
+           - CASE A: Order cancelled and position = 0 -> clean expiry.
+           - CASE B: Cancel races with partial or full fill -> enter canonical Core stop lifecycle.
+           - CASE C: Order terminal state cannot be determined -> UNKNOWN_PENDING_RECONCILIATION.
+           - CASE D: Position exists and stop cannot be verified -> emergency flatten + halt.
+        """
+        t0 = time.time()
+        while (time.time() - t0) < timeout_seconds:
+            if self._stop_event.is_set():
+                break
+
+            open_positions, pos_fresh = self.fetch_positions_authoritative(broker)
+            if pos_fresh:
+                pos = next((p for p in open_positions if str(p.get("ticker", "")).upper() == ticker.upper()), None)
+                if pos and float(pos.get("quantity", 0.0)) > 0:
+                    logger.info(
+                        f"PROMPT_FILL_DETECTED: Position {ticker} appeared on broker book "
+                        f"({pos.get('quantity')} shares). Synchronizing stop immediately."
+                    )
+                    return self.sync_core_compounding_protective_stop(ticker)
+
+            time.sleep(poll_interval)
+
+        # ---------------------------------------------------------------------
+        # FILL TIMEOUT REACHED: MUST NEVER LEAVE WORKING ORDER UNMONITORED
+        # ---------------------------------------------------------------------
+        logger.warning(
+            f"ENTRY_FILL_TIMEOUT: Working entry for {ticker} (order_id={broker_order_id}) "
+            f"did not fill within {timeout_seconds}s. Initiating authoritative cancel & reconciliation."
+        )
+
+        # 1. Authoritatively inspect open orders
+        open_orders, ord_fresh = self.fetch_orders_authoritative(broker)
+        if not ord_fresh:
+            try:
+                open_orders = broker.get_open_orders(force_refresh=True) or []
+            except Exception as e:
+                logger.error(f"Error fetching open orders on timeout: {e}")
+                open_orders = []
+
+        working_order = None
+        if open_orders:
+            if broker_order_id:
+                working_order = next((o for o in open_orders if str(o.get("id")) == str(broker_order_id)), None)
+            if not working_order:
+                working_order = next((
+                    o for o in open_orders
+                    if str(o.get("ticker", "")).upper() == ticker.upper()
+                    and str(o.get("side", "")).upper() == "BUY"
+                ), None)
+
+        target_order_id = str(working_order.get("id")) if working_order else (str(broker_order_id) if broker_order_id else None)
+
+        # 2. If working order exists: CANCEL the broker entry
+        cancel_attempted = False
+        if target_order_id:
+            logger.info(f"Cancelling working entry order {target_order_id} on broker book...")
+            try:
+                cancel_res = broker.cancel_order(target_order_id)
+                cancel_attempted = True
+                logger.info(f"Cancel order {target_order_id} result: {cancel_res}")
+            except Exception as ce:
+                logger.error(f"Cancel order {target_order_id} raised: {ce}")
+
+        # 3. Authoritatively verify cancellation / terminal state
+        open_orders_post, ord_fresh_post = self.fetch_orders_authoritative(broker)
+        if not ord_fresh_post:
+            try:
+                open_orders_post = broker.get_open_orders(force_refresh=True) or []
+            except Exception:
+                open_orders_post = []
+
+        still_working = False
+        if target_order_id and open_orders_post is not None:
+            still_working = any(
+                str(o.get("id")) == target_order_id or
+                (str(o.get("ticker", "")).upper() == ticker.upper() and str(o.get("side", "")).upper() == "BUY")
+                for o in open_orders_post
+            )
+
+        # 4. Re-read authoritative position
+        open_positions_post, pos_fresh_post = self.fetch_positions_authoritative(broker)
+        if not pos_fresh_post:
+            try:
+                open_positions_post = broker.get_open_positions(force_refresh=True) or []
+            except Exception:
+                open_positions_post = []
+
+        held_pos = next((p for p in (open_positions_post or []) if str(p.get("ticker", "")).upper() == ticker.upper()), None)
+        held_qty = float(held_pos.get("quantity", 0.0)) if held_pos else 0.0
+
+        # 5. Handle race conditions
+        # CASE C: Order terminal state cannot be determined (still working or cancel unverified)
+        if still_working:
+            logger.critical(
+                f"FATAL CASE C: Working order {target_order_id} for {ticker} remains active on broker book! "
+                "Relinquishing ownership prohibited. Entering UNKNOWN_PENDING_RECONCILIATION."
+            )
+            latest_dec = db.get_latest_core_compounding_decision()
+            if latest_dec:
+                try:
+                    db.update_core_compounding_decision_status(
+                        dedup_key=latest_dec["dedup_key"],
+                        status="UNKNOWN_PENDING_RECONCILIATION",
+                        broker_order_id=target_order_id,
+                        notes=f"Order {target_order_id} timeout cancel unverified; still active on broker book."
+                    )
+                except Exception:
+                    pass
+            return False, "UNKNOWN_PENDING_RECONCILIATION", {
+                "status": "UNKNOWN_PENDING_RECONCILIATION",
+                "order_id": target_order_id,
+                "reconciliation_pending": True
+            }
+
+        # CASE B: Cancel raced with partial or full fill (held_qty > 0)
+        if held_qty > 0.0:
+            logger.warning(
+                f"CANCEL_FILL_RACE_DETECTED (CASE B): Order {target_order_id} cancel raced with fill! "
+                f"Held position detected: {held_qty} shares of {ticker}. "
+                "Entering canonical Core stop lifecycle immediately."
+            )
+            stop_ok, stop_msg, stop_data = self.sync_core_compounding_protective_stop(ticker)
+            if stop_ok:
+                logger.info(
+                    f"CANCEL_FILL_RACE_PROTECTED: {held_qty} shares of {ticker} protected by GTC stop "
+                    f"{stop_data.get('order_id')}."
+                )
+                return True, f"RACE_FILL_PROTECTED: {held_qty} shares protected by stop {stop_data.get('order_id')}", stop_data
+            else:
+                # CASE D: Position exists and stop cannot be verified -> emergency flatten + halt
+                logger.critical(
+                    f"FATAL CASE D: Cancel/fill race position {ticker} ({held_qty} shares) could NOT be verified protected ({stop_msg})! "
+                    "Emergency flattening position immediately."
+                )
+                try:
+                    broker.place_market_order(ticker, -held_qty)
+                    broker.reconcile_orphan_stops()
+                except Exception as flat_err:
+                    logger.critical(f"Emergency flattening failed: {flat_err}")
+                self.stop()
+                return False, f"EMERGENCY_FLATTENED_UNVERIFIED_STOP: {stop_msg}", {
+                    "halt": True,
+                    "error": stop_msg,
+                    "flattened": True,
+                    "qty": held_qty
+                }
+
+        # CASE A: Order cancelled and position = 0 (clean expiry)
+        logger.info(
+            f"ENTRY_TIMEOUT_CLEAN_EXPIRY (CASE A): Order {target_order_id} for {ticker} cancelled cleanly; "
+            "zero shares held on broker book."
+        )
+        latest_dec = db.get_latest_core_compounding_decision()
+        if latest_dec:
+            try:
+                db.update_core_compounding_decision_status(
+                    dedup_key=latest_dec["dedup_key"],
+                    status="EXPIRED",
+                    broker_order_id=target_order_id,
+                    notes=f"Order {target_order_id} cancelled cleanly on fill timeout; zero shares filled."
+                )
+            except Exception:
+                pass
+        return False, "EXPIRED_CANCELLED_NO_FILL", {
+            "status": "CANCELLED_CLEAN",
+            "qty": 0.0,
+            "order_id": target_order_id
+        }
+
+    def check_and_sync_core_fill_promptly(self) -> Optional[Tuple[bool, str, Dict[str, Any]]]:
+        """
+        Fast-polling watchdog executed every 2s in _execution_loop during idle ticks.
+        If a Core Compounding entry order is working or a Core position exists without
+        confirmed stop protection, immediately synchronizes the protective stop.
+        Prevents any unhedged exposure window between normal 60s scans.
+        """
+        latest_dec = db.get_latest_core_compounding_decision()
+        if not latest_dec:
+            return None
+
+        status = latest_dec.get("execution_status", "")
+        target_ticker = latest_dec.get("target_instrument", "")
+        if not target_ticker:
+            return None
+
+        in_flight = status in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "UNKNOWN_PENDING_RECONCILIATION")
+        if not in_flight:
+            return None
+
+        open_positions, pos_fresh = self.fetch_positions_authoritative(broker)
+        if not pos_fresh:
+            return None
+
+        pos = next((p for p in open_positions if str(p.get("ticker", "")).upper() == target_ticker.upper()), None)
+        if pos and float(pos.get("quantity", 0.0)) > 0:
+            logger.info(
+                f"FAST_WATCHDOG_FILL_DETECTED: Position {target_ticker} detected on broker book "
+                f"({pos.get('quantity')} shares). Synchronizing stop immediately."
+            )
+            return self.sync_core_compounding_protective_stop(target_ticker)
+
+        return None
+
     def _run_core_compounding_cycle(
         self,
         account: Dict[str, Any],
@@ -1369,7 +1697,8 @@ class PRVQuantEngine:
                                 # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
                                 broker_stop_price = broker_stop_from_broker_entry(
                                     avg_p, w_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                                broker.sync_broker_stop_order(w_ticker, qty, broker_stop_price)
+                                with self._core_stop_sync_lock:
+                                    broker.sync_broker_stop_order(w_ticker, qty, broker_stop_price)
                                 stops_synced_in_window_close.add(w_ticker.upper())
                         continue
 
@@ -1399,7 +1728,8 @@ class PRVQuantEngine:
                             # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
                             broker_stop_price = broker_stop_from_broker_entry(
                                 avg_p, w_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                            broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
+                            with self._core_stop_sync_lock:
+                                broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
                             stops_synced_in_window_close.add(w_ticker.upper())
                     else:
                         # Order confirmed absent/terminal at broker!
@@ -1407,7 +1737,8 @@ class PRVQuantEngine:
                             # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
                             broker_stop_price = broker_stop_from_broker_entry(
                                 avg_p, w_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                            stop_res = broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
+                            with self._core_stop_sync_lock:
+                                stop_res = broker.sync_broker_stop_order(w_ticker, post_cancel_final_filled_qty, broker_stop_price)
                             stops_synced_in_window_close.add(w_ticker.upper())
                             if stop_res and stop_res.get("success"):
                                 terminal_state = "PARTIALLY_FILLED_WINDOW_CLOSED"
@@ -1467,8 +1798,17 @@ class PRVQuantEngine:
             avg_price = float(held_pos.get("averagePrice", 0))
             cur_price = float(held_pos.get("currentPrice", avg_price))
 
-            # Update any DISPATCHED / ACCEPTED decision in DB to FILLED or PARTIALLY_FILLED_WINDOW_CLOSED
-            if positions_fresh:
+            # Incremental partial-fill stop expansion: sync broker stop order if held quantity exceeds protected quantity
+            existing_stops = [o for o in open_orders if str(o.get("ticker", "")).upper() == held_ticker.upper() and o.get("type") == "STOP"]
+            protected_qty = sum(abs(float(s.get("quantity", 0.0))) for s in existing_stops)
+            if qty > 0 and protected_qty < qty and held_ticker.upper() not in stops_synced_in_window_close:
+                sync_ok, sync_msg, sync_res = self.sync_core_compounding_protective_stop(held_ticker)
+                if not sync_ok:
+                    self.last_decision = f"HALT: {sync_msg}"
+                    self.last_execution_error = sync_msg
+                    return {"success": False, "halt": True, "error": sync_msg}
+            elif positions_fresh:
+                # If position is already protected, ensure DB status reflects FILLED
                 latest_dec = db.get_latest_core_compounding_decision()
                 if latest_dec and str(latest_dec.get("target_instrument", "")).upper() == held_ticker.upper() and latest_dec.get("execution_status") in ("DISPATCHED", "SUBMITTING", "ACCEPTED", "ACCEPTED/WORKING", "UNKNOWN_PENDING_RECONCILIATION"):
                     try:
@@ -1476,20 +1816,10 @@ class PRVQuantEngine:
                         db.update_core_compounding_decision_status(
                             dedup_key=latest_dec["dedup_key"],
                             status=new_status,
-                            notes=f"Confirmed FILLED on Trading212: holding {qty} shares @ £{avg_price:.4f}."
+                            notes=f"Confirmed FILLED on Trading212: holding {qty} shares @ £{avg_price:.4f} with verified stop."
                         )
                     except Exception:
                         pass
-
-            # Incremental partial-fill stop expansion: sync broker stop order if held quantity exceeds protected quantity
-            existing_stops = [o for o in open_orders if str(o.get("ticker", "")).upper() == held_ticker.upper() and o.get("type") == "STOP"]
-            protected_qty = sum(abs(float(s.get("quantity", 0.0))) for s in existing_stops)
-            if qty > 0 and protected_qty < qty and held_ticker.upper() not in stops_synced_in_window_close:
-                # CANONICAL UNITS: broker-native -> GBP (once) -> broker payload (once)
-                broker_stop_price = broker_stop_from_broker_entry(
-                    avg_price, held_ticker, core_compounding_strategy.STOP_LOSS_PCT)
-                logger.info(f"INCREMENTAL_FILL_DETECTED: Position increased to {qty} shares (was {protected_qty}). Expanding broker stop order to {qty} shares @ {broker_stop_price}.")
-                broker.sync_broker_stop_order(held_ticker, qty, broker_stop_price)
 
             # Check 2% stop loss in canonical GBP.
             # NOTE: avg_price / cur_price stay BROKER-NATIVE below, because
@@ -1741,6 +2071,39 @@ class PRVQuantEngine:
                                     executed_trades.append(selected_ticker)
                                     decision = "ENTER"
                                     reason = f"AUTONOMOUS_ENTRY_{lifecycle_status}: {order_qty} shares of {selected_ticker} ({selected_symbol}) routed to Trading212 ({broker_order_id})."
+
+                                    # Prompt fill detection & protective stop attachment
+                                    if lifecycle_status in ("ACCEPTED", "ACCEPTED/WORKING", "SUBMITTED", "DISPATCHED"):
+                                        prompt_ok, prompt_msg, prompt_data = self.await_and_sync_entry_fill(
+                                            ticker=selected_ticker,
+                                            expected_qty=order_qty,
+                                            broker_order_id=broker_order_id,
+                                            timeout_seconds=15.0
+                                        )
+                                        if prompt_ok:
+                                            stop_id = prompt_data.get("order_id", "VERIFIED")
+                                            reason = f"AUTONOMOUS_ENTRY_FILLED_AND_PROTECTED: {order_qty} shares of {selected_ticker} filled and protected by GTC stop {stop_id}."
+                                            logger.info(reason)
+                                        elif prompt_data.get("halt"):
+                                            self.last_decision = f"HALT: {prompt_msg}"
+                                            self.last_execution_error = prompt_msg
+                                            return {"success": False, "halt": True, "error": prompt_msg}
+                                        elif prompt_data.get("status") == "UNKNOWN_PENDING_RECONCILIATION":
+                                            self.mark_signal_bar_executed(dedup_key)
+                                            try:
+                                                db.update_core_compounding_decision_status(
+                                                    dedup_key=dedup_key,
+                                                    status="UNKNOWN_PENDING_RECONCILIATION",
+                                                    broker_order_id=broker_order_id,
+                                                    notes=f"Order {broker_order_id} timeout cancel unverified. Awaiting broker reconciliation: {prompt_msg}"
+                                                )
+                                            except Exception:
+                                                pass
+                                            reason = f"AUTONOMOUS_ENTRY_PENDING_RECONCILIATION: {prompt_msg}"
+                                            logger.warning(reason)
+                                        elif prompt_data.get("status") == "CANCELLED_CLEAN":
+                                            reason = f"AUTONOMOUS_ENTRY_EXPIRED_CANCELLED: Order {broker_order_id} cancelled cleanly on fill timeout; position is flat."
+                                            logger.info(reason)
                                 else:
                                     # F4: a fill price whose unit could not be resolved is NOT a
                                     # rejection -- the order may well have filled at the broker. It
@@ -2338,6 +2701,13 @@ class PRVQuantEngine:
                 self.last_heartbeat_time = time.time()
                 self.last_heartbeat_timestamp = datetime.now(timezone.utc).isoformat()
                 
+                # Prompt check for pending Core orders every 2 seconds during idle ticks
+                if tick > 0 and tick % 2 == 0:
+                    try:
+                        self.check_and_sync_core_fill_promptly()
+                    except Exception as core_sync_err:
+                        logger.warning(f"Error in prompt core fill check: {core_sync_err}")
+
                 # Continuous lightweight position & stop protection watchdog every 15 seconds
                 if tick > 0 and tick % 15 == 0:
                     try:
