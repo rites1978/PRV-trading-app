@@ -130,8 +130,13 @@ class CoreCompoundingStrategy:
     REGIME_SMA_LOOKBACK = 200
     EXECUTION_TIME_BST = "08:00:00"
 
+    FROZEN_SIX_SYMBOLS = {"CSP1", "EQQQ", "ISF", "EMIM", "SGLN", "IGLT"}
+
     def __init__(self):
         self.verify_cryptographic_integrity()
+        actual_symbols = {inst["symbol"] for inst in self.CERTIFIED_UNIVERSE}
+        if actual_symbols != self.FROZEN_SIX_SYMBOLS:
+            raise ValueError(f"FROZEN_UNIVERSE_VIOLATION: Certified universe {actual_symbols} != expected {self.FROZEN_SIX_SYMBOLS}")
         self.last_ranking_evaluation: Optional[Dict[str, Any]] = None
         self.days_since_rebalance: int = 0
 

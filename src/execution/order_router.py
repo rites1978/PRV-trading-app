@@ -211,6 +211,37 @@ class OrderRouter:
                 self._log_audit("HOLD_UNKNOWN_TICKER", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "BROKER_TICKER_UNKNOWN")
                 return False, reason, {"approved": False, "rejection_reasons": ["BROKER_TICKER_UNKNOWN"]}
 
+        # 0d. Gate 1: Technical Execution Capability Validation
+        if not is_internal_sim:
+            from src.data.technical_execution_capability import technical_execution_capability
+            from src.data.broker_discovery import broker_discovery
+            inst_meta = broker_discovery.get_instrument_by_ticker(t212_ticker)
+            if not inst_meta:
+                inst_meta = {
+                    "ticker": t212_ticker,
+                    "shortName": symbol,
+                    "currencyCode": "GBX" if is_uk else "USD",
+                    "type": instrument_type,
+                    "maxOpenQuantity": quantity,
+                }
+            is_tech_ok, tech_reason, tech_details = technical_execution_capability.validate(inst_meta)
+            if not is_tech_ok:
+                reason = f"HOLD TECHNICAL CAPABILITY: TECHNICAL_EXECUTION_UNSUPPORTED: {tech_reason}"
+                self._log_audit("HOLD_TECHNICAL_UNSUPPORTED", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "TECHNICAL_EXECUTION_UNSUPPORTED")
+                return False, reason, {"approved": False, "status": "REJECTED_NON_RETRYABLE_FOR_SIGNAL", "rejection_reasons": ["TECHNICAL_EXECUTION_UNSUPPORTED", tech_reason]}
+
+        # 0e. Gate 2: Strategy Scope Authorization Gate
+        from src.execution.strategy_authorization_gate import strategy_authorization_gate
+        is_strat_ok, strat_reason, strat_details = strategy_authorization_gate.is_strategy_authorized(
+            strategy_id=strategy_id,
+            symbol=symbol,
+            t212_ticker=t212_ticker
+        )
+        if not is_strat_ok:
+            reason = f"HOLD STRATEGY SCOPE: {strat_reason}"
+            self._log_audit("HOLD_UNAUTHORIZED_STRATEGY_SCOPE", symbol, market_regime, agent_votes, confidence_score, reason, False, quantity, "UNAUTHORIZED_STRATEGY_SCOPE")
+            return False, reason, {"approved": False, "status": "REJECTED_NON_RETRYABLE_FOR_SIGNAL", "rejection_reasons": ["UNAUTHORIZED_STRATEGY_SCOPE", strat_reason]}
+
         # 1. Hard Closed-Market Gate: Disallow new regular-session entry orders while market is closed
         # Applies to BOTH Practice (is_paper=True) and Live/Real Money (is_paper=False) unconditionally.
         if not bypass_market_hours:

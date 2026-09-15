@@ -18,7 +18,7 @@ class TechnicalExecutionCapabilityValidator:
     """Authoritative technical validation of broker instruments before routing."""
 
     SUPPORTED_CURRENCIES = {"GBP", "GBX", "USD", "EUR", "CAD", "CHF"}
-    EXECUTABLE_PRODUCT_TYPES = {"STOCK", "ETF"}
+    EXECUTABLE_PRODUCT_TYPES = {"STOCK", "ETF", "EQUITY"}
 
     @classmethod
     def resolve_feed_ticker(cls, instrument: Dict[str, Any]) -> Optional[str]:

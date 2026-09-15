@@ -159,22 +159,6 @@ PRV_CORE_COMPOUNDING_UNIVERSE: List[Dict[str, Any]] = [
         "broker_allowed_increment": 0.001
     },
     {
-        "symbol": "IWDA",
-        "name": "iShares Core MSCI World UCITS ETF",
-        "yf_ticker": "IWDA.L",
-        "t212_ticker": "SWDAl_EQ",
-        "t212_ticker_alt": "IWDAl_EQ",
-        "isin": "IE00B4L5Y983",
-        "sector": "Global Developed Equities",
-        "country": "UK",
-        "currency": "GBX",
-        "is_uk_pence": True,
-        "instrument_type": "ETF",
-        "sdrt_exempt": True,
-        "broker_allowed_precision": 3,
-        "broker_allowed_increment": 0.001
-    },
-    {
         "symbol": "ISF",
         "name": "iShares Core FTSE 100 UCITS ETF",
         "yf_ticker": "ISF.L",
