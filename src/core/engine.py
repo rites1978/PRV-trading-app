@@ -1215,14 +1215,15 @@ class PRVQuantEngine:
                 # Dynamic intraday update: incorporate live executable price at exact scan time
                 if is_market_open and not observation_date:
                     live_p = market_data.get_current_executable_price(yf_t, is_uk_pence=is_uk_pence)
-                    if live_p is not None and live_p > 0:
-                        last_idx = df.index[-1]
-                        if str(last_idx)[:10] == today_date_str:
-                            df.loc[last_idx, "Close"] = live_p
-                            if "High" in df.columns:
-                                df.loc[last_idx, "High"] = max(float(df.loc[last_idx, "High"]), live_p)
-                            if "Low" in df.columns:
-                                df.loc[last_idx, "Low"] = min(float(df.loc[last_idx, "Low"]), live_p)
+                    if live_p is None or live_p <= 0:
+                        raise ValueError(f"Live executable price unavailable or timed out for {sym} ({yf_t})")
+                    last_idx = df.index[-1]
+                    if str(last_idx)[:10] == today_date_str:
+                        df.loc[last_idx, "Close"] = live_p
+                        if "High" in df.columns:
+                            df.loc[last_idx, "High"] = max(float(df.loc[last_idx, "High"]), live_p)
+                        if "Low" in df.columns:
+                            df.loc[last_idx, "Low"] = min(float(df.loc[last_idx, "Low"]), live_p)
 
                 df["SMA200"] = df["Close"].rolling(200).mean()
                 df["MOM"] = df["Close"].pct_change(20)

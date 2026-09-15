@@ -73,14 +73,15 @@ class MarketDataProvider:
         try:
             sess = self.get_session()
             stock = yf.Ticker(yf_ticker, session=sess)
-            fast = stock.fast_info
-            price = getattr(fast, "last_price", None)
-            if price is None or np.isnan(price) or price <= 0:
-                df = stock.history(period="1d", interval="1m", timeout=req_timeout)
-                if not df.empty:
-                    price = float(df["Close"].iloc[-1])
-            if price is not None and not np.isnan(price) and price > 0:
-                return float(price / 100.0 if is_uk_pence else price)
+            df = stock.history(period="1d", interval="1m", timeout=req_timeout)
+            if df.empty or "Close" not in df.columns:
+                df = stock.history(period="1d", interval="5m", timeout=req_timeout)
+            if not df.empty and "Close" in df.columns:
+                valid_close = df["Close"].dropna()
+                if not valid_close.empty:
+                    price = float(valid_close.iloc[-1])
+                    if price > 0 and not np.isnan(price):
+                        return float(price / 100.0 if is_uk_pence else price)
             return None
         except Exception as e:
             print(f"[MarketData Warning] Failed to fetch current executable price for {yf_ticker}: {e}")
