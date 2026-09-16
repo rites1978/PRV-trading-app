@@ -50,7 +50,7 @@ class HitAndRunCostModel:
     PTM_LEVY_PER_LEG_GBP = 1.50             # £1.50 flat fee per qualifying leg (> £10,000 consideration)
     SEC_SECTION_31_RATE = 0.0000206         # Current FY2026 rate from 4 April 2026: $20.60 per $1,000,000 (0.00206%) on US sells
     FINRA_TAF_PER_SHARE_USD = 0.000195      # Trading212 Published Fee Schedule: $0.000195 * quantity sold
-    FINRA_TAF_MAX_FEE_USD = 9.74            # FINRA statutory cap per transaction ($9.74)
+    FINRA_TAF_MAX_FEE_USD = 9.79            # FINRA statutory cap per transaction ($9.79)
     FRENCH_FTT_RATE = 0.0040                # 0.40% on Euronext Paris French equities > €1bn (effective 1 April 2025 per French BOFiP / Art. 235 ter ZD and Trading212 fee schedule)
     ITALIAN_FTT_RATE = 0.0010               # 0.10% statutory rate (Italian Law 228/2012; not withheld by Trading212 at order execution)
     SPANISH_FTT_RATE = 0.0020               # 0.20% statutory rate (Spanish Law 5/2020; not withheld by Trading212 at order execution)
@@ -191,7 +191,7 @@ class HitAndRunCostModel:
             # 4. US Transaction Fee (SEC Section 31) & FINRA Fee
             # Execution Precedence:
             # 1. Trading212 live order-preview charge, if available
-            # 2. Current Trading212 published fee schedule: $0.000195 * quantity sold (max $9.74) for covered US stock and ETF sales
+            # 2. Current Trading212 published fee schedule: $0.000195 * quantity sold (max $9.79) for covered US stock and ETF sales
             # 3. Otherwise COST_MODEL_COMPLETE = False
             sec_rate = 0.0
             finra_rate = 0.0

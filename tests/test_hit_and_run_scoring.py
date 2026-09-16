@@ -392,7 +392,7 @@ class TestHitAndRunScoring(unittest.TestCase):
         self.assertAlmostEqual(res_published_qty.finra_fee_amount_usd, 0.195, places=4)
         self.assertAlmostEqual(res_published_qty.finra_fee_rate, 0.195 / 100000.0, places=7)
 
-        # Precedence 2 with cap ($9.74 max)
+        # Precedence 2 with cap ($9.79 max)
         res_published_capped = hit_and_run_cost_model.evaluate_instrument_costs(
             product_type="STOCK",
             currency="USD",
@@ -400,10 +400,10 @@ class TestHitAndRunScoring(unittest.TestCase):
             current_price=10.0,
             bid=9.99,
             ask=10.01,
-            order_quantity=100000.0  # 100,000 shares -> 100k * 0.000195 = $19.50 -> capped at $9.74
+            order_quantity=100000.0  # 100,000 shares -> 100k * 0.000195 = $19.50 -> capped at $9.79
         )
         self.assertTrue(res_published_capped.cost_model_complete)
-        self.assertEqual(res_published_capped.finra_fee_amount_usd, 9.74)
+        self.assertEqual(res_published_capped.finra_fee_amount_usd, 9.79)
 
         # Precedence 3: Missing price and quantity fails closed
         res_unknown = hit_and_run_cost_model.evaluate_instrument_costs(
