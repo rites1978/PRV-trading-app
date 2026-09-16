@@ -46,7 +46,8 @@ class OpportunityCandidate:
     # Economics & Risk
     estimated_costs: float = 0.0
     expected_net_reward: float = 0.0
-    downside_risk: float = 0.05  # Capped at 5% max
+    downside_risk: Optional[float] = None  # None if downside model unavailable; holding stop capped at 5%
+    downside_model_status: str = "DOWNSIDE_MODEL_UNAVAILABLE"
     risk_reward_ratio: float = 0.0
 
     # AI Conviction & Thesis
@@ -242,9 +243,10 @@ class OpportunityAnalysisResult:
     contrary_evidence: List[str]
     estimated_costs: Optional[float]
     expected_net_opportunity: Optional[float]
-    downside_estimate: float             # Informational evidence for AI reasoning
     data_quality_state: str              # COMPLETE, INCOMPLETE_SPREAD, INCOMPLETE_METADATA, etc.
     conviction_evidence: Dict[str, Any]
+    downside_estimate: Optional[float] = None      # Informational evidence for AI reasoning (None if model unavailable)
+    downside_model_status: str = "DOWNSIDE_MODEL_UNAVAILABLE"
     opportunity_score: Optional[float] = None  # None if required data are incomplete
 
     def to_dict(self) -> Dict[str, Any]:

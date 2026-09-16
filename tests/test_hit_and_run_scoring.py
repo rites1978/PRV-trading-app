@@ -63,9 +63,12 @@ class TestHitAndRunScoring(unittest.TestCase):
         self.assertGreater(candidate.momentum, 0.02)  # > 2% move
         self.assertGreater(candidate.acceleration, 0.0)  # Positive acceleration
         self.assertGreater(candidate.volume_activity, 1.2)  # > 1.2x volume
-        self.assertLessEqual(candidate.downside_risk, 0.05)  # <= 5% max loss invariant
+        if candidate.downside_risk is not None:
+            self.assertLessEqual(candidate.downside_risk, 0.05)  # <= 5% max loss invariant
+            self.assertGreater(candidate.risk_reward_ratio, 1.2)
+        else:
+            self.assertEqual(candidate.downside_model_status, "DOWNSIDE_MODEL_UNAVAILABLE")
         self.assertGreater(candidate.expected_net_reward, candidate.estimated_costs)
-        self.assertGreater(candidate.risk_reward_ratio, 1.2)
         self.assertGreater(candidate.opportunity_score, 70.0)
         self.assertTrue(candidate.strategy_qualified)
         self.assertIn("opportunity", candidate.entry_thesis.lower())

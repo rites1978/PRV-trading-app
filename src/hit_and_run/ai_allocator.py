@@ -411,7 +411,11 @@ class HitAndRunAllocationManager:
 
             # Calculate Protective Stop Level (Strictly enforced <= 5% loss ceiling, rounded UP to next tick)
             fill_ref_price = state.ask or state.current_price
-            effective_downside = min(self.MAX_LOSS_PCT, op.downside_estimate)
+            effective_downside = (
+                min(self.MAX_LOSS_PCT, op.downside_estimate)
+                if op.downside_estimate is not None
+                else self.MAX_LOSS_PCT
+            )
 
             stop_price = hit_and_run_risk.calculate_protective_stop(
                 fill_price=fill_ref_price,

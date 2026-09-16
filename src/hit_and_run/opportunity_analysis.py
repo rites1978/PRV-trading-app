@@ -41,9 +41,13 @@ class HitAndRunOpportunityAnalyzer:
         contrary_evidence: List[str] = []
         conviction_evidence: Dict[str, Any] = {}
 
-        # 1. Downside Estimate (Informational evidence for AI reasoning; unconstrained by trade gates)
-        vol = state.volatility if state.volatility is not None else 0.015
-        downside_est = max(0.010, vol * 1.5)
+        # 1. Downside Model (Unauthorised heuristic removed; represent DOWNSIDE_MODEL_UNAVAILABLE)
+        downside_est: Optional[float] = getattr(state, "downside_estimate", None)
+        if downside_est is not None:
+            downside_model_status = "AUTHORISED_ESTIMATE"
+        else:
+            downside_model_status = "DOWNSIDE_MODEL_UNAVAILABLE"
+            contrary_evidence.append("DOWNSIDE_MODEL_UNAVAILABLE: No user-authorised downside model is defined")
 
         # 2. Data Quality Audit
         data_quality_issues: List[str] = []
@@ -144,7 +148,8 @@ class HitAndRunOpportunityAnalyzer:
         net_opp = state.expected_net_opportunity
         if net_opp is not None:
             if net_opp > 0:
-                supporting_evidence.append(f"Expected net reward after costs: {net_opp:+.2%} (downside risk {downside_est:.2%})")
+                downside_desc = f"{downside_est:.2%}" if downside_est is not None else downside_model_status
+                supporting_evidence.append(f"Expected net reward after costs: {net_opp:+.2%} (downside: {downside_desc})")
             else:
                 contrary_evidence.append(f"Expected net reward non-positive: {net_opp:+.2%} consumed by costs")
 
@@ -152,7 +157,7 @@ class HitAndRunOpportunityAnalyzer:
         # Never fabricate an opportunity score if required data are incomplete
         opportunity_score: Optional[float] = None
         if data_quality_state == "COMPLETE" and state.spread_friction is not None and net_opp is not None and net_opp > 0:
-            # Score components (0 - 100):
+            # Score components (0 - 100 across observable empirical factors):
             # 1. Momentum score: 0 - 25 pts
             s_mom = min(25.0, max(0.0, (mom or 0.0) * 500.0))
             # 2. Acceleration score: 0 - 20 pts
@@ -161,11 +166,16 @@ class HitAndRunOpportunityAnalyzer:
             s_vol = min(20.0, max(0.0, ((vol_act or 1.0) - 0.5) * 15.0))
             # 4. Spread friction efficiency: 0 - 15 pts
             s_spread = max(0.0, 15.0 - (state.spread_friction * 800.0))
-            # 5. Reward / Downside: 0 - 20 pts
-            rr = net_opp / max(1e-4, downside_est)
-            s_rr = min(20.0, max(0.0, (rr - 1.0) * 10.0))
+            # 5. Reward / Downside: Strictly None if downside model unavailable (no fabricated downside)
+            if downside_est is not None and downside_est > 0:
+                rr = net_opp / max(1e-4, downside_est)
+                s_rr = min(20.0, max(0.0, (rr - 1.0) * 10.0))
+                raw_score = round(float(s_mom + s_acc + s_vol + s_spread + s_rr), 2)
+            else:
+                s_rr = None
+                # Downside model is unavailable: scale observable 80 pts to 100-pt scale
+                raw_score = round(float((s_mom + s_acc + s_vol + s_spread) * (100.0 / 80.0)), 2)
 
-            raw_score = round(float(s_mom + s_acc + s_vol + s_spread + s_rr), 2)
             opportunity_score = max(0.0, min(100.0, raw_score))
 
             conviction_evidence = {
@@ -173,7 +183,8 @@ class HitAndRunOpportunityAnalyzer:
                 "acceleration_score": round(s_acc, 2),
                 "volume_score": round(s_vol, 2),
                 "spread_efficiency_score": round(s_spread, 2),
-                "reward_risk_score": round(s_rr, 2),
+                "reward_risk_score": round(s_rr, 2) if (downside_est is not None and s_rr > 0) else None,
+                "downside_model_status": downside_model_status,
                 "composite_score": opportunity_score,
                 "detected_setups": detected_setups
             }
@@ -187,9 +198,10 @@ class HitAndRunOpportunityAnalyzer:
 
         # 6. Opportunity Thesis Synthesis
         if opportunity_score is not None:
+            downside_desc = f"{downside_est:.2%}" if downside_est is not None else downside_model_status
             thesis = (
                 f"Hit-and-Run [{primary_setup}] setup for {state.symbol}: "
-                f"NetReward {net_opp:+.2%} vs Downside {downside_est:.2%}. "
+                f"NetReward {net_opp:+.2%} vs Downside ({downside_desc}). "
                 f"Conviction: {opportunity_score:.1f}/100. "
                 f"Key drivers: {'; '.join(supporting_evidence[:3])}."
             )
@@ -212,6 +224,7 @@ class HitAndRunOpportunityAnalyzer:
             estimated_costs=state.estimated_costs,
             expected_net_opportunity=net_opp,
             downside_estimate=downside_est,
+            downside_model_status=downside_model_status,
             data_quality_state=data_quality_state,
             conviction_evidence=conviction_evidence,
             opportunity_score=opportunity_score

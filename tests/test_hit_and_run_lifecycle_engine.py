@@ -66,6 +66,7 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "currency": "USD",
             "exchange_venue": "NASDAQ",
             "session_state": "OPEN",
+            "quote_freshness_status": "CURRENT",
             "current_price": 120.0,
             "current_price_gbp": 95.0,
             "bid": 119.98,
@@ -87,7 +88,8 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         self.assertIsNotNone(analysis.opportunity_score)
         self.assertGreater(analysis.opportunity_score, 60.0)
         self.assertGreater(analysis.expected_net_opportunity, 0.0)
-        self.assertLessEqual(analysis.downside_estimate, 0.05)
+        self.assertIsNone(analysis.downside_estimate)
+        self.assertEqual(analysis.downside_model_status, "DOWNSIDE_MODEL_UNAVAILABLE")
 
         ai_dec, entries = self.alloc_mgr.evaluate_entries(
             available_capital_gbp=10000.0,
@@ -112,13 +114,13 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
                 "instrument_id": "NVDA_US_EQ", "symbol": "NVDA", "current_price": 120.0, "current_price_gbp": 95.0,
                 "bid": 119.98, "ask": 120.02, "recent_prices": [116.0, 118.0, 119.0, 120.0],
                 "volume_recent": 200000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
             },
             {
                 "instrument_id": "MSFT_US_EQ", "symbol": "MSFT", "current_price": 450.0, "current_price_gbp": 355.0,
                 "bid": 449.95, "ask": 450.05, "recent_prices": [442.0, 445.0, 447.0, 450.0],
                 "volume_recent": 180000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
             }
         ]
         states = [opportunity_state_builder.build_state(c) for c in cands]
@@ -137,13 +139,13 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
                 "instrument_id": "SUPER_US_EQ", "symbol": "SUPER", "current_price": 100.0, "current_price_gbp": 80.0,
                 "bid": 99.99, "ask": 100.01, "recent_prices": [90.0, 93.0, 96.0, 100.0],
                 "volume_recent": 400000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
             },
             {
                 "instrument_id": "MEDIO_US_EQ", "symbol": "MEDIO", "current_price": 50.0, "current_price_gbp": 40.0,
                 "bid": 49.98, "ask": 50.02, "recent_prices": [49.5, 49.7, 49.8, 50.0],
                 "volume_recent": 105000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
             }
         ]
         states = [opportunity_state_builder.build_state(c) for c in cands]
@@ -172,7 +174,7 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
                 "instrument_id": f"SYM_{i}_US_EQ", "symbol": f"SYM_{i}", "current_price": 100.0, "current_price_gbp": 80.0,
                 "bid": 99.98, "ask": 100.02, "recent_prices": [95.0, 96.5, 98.0, 100.0],
                 "volume_recent": 250000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
             }
             for i in range(3)
         ]
@@ -213,7 +215,7 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "instrument_id": "NVDA_US_EQ", "symbol": "NVDA", "current_price": 100.0, "current_price_gbp": 80.0,
             "bid": 99.98, "ask": 100.02, "recent_prices": [95.0, 97.0, 100.0],
             "volume_recent": 200000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-            "session_state": "OPEN", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+            "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
         }
         state = opportunity_state_builder.build_state(snap)
         analysis = opportunity_analyzer.analyze_opportunity(state)
@@ -481,6 +483,7 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "instrument_id": "STAG_US_EQ", "symbol": "STAG", "current_price": 100.10,
             "bid": 100.08, "ask": 100.12, "recent_prices": [100.0, 100.05, 100.10],
             "currency": "USD", "exchange_venue": "NASDAQ", "session_state": "OPEN",
+            "quote_freshness_status": "CURRENT",
             "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
         }
         state_holding = opportunity_state_builder.build_state(snap_holding)
@@ -490,7 +493,7 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "instrument_id": "ROCKET_US_EQ", "symbol": "ROCKET", "current_price": 50.0, "current_price_gbp": 40.0,
             "bid": 49.99, "ask": 50.01, "recent_prices": [45.0, 47.0, 48.5, 50.0],
             "volume_recent": 500000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-            "session_state": "OPEN", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+            "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
         }
         state_alt = opportunity_state_builder.build_state(snap_alt)
         alt_analysis = opportunity_analyzer.analyze_opportunity(state_alt)
@@ -570,7 +573,7 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
                 "instrument_id": f"SYM_{i}_US_EQ", "symbol": f"SYM_{i}", "current_price": 100.0, "current_price_gbp": 80.0,
                 "bid": 99.98, "ask": 100.02, "recent_prices": [95.0, 97.0, 100.0],
                 "volume_recent": 200000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
             }
             for i in range(5)
         ]

@@ -141,17 +141,26 @@ class HitAndRunOpportunityScorer:
                 explicit_tick=snapshot.get("tick_size")
             )
 
-        # 10. Downside Risk (Informational technical downside estimate for AI reasoning)
-        technical_downside = max(0.010, volatility * 1.5)
-        downside_risk = float(technical_downside)
+        # 10. Downside Risk (Unauthorised heuristic removed; represent DOWNSIDE_MODEL_UNAVAILABLE)
+        raw_downside = snapshot.get("downside_risk") or snapshot.get("downside_estimate")
+        if raw_downside is not None:
+            downside_risk = float(raw_downside)
+            downside_model_status = "AUTHORISED_ESTIMATE"
+        else:
+            downside_risk = None
+            downside_model_status = "DOWNSIDE_MODEL_UNAVAILABLE"
 
         # 11. Expected Net Reward
         # Target move based on momentum continuation + volatility impulse
         target_gross_move = max(0.015, (volatility * 2.0) + max(0.0, momentum * 0.5))
         if estimated_costs is not None:
             expected_net_reward = float(max(0.0, target_gross_move - estimated_costs))
-            risk_reward_ratio = float(expected_net_reward / max(1e-4, downside_risk))
-            score_rr = min(20.0, max(0.0, (risk_reward_ratio - 1.0) * 10.0))
+            if downside_risk is not None and downside_risk > 0:
+                risk_reward_ratio = float(expected_net_reward / max(1e-4, downside_risk))
+                score_rr = min(20.0, max(0.0, (risk_reward_ratio - 1.0) * 10.0))
+            else:
+                risk_reward_ratio = None
+                score_rr = 0.0
         else:
             expected_net_reward = None
             risk_reward_ratio = None
@@ -176,8 +185,12 @@ class HitAndRunOpportunityScorer:
             score_friction = None
 
         # Composite Score: Any composite feature requiring spread must be unavailable / incomplete
-        if score_friction is not None and score_rr is not None:
-            composite_score = round(float(score_momentum + score_acceleration + score_volume + score_friction + score_rr), 2)
+        if score_friction is not None:
+            if score_rr is not None and score_rr > 0 and downside_risk is not None:
+                composite_score = round(float(score_momentum + score_acceleration + score_volume + score_friction + score_rr), 2)
+            else:
+                # Downside model is unavailable: scale observable 80 pts (momentum, acceleration, volume, friction) to 100-pt scale
+                composite_score = round(float((score_momentum + score_acceleration + score_volume + score_friction) * (100.0 / 80.0)), 2)
             composite_score = max(0.0, min(100.0, composite_score))
         else:
             composite_score = None
@@ -230,10 +243,12 @@ class HitAndRunOpportunityScorer:
 
         # Construct Entry Thesis
         if is_qualified and composite_score is not None and expected_net_reward is not None:
+            downside_str = f"{downside_risk:.2%}" if downside_risk is not None else downside_model_status
+            rr_str = f"{risk_reward_ratio:.2f}x" if risk_reward_ratio is not None else "N/A"
             entry_thesis = (
                 f"Hit-and-Run Opportunity for {symbol}: Momentum {momentum:+.2%}, "
                 f"Accel {acceleration:+.2%}, VolRatio {volume_activity:.2f}x, "
-                f"NetReward {expected_net_reward:+.2%} vs Risk {downside_risk:.2%} (R/R {risk_reward_ratio:.2f}x). "
+                f"NetReward {expected_net_reward:+.2%} vs Risk {downside_str} (R/R {rr_str}). "
                 f"Conviction Score: {composite_score}/100."
             )
         else:
@@ -267,8 +282,9 @@ class HitAndRunOpportunityScorer:
             distance_from_low=round(distance_from_low, 5),
             estimated_costs=round(estimated_costs, 5) if estimated_costs is not None else None,
             expected_net_reward=round(expected_net_reward, 5) if expected_net_reward is not None else None,
-            downside_risk=round(downside_risk, 5),
-            risk_reward_ratio=round(risk_reward_ratio, 2) if risk_reward_ratio is not None else None,
+            downside_risk=round(downside_risk, 5) if downside_risk is not None else None,
+            downside_model_status=downside_model_status,
+            risk_reward_ratio=round(risk_reward_ratio, 2) if risk_reward_ratio is not None else 0.0,
             opportunity_score=composite_score,
             entry_thesis=entry_thesis,
             technical_execution_supported=True,

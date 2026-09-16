@@ -186,6 +186,9 @@ class BulkMarketDataProvider:
 
         return {
             "success": True,
+            "data_source": "YAHOO",
+            "role": "BULK_SCREEN_ONLY",
+            "quote_freshness_status": "UNKNOWN",
             "ticker": t212_ticker,
             "feed_ticker": feed_ticker,
             "current_price": unit_price,

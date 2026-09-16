@@ -217,19 +217,26 @@ class LiveOpportunityStateBuilder:
         # Quote Freshness Model:
         # Repositories/providers define their freshness contract; no invented seconds threshold.
         # Possible statuses: CURRENT, STALE, UNKNOWN.
+        # Yahoo role is strictly BULK_SCREEN_ONLY and can NEVER make an order executable.
+        data_source = str(snapshot.get("data_source") or snapshot.get("source") or "").upper()
         raw_freshness = snapshot.get("quote_freshness_status")
-        if raw_freshness is not None:
+
+        if data_source in ("YAHOO", "YFINANCE", "BULK_SCREEN", "BULK_SCREEN_ONLY"):
+            # Yahoo/bulk screener data is non-execution grade.
+            # It must NEVER establish quote freshness for trade execution.
+            quote_freshness_status = "UNKNOWN"
+        elif raw_freshness is not None:
             quote_freshness_status = str(raw_freshness).upper().strip()
-        elif snapshot.get("is_stale") is True:
+        elif snapshot.get("is_stale") is True or snapshot.get("is_fresh") is False:
             quote_freshness_status = "STALE"
-        elif snapshot.get("is_fresh") is False:
-            quote_freshness_status = "STALE"
-        elif snapshot.get("is_current") is True or snapshot.get("is_fresh") is True:
+        elif snapshot.get("is_current") is True:
+            # Explicit authoritative current marker from execution-grade provider
             quote_freshness_status = "CURRENT"
-        elif snapshot.get("bid") is not None or snapshot.get("ask") is not None or snapshot.get("current_price"):
-            # Live quote provided by feed without an explicit stale marker
+        elif snapshot.get("is_execution_grade") is True and snapshot.get("bid") is not None and snapshot.get("ask") is not None:
             quote_freshness_status = "CURRENT"
         else:
+            # If no authoritative execution-grade broker/market-data source establishes freshness:
+            # Execution quote freshness MUST remain UNKNOWN.
             quote_freshness_status = "UNKNOWN"
 
         is_fresh = (quote_freshness_status == "CURRENT")

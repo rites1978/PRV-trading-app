@@ -272,7 +272,11 @@ class DynamicCapitalAllocator:
                 )
                 continue
 
-            effective_risk = min(self.MAXIMUM_AUTHORISED_LOSS_PCT, cand.downside_risk)
+            effective_risk = (
+                min(self.MAXIMUM_AUTHORISED_LOSS_PCT, cand.downside_risk)
+                if cand.downside_risk is not None
+                else self.MAXIMUM_AUTHORISED_LOSS_PCT
+            )
             stop_price = HitAndRunRiskManager.round_stop_up_to_tick(
                 cand.current_price * (1.0 - effective_risk),
                 tick_size=tick_size
