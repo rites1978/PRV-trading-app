@@ -81,21 +81,11 @@ class EvidenceConcentrationPolicy(AllocationPolicy):
         # Sort candidates by conviction score descending
         sorted_cands = sorted(candidates, key=lambda c: c.opportunity_score, reverse=True)
 
-        if len(sorted_cands) == 1:
-            return [(sorted_cands[0], deployable_budget_gbp)]
-
-        # Preference for fewer/larger positions:
-        # Allocate dynamically favoring higher conviction opportunities
-        # Top opportunity receives the highest allocation share
-        num_cands = len(sorted_cands)
-        ranks = list(range(num_cands, 0, -1))
-        rank_sum = sum(ranks)
-        allocations = []
-        for cand, rank in zip(sorted_cands, ranks):
-            target_alloc = deployable_budget_gbp * (rank / rank_sum)
-            allocations.append((cand, target_alloc))
-
-        return allocations
+        # Preference for fewer/larger meaningful positions:
+        # Without external AI multi-position decisions, concentrates deployable budget into
+        # the single highest-conviction qualified opportunity.
+        # No arbitrary mathematical weighting curve is hardcoded or authorised as trading policy.
+        return [(sorted_cands[0], deployable_budget_gbp)]
 
 
 class DynamicCapitalAllocator:

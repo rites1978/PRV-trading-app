@@ -65,7 +65,7 @@ class TestHitAndRunScoring(unittest.TestCase):
         self.assertGreater(candidate.risk_reward_ratio, 1.2)
         self.assertGreater(candidate.opportunity_score, 70.0)
         self.assertTrue(candidate.strategy_qualified)
-        self.assertIn("breakout", candidate.entry_thesis.lower())
+        self.assertIn("opportunity", candidate.entry_thesis.lower())
 
     def test_high_friction_stagnant_asset_fails_qualification(self):
         """Asset with high spread and stagnant/negative momentum must be disqualified."""
@@ -95,7 +95,7 @@ class TestHitAndRunScoring(unittest.TestCase):
 
         self.assertFalse(candidate.strategy_qualified)
         self.assertLess(candidate.opportunity_score, 50.0)
-        self.assertTrue(any("friction" in r.lower() or "momentum" in r.lower() or "cost" in r.lower() for r in candidate.qualification_reasons))
+        self.assertTrue(any("friction" in r.lower() or "momentum" in r.lower() or "cost" in r.lower() or "edge" in r.lower() for r in candidate.qualification_reasons))
 
     def test_ranking_sorts_by_opportunity_score(self):
         """Batch evaluation returns candidates sorted by opportunity conviction."""

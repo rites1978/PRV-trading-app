@@ -78,7 +78,7 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         self.assertGreaterEqual(alloc.stop_loss_price, alloc.estimated_fill_price * 0.95)
 
     def test_multiple_candidates_concentrates_into_highest_conviction(self):
-        """Concentrates into top-scoring candidates, maintaining <=80% total deployment."""
+        """Without external AI sizing decisions, concentrates deployable budget into top candidate (no weighting curve)."""
         portfolio_nav = 10000.0
         available_cash = 10000.0
 
@@ -94,14 +94,31 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
             candidates=[c_top, c_mid, c_low]
         )
 
-        total_allocated = sum(a.allocated_capital_gbp for a in allocations)
-        self.assertLessEqual(total_allocated, 8000.0)
+        self.assertEqual(len(allocations), 1)
+        self.assertEqual(allocations[0].symbol, "TOP")
+        self.assertLessEqual(allocations[0].allocated_capital_gbp, 8000.0)
+        self.assertGreaterEqual(allocations[0].allocated_capital_gbp, 7900.0)
 
-        # Top candidate must receive higher allocation than mid or low
-        alloc_map = {a.symbol: a.allocated_capital_gbp for a in allocations}
+    def test_multi_position_allocation_with_ai_sizing_decisions(self):
+        """When AI decision layer provides sizing decisions, allocator respects them within 80% ceiling."""
+        policy = EvidenceConcentrationPolicy(sizing_decisions={"TOP": 5000.0, "MID": 2500.0})
+        allocator = DynamicCapitalAllocator(policy=policy)
+
+        c_top = self._make_candidate("TOP", score=90.0, price_gbp=100.0)
+        c_mid = self._make_candidate("MID", score=75.0, price_gbp=50.0)
+
+        allocs = allocator.allocate(
+            portfolio_capital=10000.0,
+            available_cash=10000.0,
+            existing_positions=[],
+            outstanding_orders=[],
+            candidates=[c_top, c_mid]
+        )
+
+        self.assertEqual(len(allocs), 2)
+        alloc_map = {a.symbol: a.allocated_capital_gbp for a in allocs}
         self.assertGreater(alloc_map["TOP"], alloc_map["MID"])
-        if "LOW" in alloc_map:
-            self.assertGreater(alloc_map["MID"], alloc_map["LOW"])
+        self.assertLessEqual(sum(alloc_map.values()), 8000.0)
 
     def test_modular_allocation_policy_interface(self):
         """Verifies custom AllocationPolicy (e.g. AI allocation layer) can be injected cleanly."""

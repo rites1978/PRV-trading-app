@@ -56,7 +56,7 @@ class OpportunityCandidate:
             raise ValueError(f"Current price must be strictly positive, got {self.current_price}")
         if self.current_price_gbp <= 0.0:
             raise ValueError(f"Current price in GBP must be strictly positive, got {self.current_price_gbp}")
-        if self.downside_risk > 0.05001:
+        if self.downside_risk > 0.05:
             raise ValueError(f"Downside risk exceeds 5% max-loss invariant: {self.downside_risk:.4f}")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -87,7 +87,7 @@ class AllocationDecision:
     def __post_init__(self):
         if self.allocated_capital_gbp <= 0.0:
             raise ValueError(f"Allocated capital must be positive, got {self.allocated_capital_gbp}")
-        if self.max_loss_pct > 0.05001:
+        if self.max_loss_pct > 0.05:
             raise ValueError(f"Allocation max loss pct exceeds 5% invariant: {self.max_loss_pct}")
 
     def to_dict(self) -> Dict[str, Any]:

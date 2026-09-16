@@ -25,8 +25,6 @@ class HitAndRunOpportunityScorer:
     Evaluates, scores, and ranks short-duration trading opportunities across the global universe.
     """
 
-    MIN_QUALIFICATION_SCORE: float = 60.0
-    MAX_SPREAD_FRICTION: float = 0.015  # 1.5% max spread
     MAXIMUM_AUTHORISED_LOSS_PCT: float = 0.05  # Strict 5.0% max loss invariant
 
     def evaluate_opportunity(self, snapshot: Dict[str, Any]) -> OpportunityCandidate:
@@ -136,7 +134,7 @@ class HitAndRunOpportunityScorer:
         composite_score = round(float(score_momentum + score_acceleration + score_volume + score_friction + score_rr), 2)
         composite_score = max(0.0, min(100.0, composite_score))
 
-        # 14. Qualification Audit
+        # 14. Qualification Audit (Authoritative Rules Only)
         qualification_reasons = []
         is_qualified = True
 
@@ -145,26 +143,15 @@ class HitAndRunOpportunityScorer:
             is_qualified = False
             qualification_reasons.append(f"Session state '{session_state}' is not active regular market")
 
-        if momentum <= 0.0:
+        # Authoritative rule: expected profitability must be NET of costs, do not force trades without edge
+        if expected_net_reward <= 0.0:
             is_qualified = False
-            qualification_reasons.append(f"Non-positive momentum ({momentum:.4f})")
-
-        if spread_friction > self.MAX_SPREAD_FRICTION:
-            is_qualified = False
-            qualification_reasons.append(f"Excessive spread friction ({spread_friction:.2%}) exceeds {self.MAX_SPREAD_FRICTION:.2%}")
-
-        if expected_net_reward <= estimated_costs:
-            is_qualified = False
-            qualification_reasons.append(f"Insufficient net edge: net reward {expected_net_reward:.2%} <= costs {estimated_costs:.2%}")
-
-        if composite_score < self.MIN_QUALIFICATION_SCORE:
-            is_qualified = False
-            qualification_reasons.append(f"Opportunity score {composite_score:.1f} below threshold {self.MIN_QUALIFICATION_SCORE:.1f}")
+            qualification_reasons.append(f"No genuine net edge after costs: net reward {expected_net_reward:.4%} <= 0")
 
         # Construct Entry Thesis
         if is_qualified:
             entry_thesis = (
-                f"Hit-and-Run Breakout for {symbol}: Momentum {momentum:+.2%}, "
+                f"Hit-and-Run Opportunity for {symbol}: Momentum {momentum:+.2%}, "
                 f"Accel {acceleration:+.2%}, VolRatio {volume_activity:.2f}x, "
                 f"NetReward {expected_net_reward:+.2%} vs Risk {downside_risk:.2%} (R/R {risk_reward_ratio:.2f}x). "
                 f"Conviction Score: {composite_score}/100."

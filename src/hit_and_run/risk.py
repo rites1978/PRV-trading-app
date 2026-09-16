@@ -99,7 +99,7 @@ class HitAndRunRiskManager:
         theoretical_floor = fill_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
 
         # Invariant: stop_price must be >= fill_price * 0.95
-        if stop_price < (theoretical_floor - 1e-9):
+        if stop_price < theoretical_floor:
             planned_loss_pct = (fill_price - stop_price) / fill_price
             return False, (
                 f"EXCEEDS_5PCT_MAX_LOSS: stop_price {stop_price} < theoretical_floor {theoretical_floor:.6f} "
@@ -107,7 +107,7 @@ class HitAndRunRiskManager:
             )
 
         planned_loss_pct = (fill_price - stop_price) / fill_price
-        if planned_loss_pct > (self.MAXIMUM_AUTHORISED_LOSS_PCT + 1e-9):
+        if round(planned_loss_pct, 9) > self.MAXIMUM_AUTHORISED_LOSS_PCT:
             return False, (
                 f"EXCEEDS_5PCT_MAX_LOSS: planned loss {planned_loss_pct:.6%} > authorised ceiling {self.MAXIMUM_AUTHORISED_LOSS_PCT:.2%}"
             )
