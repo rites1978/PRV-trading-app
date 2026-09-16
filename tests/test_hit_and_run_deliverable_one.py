@@ -17,7 +17,7 @@ import unittest
 from src.hit_and_run.universe import hit_and_run_universe
 from src.hit_and_run.models import OpportunityCandidate, AllocationDecision, TradeAuditRecord
 from src.hit_and_run.scoring import hit_and_run_scorer
-from src.hit_and_run.allocator import dynamic_allocator
+from src.hit_and_run.allocator import dynamic_allocator, EvidenceConcentrationPolicy
 from src.hit_and_run.risk import hit_and_run_risk
 from src.hit_and_run.banking import DailyBankingLedger
 from src.brokers.trading212 import broker
@@ -97,6 +97,21 @@ class TestHitAndRunDeliverableOneIntegration(unittest.TestCase):
         # --- Component D & E: Dynamic Allocation & 5% Max Loss Invariant ---
         portfolio_capital = 20000.0
         available_cash = 20000.0
+
+        # Invariant: Without authorised AI sizing decisions, allocator fails closed with ALLOCATION_DECISION_UNAVAILABLE
+        dynamic_allocator.policy = EvidenceConcentrationPolicy()
+        allocations_no_ai = dynamic_allocator.allocate(
+            portfolio_capital=portfolio_capital,
+            available_cash=available_cash,
+            existing_positions=[],
+            outstanding_orders=[],
+            candidates=[candidate]
+        )
+        self.assertEqual(allocations_no_ai, [])
+        self.assertEqual(dynamic_allocator.last_status, "ALLOCATION_DECISION_UNAVAILABLE")
+
+        # When authorised AI sizing decision is supplied, allocator concentrates dynamically
+        dynamic_allocator.policy = EvidenceConcentrationPolicy(sizing_decisions={candidate.symbol: 1.0})
         allocations = dynamic_allocator.allocate(
             portfolio_capital=portfolio_capital,
             available_cash=available_cash,

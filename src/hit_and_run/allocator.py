@@ -51,12 +51,15 @@ class EvidenceConcentrationPolicy(AllocationPolicy):
     - current exposure/orders respected
     - opportunity quality and capital efficiency
 
-    Supports dynamic sizing decisions from the AI allocation layer (via sizing_decisions).
-    When no external AI sizing is supplied, concentrates deployable capital into the highest-conviction
-    qualified candidates in order of quality (fewer, larger positions rather than dilution).
+    Requires authorised dynamic sizing decisions from the AI allocation layer (via sizing_decisions).
+    If no authorised AI sizing/allocation decision is available:
+        DO NOT CREATE A TRADE ALLOCATION
+        return ALLOCATION_DECISION_UNAVAILABLE
+        fail closed for NEW entries
     """
     def __init__(self, sizing_decisions: Optional[Dict[str, float]] = None):
         self.sizing_decisions = sizing_decisions
+        self.last_status: str = "IDLE"
 
     def allocate_capital(
         self,
@@ -65,27 +68,30 @@ class EvidenceConcentrationPolicy(AllocationPolicy):
         candidates: List[OpportunityCandidate]
     ) -> List[Tuple[OpportunityCandidate, float]]:
         if not candidates or deployable_budget_gbp <= 0.0:
+            self.last_status = "NO_CANDIDATES_OR_BUDGET"
+            return []
+
+        # If no authorised AI sizing/allocation decision is available:
+        # DO NOT CREATE A TRADE ALLOCATION. Return empty list and fail closed for NEW entries.
+        if not self.sizing_decisions:
+            self.last_status = "ALLOCATION_DECISION_UNAVAILABLE"
+            logger.warning(
+                "EvidenceConcentrationPolicy: ALLOCATION_DECISION_UNAVAILABLE - "
+                "No authorised AI sizing decisions provided. Failing closed for new entries."
+            )
             return []
 
         # If caller / AI layer provides explicit sizing decisions
-        if self.sizing_decisions:
-            results = []
-            for c in candidates:
-                key = c.symbol if c.symbol in self.sizing_decisions else c.instrument_id
-                if key in self.sizing_decisions:
-                    val = self.sizing_decisions[key]
-                    alloc_gbp = val if val > 1.0 else deployable_budget_gbp * val
-                    results.append((c, min(deployable_budget_gbp, alloc_gbp)))
-            return results
+        results = []
+        for c in candidates:
+            key = c.symbol if c.symbol in self.sizing_decisions else c.instrument_id
+            if key in self.sizing_decisions:
+                val = self.sizing_decisions[key]
+                alloc_gbp = val if val > 1.0 else deployable_budget_gbp * val
+                results.append((c, min(deployable_budget_gbp, alloc_gbp)))
 
-        # Sort candidates by conviction score descending
-        sorted_cands = sorted(candidates, key=lambda c: c.opportunity_score, reverse=True)
-
-        # Preference for fewer/larger meaningful positions:
-        # Without external AI multi-position decisions, concentrates deployable budget into
-        # the single highest-conviction qualified opportunity.
-        # No arbitrary mathematical weighting curve is hardcoded or authorised as trading policy.
-        return [(sorted_cands[0], deployable_budget_gbp)]
+        self.last_status = "ALLOCATED" if results else "NO_MATCHING_CANDIDATES"
+        return results
 
 
 class DynamicCapitalAllocator:
@@ -96,6 +102,8 @@ class DynamicCapitalAllocator:
     MAX_DEPLOYMENT_PCT: float = 0.80
     MAXIMUM_AUTHORISED_LOSS_PCT: float = 0.05
 
+    STATUS_DECISION_UNAVAILABLE: str = "ALLOCATION_DECISION_UNAVAILABLE"
+
     def __init__(
         self,
         max_deployment_pct: float = 0.80,
@@ -103,6 +111,7 @@ class DynamicCapitalAllocator:
     ):
         self.max_deployment_pct = min(self.MAX_DEPLOYMENT_PCT, max_deployment_pct)
         self.policy = policy or EvidenceConcentrationPolicy()
+        self.last_status: str = "IDLE"
 
     @classmethod
     def evaluate_economic_viability(
@@ -187,7 +196,17 @@ class DynamicCapitalAllocator:
         )
 
         if not raw_tuples:
+            if getattr(self.policy, "last_status", None) == "ALLOCATION_DECISION_UNAVAILABLE":
+                self.last_status = self.STATUS_DECISION_UNAVAILABLE
+            else:
+                self.last_status = "NO_ALLOCATIONS_GENERATED"
+            logger.info(
+                f"DynamicCapitalAllocator: {self.last_status} - "
+                f"No trade allocations created. Failing closed for new entries."
+            )
             return []
+
+        self.last_status = "ALLOCATED"
 
         # 4. Build Final Allocation Decisions Enforcing Strict Constraints
         decisions: List[AllocationDecision] = []
@@ -197,8 +216,18 @@ class DynamicCapitalAllocator:
                 continue
 
             raw_qty = target_budget / price_gbp
-            # Floor to 3 decimal places (standard T212 precision)
-            target_qty = math.floor(raw_qty * 1000.0) / 1000.0
+            # Dynamic quantity precision: derived from broker metadata / product contract
+            min_trade_qty = getattr(cand, "min_trade_quantity", None)
+            prec = getattr(cand, "quantity_precision", None)
+            if prec is None:
+                if min_trade_qty is not None and min_trade_qty >= 1.0:
+                    prec = 0
+                elif min_trade_qty is not None and "." in str(min_trade_qty):
+                    prec = len(str(min_trade_qty).rstrip('0').split('.')[1])
+                else:
+                    prec = 3
+            factor = 10.0 ** prec
+            target_qty = math.floor(raw_qty * factor) / factor
             actual_alloc_gbp = round(target_qty * price_gbp, 2)
 
             is_viable, reason = self.evaluate_economic_viability(actual_alloc_gbp, cand)
@@ -211,7 +240,11 @@ class DynamicCapitalAllocator:
             # theoretical_floor = cand.current_price * 0.95
             # Protective stop MUST be rounded UP to next valid broker tick so:
             # stop_price >= theoretical_floor and planned_loss_pct <= 0.05
-            tick_size = 0.01 if cand.current_price >= 1.0 else 0.0001
+            tick_size = cand.tick_size or HitAndRunRiskManager.derive_tick_size(
+                currency=cand.currency,
+                price=cand.current_price,
+                is_uk_pence=cand.is_uk_pence
+            )
             effective_risk = min(self.MAXIMUM_AUTHORISED_LOSS_PCT, cand.downside_risk)
             stop_price = HitAndRunRiskManager.round_stop_up_to_tick(
                 cand.current_price * (1.0 - effective_risk),

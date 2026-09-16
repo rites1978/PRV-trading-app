@@ -23,6 +23,12 @@ class OpportunityCandidate:
     current_price: float
     current_price_gbp: float
 
+    # Broker contract & metadata attributes
+    isin: str = ""
+    min_trade_quantity: Optional[float] = 0.001
+    quantity_precision: Optional[int] = None
+    tick_size: Optional[float] = None
+
     # Short-term quantitative indicators
     momentum: float = 0.0
     acceleration: float = 0.0

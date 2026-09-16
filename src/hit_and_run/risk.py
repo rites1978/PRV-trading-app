@@ -27,6 +27,37 @@ class HitAndRunRiskManager:
     MAX_LOSS_PCT: float = MAXIMUM_AUTHORISED_LOSS_PCT  # Compatibility alias
 
     @staticmethod
+    def derive_tick_size(
+        currency: str = "GBP",
+        price: float = 1.0,
+        is_uk_pence: bool = False,
+        explicit_tick: Optional[float] = None
+    ) -> float:
+        """
+        Dynamically derives valid price tick size per instrument currency, price scale, and metadata.
+        - If broker metadata explicitly specifies tick_size, respects it.
+        - For UK pence (GBX):
+            price >= 100.0p -> 0.1p (standard LSE tick for equities >= 100p)
+            price < 100.0p -> 0.01p
+        - For GBP:
+            price >= 1.0 -> 0.01 (1 penny)
+            price < 1.0 -> 0.001
+        - For USD / EUR / foreign:
+            price >= 1.0 -> 0.01 ($0.01 / €0.01)
+            price < 1.0 -> 0.0001 (US sub-penny / penny pilot)
+        """
+        if explicit_tick is not None and explicit_tick > 0:
+            return float(explicit_tick)
+
+        curr = currency.upper().strip()
+        if is_uk_pence or curr == "GBX":
+            return 0.1 if price >= 100.0 else 0.01
+        elif curr == "GBP":
+            return 0.01 if price >= 1.0 else 0.001
+        else:
+            return 0.01 if price >= 1.0 else 0.0001
+
+    @staticmethod
     def round_stop_up_to_tick(price: float, tick_size: float = 0.0001) -> float:
         """
         Rounds a protective stop UP to the next valid broker tick.

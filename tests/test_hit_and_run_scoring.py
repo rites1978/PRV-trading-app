@@ -175,6 +175,46 @@ class TestHitAndRunScoring(unittest.TestCase):
         # Verify that even if R/R is around 1.0 - 1.1x, it is not rejected for R/R
         self.assertNotIn("Risk-reward ratio", " ".join(candidate.qualification_reasons))
 
+    def test_stamp_duty_and_fx_broker_constants(self):
+        """
+        Verifies:
+        1. UK ordinary stock (STOCK, GB ISIN, GBX) -> 0.5% SDRT, 0.0% FX.
+        2. UK ETF (ETF, GB ISIN, GBX) -> 0.0% SDRT (legally exempt), 0.0% FX.
+        3. UK-traded Irish/Foreign stock (STOCK, IE ISIN, GBX) -> 0.0% SDRT, 0.0% FX.
+        4. US stock (STOCK, US ISIN, USD) -> 0.0% SDRT, 0.15% FX (0.30% round-trip).
+        """
+        base_snap = {
+            "current_price": 100.0,
+            "recent_prices": [99.0, 100.0],
+            "bid": 99.95,
+            "ask": 100.05,
+            "session_state": "REGULAR"
+        }
+
+        # 1. UK Ordinary Stock (GB ISIN)
+        snap_uk_stock = {**base_snap, "instrument_id": "BARCl_EQ", "product_type": "STOCK", "isin": "GB0031348658", "currency": "GBX", "is_uk_pence": True}
+        c_uk_stock = self.scorer.evaluate_opportunity(snap_uk_stock)
+        # SDRT = 0.005, FX = 0.0, spread = 0.001 -> estimated_costs ~ 0.006
+        self.assertAlmostEqual(c_uk_stock.estimated_costs, 0.005 + 0.001, delta=0.0005)
+
+        # 2. UK ETF (GB ISIN) - EXEMPT from SDRT
+        snap_uk_etf = {**base_snap, "instrument_id": "ISFl_EQ", "product_type": "ETF", "isin": "GB0005305102", "currency": "GBX", "is_uk_pence": True}
+        c_uk_etf = self.scorer.evaluate_opportunity(snap_uk_etf)
+        # SDRT = 0.0 (ETF exempt), FX = 0.0, spread = 0.001 -> estimated_costs ~ 0.001
+        self.assertAlmostEqual(c_uk_etf.estimated_costs, 0.001, delta=0.0005)
+
+        # 3. Foreign Stock in GBX (e.g. Irish ISIN) - EXEMPT from SDRT
+        snap_ie_stock = {**base_snap, "instrument_id": "PETl_EQ", "product_type": "STOCK", "isin": "IE0001340177", "currency": "GBX", "is_uk_pence": True}
+        c_ie_stock = self.scorer.evaluate_opportunity(snap_ie_stock)
+        # SDRT = 0.0 (non-GB ISIN exempt), FX = 0.0, spread = 0.001 -> estimated_costs ~ 0.001
+        self.assertAlmostEqual(c_ie_stock.estimated_costs, 0.001, delta=0.0005)
+
+        # 4. US Stock (USD)
+        snap_us = {**base_snap, "instrument_id": "AAPL_US_EQ", "product_type": "STOCK", "isin": "US0378331005", "currency": "USD", "is_uk_pence": False}
+        c_us = self.scorer.evaluate_opportunity(snap_us)
+        # SDRT = 0.0, FX = 0.0015 * 2 = 0.003, spread = 0.001 -> estimated_costs ~ 0.004
+        self.assertAlmostEqual(c_us.estimated_costs, 0.003 + 0.001, delta=0.0005)
+
 
 if __name__ == "__main__":
     unittest.main()

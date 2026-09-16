@@ -53,13 +53,34 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
             risk_reward_ratio=expected_net_reward / 0.045
         )
 
-    def test_single_high_conviction_candidate_receives_concentrated_allocation(self):
-        """A single top opportunity can receive the full 80% deployable budget."""
+    def test_no_ai_allocation_decision_fails_closed_without_fallback(self):
+        """Without external AI sizing decisions, allocator fails closed: returns [] and status ALLOCATION_DECISION_UNAVAILABLE."""
         portfolio_nav = 10000.0
         available_cash = 10000.0
         cand = self._make_candidate("AAPL", score=88.0, price_gbp=150.0)
 
+        # Default allocator with EvidenceConcentrationPolicy has NO sizing_decisions
         allocations = self.allocator.allocate(
+            portfolio_capital=portfolio_nav,
+            available_cash=available_cash,
+            existing_positions=[],
+            outstanding_orders=[],
+            candidates=[cand]
+        )
+
+        self.assertEqual(allocations, [])
+        self.assertEqual(self.allocator.last_status, "ALLOCATION_DECISION_UNAVAILABLE")
+
+    def test_single_high_conviction_candidate_receives_concentrated_allocation(self):
+        """When AI decision layer allocates to single opportunity, it receives the full deployable budget."""
+        portfolio_nav = 10000.0
+        available_cash = 10000.0
+        cand = self._make_candidate("AAPL", score=88.0, price_gbp=150.0)
+
+        policy = EvidenceConcentrationPolicy(sizing_decisions={"AAPL": 1.0})
+        allocator = DynamicCapitalAllocator(policy=policy)
+
+        allocations = allocator.allocate(
             portfolio_capital=portfolio_nav,
             available_cash=available_cash,
             existing_positions=[],
@@ -77,8 +98,8 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         self.assertLessEqual(alloc.max_loss_pct, 0.05)
         self.assertGreaterEqual(alloc.stop_loss_price, alloc.estimated_fill_price * 0.95)
 
-    def test_multiple_candidates_concentrates_into_highest_conviction(self):
-        """Without external AI sizing decisions, concentrates deployable budget into top candidate (no weighting curve)."""
+    def test_multiple_candidates_concentrates_into_highest_conviction_when_ai_decides(self):
+        """When AI decision layer directs budget to highest conviction candidate, allocator concentrates into top."""
         portfolio_nav = 10000.0
         available_cash = 10000.0
 
@@ -86,7 +107,10 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         c_mid = self._make_candidate("MID", score=75.0, price_gbp=50.0)
         c_low = self._make_candidate("LOW", score=65.0, price_gbp=25.0)
 
-        allocations = self.allocator.allocate(
+        policy = EvidenceConcentrationPolicy(sizing_decisions={"TOP": 1.0})
+        allocator = DynamicCapitalAllocator(policy=policy)
+
+        allocations = allocator.allocate(
             portfolio_capital=portfolio_nav,
             available_cash=available_cash,
             existing_positions=[],
@@ -157,8 +181,10 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         orders = [{"ticker": "ORDER_EQ", "reserved_value_gbp": 1000.0}]
 
         cand = self._make_candidate("NEW", score=85.0)
+        policy = EvidenceConcentrationPolicy(sizing_decisions={"NEW": 1.0})
+        allocator = DynamicCapitalAllocator(policy=policy)
 
-        allocations = self.allocator.allocate(
+        allocations = allocator.allocate(
             portfolio_capital=portfolio_nav,
             available_cash=available_cash,
             existing_positions=existing,
@@ -210,7 +236,10 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         c1 = self._make_candidate("PROFITABLE", score=90.0, price_gbp=50.0, expected_net_reward=0.05)
         c2 = self._make_candidate("UNPROFITABLE", score=85.0, price_gbp=50.0, expected_net_reward=-0.01)
 
-        allocs = self.allocator.allocate(
+        policy = EvidenceConcentrationPolicy(sizing_decisions={"PROFITABLE": 1.0, "UNPROFITABLE": 1.0})
+        allocator = DynamicCapitalAllocator(policy=policy)
+
+        allocs = allocator.allocate(
             portfolio_capital=1000.0,
             available_cash=1000.0,
             existing_positions=[],
@@ -220,6 +249,46 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
 
         self.assertEqual(len(allocs), 1)
         self.assertEqual(allocs[0].symbol, "PROFITABLE")
+
+    def test_dynamic_quantity_precision_whole_shares_vs_fractional(self):
+        """Derives quantity precision from min_trade_quantity (e.g. 1.0 -> 0 decimals, 0.001 -> 3 decimals)."""
+        c_whole = self._make_candidate("WHOLE", score=85.0, price_gbp=300.0)
+        c_whole.min_trade_quantity = 1.0
+
+        c_frac = self._make_candidate("FRAC", score=85.0, price_gbp=300.0)
+        c_frac.min_trade_quantity = 0.001
+
+        policy = EvidenceConcentrationPolicy(sizing_decisions={"WHOLE": 1000.0, "FRAC": 1000.0})
+        allocator = DynamicCapitalAllocator(policy=policy)
+
+        allocs = allocator.allocate(
+            portfolio_capital=10000.0,
+            available_cash=10000.0,
+            existing_positions=[],
+            outstanding_orders=[],
+            candidates=[c_whole, c_frac]
+        )
+
+        alloc_map = {a.symbol: a for a in allocs}
+        # 1000 / 300 = 3.3333...
+        # For whole shares: floor(3.3333) = 3.0
+        self.assertEqual(alloc_map["WHOLE"].target_quantity, 3.0)
+        # For fractional shares (3 decimals): floor(3.3333 * 1000) / 1000 = 3.333
+        self.assertEqual(alloc_map["FRAC"].target_quantity, 3.333)
+
+    def test_dynamic_tick_size_derivation(self):
+        """Dynamically derives tick size for GBX vs GBP vs USD."""
+        from src.hit_and_run.risk import HitAndRunRiskManager
+        # GBX >= 100p -> 0.1
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=150.0, is_uk_pence=True), 0.1)
+        # GBX < 100p -> 0.01
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=45.0, is_uk_pence=True), 0.01)
+        # GBP >= 1.0 -> 0.01
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBP", price=25.0), 0.01)
+        # USD >= 1.0 -> 0.01
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="USD", price=50.0), 0.01)
+        # USD < 1.0 -> 0.0001
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="USD", price=0.85), 0.0001)
 
 
 if __name__ == "__main__":

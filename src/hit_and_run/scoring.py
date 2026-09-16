@@ -38,6 +38,10 @@ class HitAndRunOpportunityScorer:
         currency = snapshot.get("currency", "GBP")
         is_uk_pence = snapshot.get("is_uk_pence", False)
         quote_divisor = snapshot.get("quote_divisor", 100.0 if is_uk_pence else 1.0)
+        isin = str(snapshot.get("isin", "")).strip().upper()
+        min_trade_quantity = snapshot.get("min_trade_quantity")
+        quantity_precision = snapshot.get("quantity_precision")
+        tick_size = snapshot.get("tick_size")
 
         current_price = float(snapshot.get("current_price", 0.0))
         current_price_gbp = float(snapshot.get("current_price_gbp", current_price / quote_divisor))
@@ -98,8 +102,17 @@ class HitAndRunOpportunityScorer:
         distance_from_low = float(max(0.0, (current_price - intraday_low) / max(1e-6, current_price)))
 
         # 9. Estimated Round-Trip Trading Costs
+        # FX fee: Trading212 charges 0.15% per side only when instrument currency != account base currency (GBP).
+        # When currency is GBP or GBX, FX fee is strictly 0.0%.
         fx_fee = 0.0015 if currency not in ("GBP", "GBX") else 0.0
-        stamp_duty = 0.0050 if (is_uk_pence and product_type == "STOCK") else 0.0
+
+        # Stamp Duty Reserve Tax (UK SDRT):
+        # By UK law (Finance Act 2014), ETFs are legally exempt from SDRT. AIM shares are exempt.
+        # Foreign-domiciled shares (non-GB ISIN) are exempt even if traded in GBX.
+        # Only UK ordinary shares (product_type == "STOCK" and UK ISIN starting with "GB") incur 0.5% SDRT.
+        is_uk_ordinary_stock = (product_type == "STOCK" and isin.startswith("GB"))
+        stamp_duty = 0.0050 if is_uk_ordinary_stock else 0.0
+
         # Round trip costs = 2 * FX fee + spread friction + stamp duty
         estimated_costs = float((fx_fee * 2.0) + spread_friction + stamp_duty)
 
@@ -169,6 +182,10 @@ class HitAndRunOpportunityScorer:
             quote_divisor=quote_divisor,
             current_price=current_price,
             current_price_gbp=current_price_gbp,
+            isin=isin,
+            min_trade_quantity=min_trade_quantity if min_trade_quantity is not None else 0.001,
+            quantity_precision=quantity_precision,
+            tick_size=tick_size,
             momentum=round(momentum, 5),
             acceleration=round(acceleration, 5),
             relative_strength=round(relative_strength, 5),

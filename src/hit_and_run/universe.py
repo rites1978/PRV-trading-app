@@ -63,6 +63,7 @@ class HitAndRunUniverseDiscovery:
                     "instrument_id": details["ticker"],
                     "symbol": inst.get("shortName") or inst.get("ticker"),
                     "short_name": inst.get("shortName", ""),
+                    "isin": inst.get("isin", ""),
                     "feed_ticker": details["feed_ticker"],
                     "product_type": details["product_type"],
                     "currency": details["currency"],
