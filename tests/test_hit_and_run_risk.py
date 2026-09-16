@@ -56,16 +56,70 @@ class TestHitAndRunRiskManager(unittest.TestCase):
         self.assertIn("MUST_BE_BELOW_FILL", reason)
 
     def test_five_percent_invariant_boundary_conditions(self):
-        """Tests tick-size boundary conditions ensuring stop_price >= fill_price * 0.95."""
+        """Tests strict 5% floor: stop_price >= fill_price * 0.95 with zero relaxation."""
         fill = 100.0
         # Exactly 0.95 * 100.0 = 95.0
         valid, _ = self.risk.verify_protective_stop_invariant(fill, 95.0, tick_size=0.01)
         self.assertTrue(valid)
 
-        # Slight rounding below 95.0 beyond half tick -> REJECTED
-        invalid, reason = self.risk.verify_protective_stop_invariant(fill, 94.98, tick_size=0.01)
+        # Even 0.001 below 95.0 -> REJECTED (no epsilon, no tick_size*0.5 relaxation)
+        invalid, reason = self.risk.verify_protective_stop_invariant(fill, 94.999, tick_size=0.01)
         self.assertFalse(invalid)
         self.assertIn("EXCEEDS_5PCT_MAX_LOSS", reason)
+
+    def test_five_percent_stop_rounding_example_gbx(self):
+        """
+        GBX Example:
+        fill_price = 100.35 GBX, tick_size = 0.1 GBX
+        theoretical_floor = 100.35 * 0.95 = 95.3325 GBX
+        Rounding down to 95.3 gives 5.032% loss (VIOLATION).
+        Rounding UP to next valid tick gives 95.4 GBX, planned loss 4.933% <= 5%.
+        """
+        fill_price = 100.35
+        tick_size = 0.1
+        theoretical_floor = fill_price * 0.95  # 95.3325
+
+        # Downward rounding fails
+        downward_stop = 95.3
+        valid_down, reason_down = self.risk.verify_protective_stop_invariant(fill_price, downward_stop, tick_size)
+        self.assertFalse(valid_down)
+        self.assertIn("EXCEEDS_5PCT_MAX_LOSS", reason_down)
+
+        # Rounding UP to next valid broker tick succeeds
+        upward_stop = self.risk.round_stop_up_to_tick(theoretical_floor, tick_size)
+        self.assertEqual(upward_stop, 95.4)
+        self.assertGreaterEqual(upward_stop, theoretical_floor)
+        valid_up, _ = self.risk.verify_protective_stop_invariant(fill_price, upward_stop, tick_size)
+        self.assertTrue(valid_up)
+        planned_loss_pct = (fill_price - upward_stop) / fill_price
+        self.assertLessEqual(planned_loss_pct, 0.05)
+
+    def test_five_percent_stop_rounding_example_gbp(self):
+        """
+        GBP Example:
+        fill_price = 15.23 GBP, tick_size = 0.01 GBP
+        theoretical_floor = 15.23 * 0.95 = 14.4685 GBP
+        Rounding down to 14.46 gives 5.056% loss (VIOLATION).
+        Rounding UP to next valid tick gives 14.47 GBP, planned loss 4.990% <= 5%.
+        """
+        fill_price = 15.23
+        tick_size = 0.01
+        theoretical_floor = fill_price * 0.95  # 14.4685
+
+        # Downward rounding fails
+        downward_stop = 14.46
+        valid_down, reason_down = self.risk.verify_protective_stop_invariant(fill_price, downward_stop, tick_size)
+        self.assertFalse(valid_down)
+        self.assertIn("EXCEEDS_5PCT_MAX_LOSS", reason_down)
+
+        # Rounding UP to next valid broker tick succeeds
+        upward_stop = self.risk.round_stop_up_to_tick(theoretical_floor, tick_size)
+        self.assertEqual(upward_stop, 14.47)
+        self.assertGreaterEqual(upward_stop, theoretical_floor)
+        valid_up, _ = self.risk.verify_protective_stop_invariant(fill_price, upward_stop, tick_size)
+        self.assertTrue(valid_up)
+        planned_loss_pct = (fill_price - upward_stop) / fill_price
+        self.assertLessEqual(planned_loss_pct, 0.05)
 
     def test_broker_native_stop_verification_confirmed(self):
         """Confirmed when broker open orders has active STOP with exact quantity."""

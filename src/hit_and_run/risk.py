@@ -11,6 +11,7 @@ For any long holding:
 The implementation must never permit a planned protective loss > 5% from authoritative fill price.
 Verifies native broker-level protective stop orders and fails closed if protection is unconfirmed.
 """
+import math
 import logging
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -25,14 +26,33 @@ class HitAndRunRiskManager:
     MAXIMUM_AUTHORISED_LOSS_PCT: float = 0.05  # Strict 5.0% maximum loss invariant
     MAX_LOSS_PCT: float = MAXIMUM_AUTHORISED_LOSS_PCT  # Compatibility alias
 
+    @staticmethod
+    def round_stop_up_to_tick(price: float, tick_size: float = 0.0001) -> float:
+        """
+        Rounds a protective stop UP to the next valid broker tick.
+        Guarantees stop_price >= price, ensuring planned loss NEVER exceeds the 5% ceiling.
+        """
+        if tick_size <= 0:
+            return price
+        # High precision rounding before ceil eliminates IEEE-754 representation noise
+        num_ticks = math.ceil(round(price / tick_size, 8))
+        tick_str = f"{tick_size:.8f}".rstrip('0')
+        decimals = len(tick_str.split('.')[1]) if '.' in tick_str else 0
+        return round(num_ticks * tick_size, decimals)
+
     def calculate_protective_stop(
         self,
         fill_price: float,
-        requested_risk_pct: Optional[float] = None
+        requested_risk_pct: Optional[float] = None,
+        tick_size: float = 0.0001
     ) -> float:
         """
         Derives protective stop price tied to authoritative fill price.
-        Strictly enforces: stop_price >= fill_price * 0.95 (MAXIMUM_AUTHORISED_LOSS_PCT = 0.05).
+        Strictly enforces:
+            theoretical_floor = fill_price * 0.95
+            stop_price >= theoretical_floor
+            planned_loss_pct = (fill_price - stop_price) / fill_price <= 0.05
+        Rounds the protective stop UP to the next valid broker tick if necessary.
         """
         if fill_price <= 0.0:
             raise ValueError(f"Fill price must be strictly positive, got {fill_price}")
@@ -41,12 +61,15 @@ class HitAndRunRiskManager:
         if requested_risk_pct is not None and requested_risk_pct > 0:
             effective_loss_pct = min(self.MAXIMUM_AUTHORISED_LOSS_PCT, requested_risk_pct)
 
-        stop_price = fill_price * (1.0 - effective_loss_pct)
-        # Invariant floor: stop_price must be >= fill_price * 0.95
-        min_allowed_stop = fill_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
-        stop_price = max(min_allowed_stop, stop_price)
+        theoretical_floor = fill_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
+        raw_stop = fill_price * (1.0 - effective_loss_pct)
+        target_stop = max(theoretical_floor, raw_stop)
 
-        return round(stop_price, 4)
+        stop_price = self.round_stop_up_to_tick(target_stop, tick_size)
+        if stop_price < theoretical_floor:
+            stop_price = self.round_stop_up_to_tick(theoretical_floor, tick_size)
+
+        return stop_price
 
     def verify_protective_stop_invariant(
         self,
@@ -57,9 +80,15 @@ class HitAndRunRiskManager:
         """
         Enforces the non-negotiable 5% loss invariant:
         For any long holding:
-            stop_price >= fill_price * 0.95
-        subject to valid broker tick-size rounding.
-        The implementation must never permit a planned protective loss > 5% from authoritative fill price.
+            theoretical_floor = fill_price * 0.95
+            stop_price >= theoretical_floor
+            planned_loss_pct = (fill_price - stop_price) / fill_price
+            planned_loss_pct <= 0.05
+
+        Strict rules:
+        - NO tick_size * 0.5 relaxation
+        - NO epsilon permitting >5%
+        - NO rounding downward through the 5% boundary
         """
         if fill_price <= 0.0:
             return False, "INVALID_FILL_PRICE: fill_price must be > 0"
@@ -67,19 +96,21 @@ class HitAndRunRiskManager:
         if stop_price >= fill_price:
             return False, f"INVALID_STOP_PRICE: stop_price ({stop_price}) MUST_BE_BELOW_FILL ({fill_price})"
 
-        min_allowed_stop = fill_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
+        theoretical_floor = fill_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
 
-        # Allow at most half a tick for rounding down if applicable, but never allow planned loss > 5.0%
-        if stop_price < (min_allowed_stop - (tick_size * 0.5)):
+        # Invariant: stop_price must be >= fill_price * 0.95
+        if stop_price < (theoretical_floor - 1e-9):
             planned_loss_pct = (fill_price - stop_price) / fill_price
             return False, (
-                f"EXCEEDS_5PCT_MAX_LOSS: stop_price {stop_price:.4f} < fill_price * 0.95 ({min_allowed_stop:.4f}), "
-                f"planned loss {planned_loss_pct:.4%} exceeds authorised ceiling {self.MAXIMUM_AUTHORISED_LOSS_PCT:.2%}"
+                f"EXCEEDS_5PCT_MAX_LOSS: stop_price {stop_price} < theoretical_floor {theoretical_floor:.6f} "
+                f"(fill_price * 0.95). Planned loss {planned_loss_pct:.4%} exceeds authorised 5.0% ceiling."
             )
 
         planned_loss_pct = (fill_price - stop_price) / fill_price
-        if planned_loss_pct > (self.MAXIMUM_AUTHORISED_LOSS_PCT + 1e-5):
-            return False, f"EXCEEDS_5PCT_MAX_LOSS: planned loss {planned_loss_pct:.4%} > {self.MAXIMUM_AUTHORISED_LOSS_PCT:.2%}"
+        if planned_loss_pct > (self.MAXIMUM_AUTHORISED_LOSS_PCT + 1e-9):
+            return False, (
+                f"EXCEEDS_5PCT_MAX_LOSS: planned loss {planned_loss_pct:.6%} > authorised ceiling {self.MAXIMUM_AUTHORISED_LOSS_PCT:.2%}"
+            )
 
         return True, "STOP_VERIFIED_VALID"
 

@@ -4,17 +4,18 @@ Verifies:
 1. Strict invariant: Total deployment (existing + working + new) <= 80% of portfolio capital.
 2. Dynamic sizing: Can allocate to single high-conviction opportunity or multiple opportunities.
 3. Concentration preference: Concentrates into highest-conviction opportunities rather than dilution.
-4. Dynamic economic viability: Rejects economically pointless allocations (friction-dominated, negligible net gain)
-   and re-concentrates capital, with NO arbitrary fixed £ amount (e.g. £250 removed).
-5. Auditable linear weighting policy: Strictly linear proportional weighting without quadratic distortion.
-6. Accounts for existing positions and outstanding working orders.
+4. Dynamic economic viability: Rejects trades where expected NET profit after all costs <= 0.
+   Confirms NO fixed 1.5x friction multiplier and NO arbitrary fixed £ amount threshold (e.g. £0.50 or £250).
+5. Modular allocation interface: Verifies custom AllocationPolicy can be injected without hardcoded curves.
+6. Strict 5% max-loss invariant: stop_price >= fill_price * 0.95 rounded UP to next valid broker tick.
 """
 import unittest
+from typing import List, Tuple
 from src.hit_and_run.models import OpportunityCandidate
 from src.hit_and_run.allocator import (
     DynamicCapitalAllocator,
-    AllocationWeightingPolicy,
-    ProportionalConvictionPolicy
+    AllocationPolicy,
+    EvidenceConcentrationPolicy
 )
 
 
@@ -77,7 +78,7 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         self.assertGreaterEqual(alloc.stop_loss_price, alloc.estimated_fill_price * 0.95)
 
     def test_multiple_candidates_concentrates_into_highest_conviction(self):
-        """Concentrates into top-scoring candidates proportionally, maintaining <=80% total deployment."""
+        """Concentrates into top-scoring candidates, maintaining <=80% total deployment."""
         portfolio_nav = 10000.0
         available_cash = 10000.0
 
@@ -102,17 +103,34 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         if "LOW" in alloc_map:
             self.assertGreater(alloc_map["MID"], alloc_map["LOW"])
 
-    def test_proportional_linear_weighting_policy_no_quadratic_distortion(self):
-        """Weights are strictly linear in score proportion: w_i = score_i / sum(scores), not score**2."""
-        policy = ProportionalConvictionPolicy()
-        c1 = self._make_candidate("C1", score=80.0)
-        c2 = self._make_candidate("C2", score=40.0)
+    def test_modular_allocation_policy_interface(self):
+        """Verifies custom AllocationPolicy (e.g. AI allocation layer) can be injected cleanly."""
+        class MockAIAllocationPolicy(AllocationPolicy):
+            def allocate_capital(
+                self,
+                deployable_budget_gbp: float,
+                portfolio_capital: float,
+                candidates: List[OpportunityCandidate]
+            ) -> List[Tuple[OpportunityCandidate, float]]:
+                # AI decides to put 100% of budget into top conviction candidate
+                sorted_cands = sorted(candidates, key=lambda c: c.opportunity_score, reverse=True)
+                return [(sorted_cands[0], deployable_budget_gbp)]
 
-        weights = policy.compute_weights([c1, c2])
-        # Linear: 80 / (80 + 40) = 80 / 120 = 2/3 ≈ 0.6667
-        # Quadratic would be: 80^2 / (80^2 + 40^2) = 6400 / 8000 = 0.80
-        self.assertAlmostEqual(weights[0], 2.0 / 3.0, places=4)
-        self.assertAlmostEqual(weights[1], 1.0 / 3.0, places=4)
+        allocator = DynamicCapitalAllocator(policy=MockAIAllocationPolicy())
+        c1 = self._make_candidate("AI_PICK", score=95.0, price_gbp=100.0)
+        c2 = self._make_candidate("OTHER", score=70.0, price_gbp=50.0)
+
+        allocs = allocator.allocate(
+            portfolio_capital=10000.0,
+            available_cash=10000.0,
+            existing_positions=[],
+            outstanding_orders=[],
+            candidates=[c1, c2]
+        )
+
+        self.assertEqual(len(allocs), 1)
+        self.assertEqual(allocs[0].symbol, "AI_PICK")
+        self.assertGreater(allocs[0].allocated_capital_gbp, 7900.0)
 
     def test_respects_existing_exposure_and_orders(self):
         """Existing positions (£3000) and orders (£1000) count toward the 80% ceiling (£8000), leaving <= £4000."""
@@ -135,78 +153,56 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         # Total committed = 3000 + 1000 + total_allocated <= 8000
         self.assertLessEqual(total_allocated + 4000.0, 8000.01)
 
-    def test_dynamic_economic_viability_evaluation(self):
-        """Dynamic viability checks net profit after costs, friction, and capital efficiency (no fixed £ amount)."""
-        cand = self._make_candidate("TEST", score=80.0, estimated_costs=0.005, expected_net_reward=0.05)
-
-        # Viable allocation: £1000, expected net profit = £50, friction = £5
+    def test_dynamic_economic_viability_no_1_5x_multiplier_no_fixed_050_minimum(self):
+        """
+        Dynamic viability:
+        - Rejects when expected NET profit after costs <= 0.
+        - Does NOT reject when net profit is positive even if < 1.5x friction (NO 1.5x multiplier).
+        - Does NOT reject when net profit is positive even if < £0.50 (NO fixed £0.50 threshold).
+        """
+        # 1. Viable allocation: positive net profit after costs
+        cand = self._make_candidate("VIABLE", score=80.0, estimated_costs=0.005, expected_net_reward=0.05)
         viable, reason = DynamicCapitalAllocator.evaluate_economic_viability(1000.0, cand)
         self.assertTrue(viable)
         self.assertEqual(reason, "ECONOMICALLY_VIABLE")
 
-        # Zero or negative capital -> rejected
-        not_viable, reason = DynamicCapitalAllocator.evaluate_economic_viability(0.0, cand)
-        self.assertFalse(not_viable)
+        # 2. Zero or negative capital -> rejected
+        not_viable_zero, _ = DynamicCapitalAllocator.evaluate_economic_viability(0.0, cand)
+        self.assertFalse(not_viable_zero)
 
-        # Friction-dominated candidate: friction exceeds expected reward
-        friction_cand = self._make_candidate("FRICTION", score=80.0, estimated_costs=0.04, expected_net_reward=0.02)
-        not_viable_fric, reason = DynamicCapitalAllocator.evaluate_economic_viability(500.0, friction_cand)
-        self.assertFalse(not_viable_fric)
-        self.assertIn("FRICTION_DOMINATED", reason)
+        # 3. Negative net reward (net loss after costs) -> rejected
+        neg_cand = self._make_candidate("LOSS", score=80.0, estimated_costs=0.03, expected_net_reward=-0.01)
+        not_viable_neg, reason_neg = DynamicCapitalAllocator.evaluate_economic_viability(500.0, neg_cand)
+        self.assertFalse(not_viable_neg)
+        self.assertIn("NON_POSITIVE_NET_PROFIT", reason_neg)
 
-        # Insufficient buffer over friction: net reward > friction, but < 1.5x friction
-        buffer_cand = self._make_candidate("BUFFER", score=80.0, estimated_costs=0.02, expected_net_reward=0.025)
-        not_viable_buf, reason_buf = DynamicCapitalAllocator.evaluate_economic_viability(500.0, buffer_cand)
-        self.assertFalse(not_viable_buf)
-        self.assertIn("ECONOMICALLY_POINTLESS", reason_buf)
+        # 4. Positive net profit where net reward is less than 1.5x friction (e.g. friction=2%, net reward=1.2% > 0)
+        # MUST BE VIABLE (NO 1.5x friction buffer rejection)
+        mod_cand = self._make_candidate("MODEST", score=80.0, estimated_costs=0.02, expected_net_reward=0.012)
+        viable_mod, reason_mod = DynamicCapitalAllocator.evaluate_economic_viability(500.0, mod_cand)
+        self.assertTrue(viable_mod, f"Expected viable without 1.5x buffer, got: {reason_mod}")
 
-        # Negligible nominal gain (< £0.50)
-        tiny_gain_cand = self._make_candidate("TINY", score=80.0, estimated_costs=0.001, expected_net_reward=0.002)
-        not_viable_tiny, reason = DynamicCapitalAllocator.evaluate_economic_viability(50.0, tiny_gain_cand)
-        self.assertFalse(not_viable_tiny)
-        self.assertIn("NEGLIGIBLE_NOMINAL_GAIN", reason)
+        # 5. Small nominal gain (< £0.50, e.g. £0.15) with positive net reward
+        # MUST BE VIABLE (NO arbitrary £0.50 threshold)
+        tiny_cand = self._make_candidate("TINY", score=80.0, estimated_costs=0.001, expected_net_reward=0.003)
+        viable_tiny, reason_tiny = DynamicCapitalAllocator.evaluate_economic_viability(50.0, tiny_cand)
+        self.assertTrue(viable_tiny, f"Expected viable without £0.50 threshold, got: {reason_tiny}")
 
-    def test_no_arbitrary_fixed_250_minimum(self):
-        """Verifies that an economically viable allocation under £250 is NOT arbitrarily rejected."""
-        portfolio_nav = 200.0
-        available_cash = 200.0
-        # 80% ceiling = £160
-        cand = self._make_candidate("SUB250", score=90.0, price_gbp=10.0, estimated_costs=0.001, expected_net_reward=0.08)
+    def test_excludes_candidates_with_non_positive_net_reward(self):
+        """Candidates with expected net reward <= 0 are excluded from allocation."""
+        c1 = self._make_candidate("PROFITABLE", score=90.0, price_gbp=50.0, expected_net_reward=0.05)
+        c2 = self._make_candidate("UNPROFITABLE", score=85.0, price_gbp=50.0, expected_net_reward=-0.01)
 
-        allocations = self.allocator.allocate(
-            portfolio_capital=portfolio_nav,
-            available_cash=available_cash,
-            existing_positions=[],
-            outstanding_orders=[],
-            candidates=[cand]
-        )
-
-        self.assertEqual(len(allocations), 1)
-        self.assertLess(allocations[0].allocated_capital_gbp, 250.0)
-        self.assertGreaterEqual(allocations[0].allocated_capital_gbp, 150.0)
-
-    def test_reconcentrates_when_lower_candidate_is_economically_pointless(self):
-        """When multiple candidates are evaluated and lower candidates fail economic viability, capital re-concentrates."""
-        portfolio_nav = 500.0
-        available_cash = 500.0
-        # Deployable budget = £400 (80%)
-        # c1 has high score and high net reward
-        c1 = self._make_candidate("HIGH", score=95.0, price_gbp=50.0, estimated_costs=0.002, expected_net_reward=0.10)
-        # c2 has lower score and high friction / marginal net reward that makes small allocation pointless
-        c2 = self._make_candidate("WEAK", score=65.0, price_gbp=20.0, estimated_costs=0.02, expected_net_reward=0.015)
-
-        allocations = self.allocator.allocate(
-            portfolio_capital=portfolio_nav,
-            available_cash=available_cash,
+        allocs = self.allocator.allocate(
+            portfolio_capital=1000.0,
+            available_cash=1000.0,
             existing_positions=[],
             outstanding_orders=[],
             candidates=[c1, c2]
         )
 
-        # WEAK was dropped because its allocation was economically pointless, concentrating capital into HIGH
-        self.assertEqual(len(allocations), 1)
-        self.assertEqual(allocations[0].symbol, "HIGH")
-        self.assertGreater(allocations[0].allocated_capital_gbp, 300.0)
+        self.assertEqual(len(allocs), 1)
+        self.assertEqual(allocs[0].symbol, "PROFITABLE")
 
 
 if __name__ == "__main__":

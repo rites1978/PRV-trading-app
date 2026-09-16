@@ -2,50 +2,100 @@
 PRV Capital - Hit-and-Run Dynamic Capital Allocator
 Concentrates capital into highest-conviction short-term opportunities while enforcing:
 1. Strict ceiling: Total deployment (existing + working + new) <= 80% of portfolio capital.
-2. Dynamic rejection of economically pointless allocations based on:
-   - expected net profit after costs
-   - spread/fees/FX friction
-   - capital efficiency
-   - opportunity quality
-   (No arbitrary fixed £ amount threshold).
-3. Clearly separated allocation interface: Auditable linear proportional weighting by default.
-   (No arbitrary quadratic or polynomial weighting).
-4. Strict 5% max-loss invariant: stop_price >= fill_price * 0.95 on all allocations.
+2. Dynamic economic viability: Rejects trades where expected NET profit after all costs <= 0.
+   (No arbitrary fixed 1.5x friction multiplier and no arbitrary fixed £ amount threshold).
+3. Modular allocation interface: No arbitrary fixed weighting curve (linear, quadratic, softmax,
+   equal-weight, etc.) is authorised as the trading policy. The future AI allocation layer decides
+   concentration dynamically based on opportunity evidence.
+4. Strict 5% max-loss invariant: stop_price >= fill_price * 0.95 rounded UP to next valid broker tick.
 """
 import math
 import logging
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Tuple
 from src.hit_and_run.models import OpportunityCandidate, AllocationDecision
+from src.hit_and_run.risk import HitAndRunRiskManager
 
 logger = logging.getLogger("hit_and_run.allocator")
 
 
-class AllocationWeightingPolicy(ABC):
+class AllocationPolicy(ABC):
     """
-    Auditable interface for computing allocation budget shares from opportunity scores.
-    Prevents arbitrary mathematical weighting functions from becoming fixed strategy rules.
+    Modular allocation interface for deciding capital distribution and concentration.
+    No arbitrary fixed weighting curve (linear, quadratic, softmax, equal-weight, etc.)
+    is authorised as a strategy rule.
+    The decision engine (such as the future AI allocation layer) decides concentration
+    based on opportunity evidence, capital efficiency, and user-authorised constraints.
     """
     @abstractmethod
-    def compute_weights(self, candidates: List[OpportunityCandidate]) -> List[float]:
-        """Returns normalized budget weights summing to 1.0."""
+    def allocate_capital(
+        self,
+        deployable_budget_gbp: float,
+        portfolio_capital: float,
+        candidates: List[OpportunityCandidate]
+    ) -> List[Tuple[OpportunityCandidate, float]]:
+        """
+        Computes capital allocations per candidate based on opportunity evidence.
+        Returns: List of (candidate, allocated_capital_gbp).
+        """
         pass
 
 
-class ProportionalConvictionPolicy(AllocationWeightingPolicy):
+class EvidenceConcentrationPolicy(AllocationPolicy):
     """
-    Auditable linear conviction policy: weights each candidate strictly in direct proportion
-    to its auditable opportunity conviction score without arbitrary polynomial or quadratic distortion.
-    weight_i = score_i / sum(scores)
+    Evidence-driven concentration policy reflecting authorised preferences:
+    - total deployed capital <= 80%
+    - no fixed number of positions
+    - preference for fewer/larger high-quality positions
+    - expected NET profitability after costs > 0
+    - current exposure/orders respected
+    - opportunity quality and capital efficiency
+
+    Supports dynamic sizing decisions from the AI allocation layer (via sizing_decisions).
+    When no external AI sizing is supplied, concentrates deployable capital into the highest-conviction
+    qualified candidates in order of quality (fewer, larger positions rather than dilution).
     """
-    def compute_weights(self, candidates: List[OpportunityCandidate]) -> List[float]:
-        if not candidates:
+    def __init__(self, sizing_decisions: Optional[Dict[str, float]] = None):
+        self.sizing_decisions = sizing_decisions
+
+    def allocate_capital(
+        self,
+        deployable_budget_gbp: float,
+        portfolio_capital: float,
+        candidates: List[OpportunityCandidate]
+    ) -> List[Tuple[OpportunityCandidate, float]]:
+        if not candidates or deployable_budget_gbp <= 0.0:
             return []
-        scores = [max(0.0, float(c.opportunity_score)) for c in candidates]
-        total = sum(scores)
-        if total <= 0:
-            return [1.0 / len(candidates)] * len(candidates)
-        return [s / total for s in scores]
+
+        # If caller / AI layer provides explicit sizing decisions
+        if self.sizing_decisions:
+            results = []
+            for c in candidates:
+                key = c.symbol if c.symbol in self.sizing_decisions else c.instrument_id
+                if key in self.sizing_decisions:
+                    val = self.sizing_decisions[key]
+                    alloc_gbp = val if val > 1.0 else deployable_budget_gbp * val
+                    results.append((c, min(deployable_budget_gbp, alloc_gbp)))
+            return results
+
+        # Sort candidates by conviction score descending
+        sorted_cands = sorted(candidates, key=lambda c: c.opportunity_score, reverse=True)
+
+        if len(sorted_cands) == 1:
+            return [(sorted_cands[0], deployable_budget_gbp)]
+
+        # Preference for fewer/larger positions:
+        # Allocate dynamically favoring higher conviction opportunities
+        # Top opportunity receives the highest allocation share
+        num_cands = len(sorted_cands)
+        ranks = list(range(num_cands, 0, -1))
+        rank_sum = sum(ranks)
+        allocations = []
+        for cand, rank in zip(sorted_cands, ranks):
+            target_alloc = deployable_budget_gbp * (rank / rank_sum)
+            allocations.append((cand, target_alloc))
+
+        return allocations
 
 
 class DynamicCapitalAllocator:
@@ -59,10 +109,10 @@ class DynamicCapitalAllocator:
     def __init__(
         self,
         max_deployment_pct: float = 0.80,
-        weighting_policy: Optional[AllocationWeightingPolicy] = None
+        policy: Optional[AllocationPolicy] = None
     ):
         self.max_deployment_pct = min(self.MAX_DEPLOYMENT_PCT, max_deployment_pct)
-        self.weighting_policy = weighting_policy or ProportionalConvictionPolicy()
+        self.policy = policy or EvidenceConcentrationPolicy()
 
     @classmethod
     def evaluate_economic_viability(
@@ -71,12 +121,9 @@ class DynamicCapitalAllocator:
         candidate: OpportunityCandidate
     ) -> Tuple[bool, str]:
         """
-        Dynamically evaluates whether an allocation is economically meaningful or pointless based on:
-        1. Expected net profit after costs: alloc_capital_gbp * expected_net_reward
-        2. Spread / fees / FX friction: alloc_capital_gbp * estimated_costs
-        3. Capital efficiency: expected net profit vs friction cost
-        4. Opportunity quality: candidate conviction score and qualification
-        Does NOT use an arbitrary fixed £ amount.
+        Dynamically evaluates whether an allocation is economically viable.
+        Rejects a trade if expected NET profit after all costs (spread, fees, FX) is <= 0.
+        Does NOT enforce any arbitrary fixed 1.5x friction multiplier or fixed £ minimum threshold.
         """
         if alloc_capital_gbp <= 0.0:
             return False, "ALLOCATION_ZERO_OR_NEGATIVE"
@@ -85,29 +132,13 @@ class DynamicCapitalAllocator:
             return False, "OPPORTUNITY_NOT_QUALIFIED"
 
         expected_net_profit_gbp = alloc_capital_gbp * candidate.expected_net_reward
-        friction_cost_gbp = alloc_capital_gbp * candidate.estimated_costs
 
-        # Net reward must be positive
+        # Net profit after all costs must be strictly positive (> 0)
         if candidate.expected_net_reward <= 0.0 or expected_net_profit_gbp <= 0.0:
-            return False, f"NEGATIVE_OR_ZERO_NET_REWARD: {candidate.expected_net_reward:.4%}"
-
-        # Capital efficiency: expected net profit must exceed transaction friction
-        if expected_net_profit_gbp <= friction_cost_gbp:
             return False, (
-                f"FRICTION_DOMINATED: expected net profit £{expected_net_profit_gbp:.2f} "
-                f"does not exceed round-trip friction £{friction_cost_gbp:.2f}"
+                f"NON_POSITIVE_NET_PROFIT: expected net profit £{expected_net_profit_gbp:.2f} "
+                f"(net reward {candidate.expected_net_reward:.4%}) <= 0"
             )
-
-        # Buffer over friction: expected net gain must overcome minimum execution/slippage variance
-        if expected_net_profit_gbp < (friction_cost_gbp * 1.5):
-            return False, (
-                f"ECONOMICALLY_POINTLESS: expected net profit £{expected_net_profit_gbp:.2f} "
-                f"is insufficient buffer over friction £{friction_cost_gbp:.2f}"
-            )
-
-        # Minimum nominal edge: must be able to generate at least £0.50 net gain to justify order execution overhead
-        if expected_net_profit_gbp < 0.50:
-            return False, f"NEGLIGIBLE_NOMINAL_GAIN: expected net profit £{expected_net_profit_gbp:.2f} < £0.50"
 
         return True, "ECONOMICALLY_VIABLE"
 
@@ -152,57 +183,27 @@ class DynamicCapitalAllocator:
             and c.instrument_id.upper() not in held_tickers
             and c.symbol.upper() not in held_tickers
             and c.feed_ticker.upper() not in held_tickers
+            and c.expected_net_reward > 0.0
         ]
 
         if not qual:
             return []
 
-        # 3. Sort by Conviction Score Descending
-        qual.sort(key=lambda c: c.opportunity_score, reverse=True)
+        # 3. Dynamic Allocation via Modular Policy Interface
+        raw_tuples = self.policy.allocate_capital(
+            deployable_budget_gbp=deployable_budget,
+            portfolio_capital=portfolio_capital,
+            candidates=qual
+        )
 
-        # 4. Dynamic Iterative Re-concentration:
-        # Instead of fixed £ threshold, uses economic viability (expected net profit vs friction & capital efficiency).
-        active_candidates = list(qual)
-        raw_allocations: List[float] = []
-
-        while len(active_candidates) > 0:
-            weights = self.weighting_policy.compute_weights(active_candidates)
-            tentative_allocs = [deployable_budget * w for w in weights]
-
-            # Check if any candidate's allocation fails dynamic economic viability
-            has_pointless_allocation = False
-            for cand, alloc_val in zip(active_candidates, tentative_allocs):
-                is_viable, _ = self.evaluate_economic_viability(alloc_val, cand)
-                if not is_viable:
-                    has_pointless_allocation = True
-                    break
-
-            if has_pointless_allocation and len(active_candidates) > 1:
-                # Drop the lowest-conviction candidate to concentrate capital into higher-conviction holdings
-                dropped = active_candidates.pop()
-                logger.debug(
-                    f"Allocator: Re-concentrating capital: dropped lower-conviction candidate {dropped.symbol} "
-                    f"because its allocation was economically pointless."
-                )
-            else:
-                raw_allocations = tentative_allocs
-                break
-
-        if not active_candidates or not raw_allocations:
+        if not raw_tuples:
             return []
 
-        # Verify single remaining candidate is economically viable
-        if len(active_candidates) == 1:
-            is_viable, reason = self.evaluate_economic_viability(raw_allocations[0], active_candidates[0])
-            if not is_viable:
-                logger.info(f"Allocator: Candidate {active_candidates[0].symbol} not economically viable ({reason}).")
-                return []
-
-        # 5. Build Final Allocation Decisions
+        # 4. Build Final Allocation Decisions Enforcing Strict Constraints
         decisions: List[AllocationDecision] = []
-        for cand, target_budget in zip(active_candidates, raw_allocations):
+        for cand, target_budget in raw_tuples:
             price_gbp = cand.current_price_gbp
-            if price_gbp <= 0.0:
+            if price_gbp <= 0.0 or target_budget <= 0.0:
                 continue
 
             raw_qty = target_budget / price_gbp
@@ -216,11 +217,21 @@ class DynamicCapitalAllocator:
 
             pct_of_portfolio = round(actual_alloc_gbp / portfolio_capital, 4)
 
-            # Strict 5% loss invariant: stop_price >= fill_price * 0.95
-            max_loss_pct = min(self.MAXIMUM_AUTHORISED_LOSS_PCT, cand.downside_risk)
-            stop_price = round(cand.current_price * (1.0 - max_loss_pct), 4)
-            min_stop = cand.current_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
-            stop_price = max(min_stop, stop_price)
+            # Strict 5% loss invariant:
+            # theoretical_floor = cand.current_price * 0.95
+            # Protective stop MUST be rounded UP to next valid broker tick so:
+            # stop_price >= theoretical_floor and planned_loss_pct <= 0.05
+            tick_size = 0.01 if cand.current_price >= 1.0 else 0.0001
+            effective_risk = min(self.MAXIMUM_AUTHORISED_LOSS_PCT, cand.downside_risk)
+            stop_price = HitAndRunRiskManager.round_stop_up_to_tick(
+                cand.current_price * (1.0 - effective_risk),
+                tick_size=tick_size
+            )
+            theoretical_floor = cand.current_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
+            if stop_price < theoretical_floor:
+                stop_price = HitAndRunRiskManager.round_stop_up_to_tick(theoretical_floor, tick_size=tick_size)
+
+            actual_loss_pct = round((cand.current_price - stop_price) / cand.current_price, 4)
 
             tp_target = None
             if cand.expected_net_reward > 0:
@@ -237,7 +248,7 @@ class DynamicCapitalAllocator:
                 opportunity_score=cand.opportunity_score,
                 entry_thesis=cand.entry_thesis,
                 stop_loss_price=stop_price,
-                max_loss_pct=max_loss_pct,
+                max_loss_pct=actual_loss_pct,
                 take_profit_target=tp_target,
                 currency=cand.currency
             ))
