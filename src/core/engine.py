@@ -1193,6 +1193,7 @@ class PRVQuantEngine:
         from src.strategies.core_compounding_v1 import core_compounding_strategy
         from zoneinfo import ZoneInfo
         from datetime import time as dtime
+        import yfinance as yf
 
         # Verify cryptographic integrity
         core_compounding_strategy.verify_cryptographic_integrity()
@@ -1212,6 +1213,7 @@ class PRVQuantEngine:
         regular_close = session_ctx.get("regular_close", dtime(16, 30, 0))
         is_market_open = is_trading_day and (regular_open <= now_uk.time() < regular_close)
         today_date_str = session_ctx["cur_date_str"]
+        expected_completed = session_ctx.get("expected_completed_session")
 
         data = {}
         missing_feeds = []
@@ -1225,23 +1227,108 @@ class PRVQuantEngine:
                     continue
                 df = df.copy()
                 is_uk_pence = inst.get("is_uk_pence", True)
+                div = 100.0 if is_uk_pence else 1.0
                 if is_uk_pence:
                     for col in ["Open", "High", "Low", "Close"]:
                         if col in df.columns:
                             df[col] = df[col] / 100.0
 
-                # Dynamic intraday update: incorporate live executable price at exact scan time
-                if is_market_open and not observation_date:
-                    live_p = market_data.get_current_executable_price(yf_t, is_uk_pence=is_uk_pence)
-                    if live_p is None or live_p <= 0:
-                        raise ValueError(f"Live executable price unavailable or timed out for {sym} ({yf_t})")
-                    last_idx = df.index[-1]
-                    if str(last_idx)[:10] == today_date_str:
-                        df.loc[last_idx, "Close"] = live_p
-                        if "High" in df.columns:
-                            df.loc[last_idx, "High"] = max(float(df.loc[last_idx, "High"]), live_p)
-                        if "Low" in df.columns:
-                            df.loc[last_idx, "Low"] = min(float(df.loc[last_idx, "Low"]), live_p)
+                # Fetch recent 5d/5m data to repair missing completed session and get current session price
+                sess = market_data.get_session()
+                stock = yf.Ticker(yf_t, session=sess)
+                df_5m = stock.history(period="5d", interval="5m", timeout=market_data.request_timeout)
+                if df_5m.empty or "Close" not in df_5m.columns:
+                    stock = yf.Ticker(yf_t, session=None)
+                    df_5m = stock.history(period="5d", interval="5m", timeout=market_data.request_timeout)
+
+                if not df_5m.empty and "Close" in df_5m.columns:
+                    dates_5m = [str(ts)[:10] for ts in df_5m.index]
+
+                    # 1. Synthesize completed previous session OHLC from 5m bars if expected_completed is present in 5m
+                    if expected_completed:
+                        mask_completed = [d == expected_completed for d in dates_5m]
+                        bars_completed = df_5m[mask_completed]
+                        if not bars_completed.empty:
+                            c_open = float(bars_completed["Open"].iloc[0]) / div
+                            c_high = float(bars_completed["High"].max()) / div
+                            c_low = float(bars_completed["Low"].min()) / div
+                            c_close = float(bars_completed["Close"].iloc[-1]) / div
+                            c_vol = float(bars_completed["Volume"].sum()) if "Volume" in bars_completed.columns else 0.0
+
+                            ts_comp = pd.Timestamp(expected_completed, tz=df.index.tz) if df.index.tz else pd.Timestamp(expected_completed)
+                            for mi in [idx for idx in df.index if str(idx)[:10] == expected_completed]:
+                                df.drop(mi, inplace=True)
+                            df.loc[ts_comp, "Open"] = c_open
+                            df.loc[ts_comp, "High"] = c_high
+                            df.loc[ts_comp, "Low"] = c_low
+                            df.loc[ts_comp, "Close"] = c_close
+                            if "Volume" in df.columns:
+                                df.loc[ts_comp, "Volume"] = c_vol
+                            df.sort_index(inplace=True)
+
+                    # 2. Derive current session live price from latest 5m bar and update today's partial bar
+                    if is_market_open and not observation_date:
+                        mask_today = [d == today_date_str for d in dates_5m]
+                        bars_today = df_5m[mask_today]
+                        today_live_p = None
+                        if not bars_today.empty and "Close" in bars_today.columns:
+                            valid_today = bars_today["Close"].dropna()
+                            if not valid_today.empty:
+                                today_live_p = float(valid_today.iloc[-1]) / div
+                                today_open = float(bars_today["Open"].iloc[0]) / div
+                                today_high = float(bars_today["High"].max()) / div
+                                today_low = float(bars_today["Low"].min()) / div
+                                today_vol = float(bars_today["Volume"].sum()) if "Volume" in bars_today.columns else 0.0
+
+                                ts_today = pd.Timestamp(today_date_str, tz=df.index.tz) if df.index.tz else pd.Timestamp(today_date_str)
+                                matching_today = [idx for idx in df.index if str(idx)[:10] == today_date_str]
+                                if matching_today:
+                                    ti = matching_today[0]
+                                    df.loc[ti, "Close"] = today_live_p
+                                    if "High" in df.columns:
+                                        df.loc[ti, "High"] = max(float(df.loc[ti, "High"]), today_high)
+                                    if "Low" in df.columns:
+                                        df.loc[ti, "Low"] = min(float(df.loc[ti, "Low"]), today_low)
+                                else:
+                                    df.loc[ts_today, "Open"] = today_open
+                                    df.loc[ts_today, "High"] = today_high
+                                    df.loc[ts_today, "Low"] = today_low
+                                    df.loc[ts_today, "Close"] = today_live_p
+                                    if "Volume" in df.columns:
+                                        df.loc[ts_today, "Volume"] = today_vol
+                                    df.sort_index(inplace=True)
+
+                        if today_live_p is None or today_live_p <= 0 or np.isnan(today_live_p):
+                            live_p = market_data.get_current_executable_price(yf_t, is_uk_pence=is_uk_pence)
+                            if live_p is None or live_p <= 0:
+                                raise ValueError(f"Live executable price unavailable or timed out for {sym} ({yf_t})")
+                            last_idx = df.index[-1]
+                            if str(last_idx)[:10] == today_date_str:
+                                df.loc[last_idx, "Close"] = live_p
+                                if "High" in df.columns:
+                                    df.loc[last_idx, "High"] = max(float(df.loc[last_idx, "High"]), live_p)
+                                if "Low" in df.columns:
+                                    df.loc[last_idx, "Low"] = min(float(df.loc[last_idx, "Low"]), live_p)
+                            else:
+                                ts_today = pd.Timestamp(today_date_str, tz=df.index.tz) if df.index.tz else pd.Timestamp(today_date_str)
+                                df.loc[ts_today, "Close"] = live_p
+                                df.sort_index(inplace=True)
+                else:
+                    if is_market_open and not observation_date:
+                        live_p = market_data.get_current_executable_price(yf_t, is_uk_pence=is_uk_pence)
+                        if live_p is None or live_p <= 0:
+                            raise ValueError(f"Live executable price unavailable or timed out for {sym} ({yf_t})")
+                        last_idx = df.index[-1]
+                        if str(last_idx)[:10] == today_date_str:
+                            df.loc[last_idx, "Close"] = live_p
+                            if "High" in df.columns:
+                                df.loc[last_idx, "High"] = max(float(df.loc[last_idx, "High"]), live_p)
+                            if "Low" in df.columns:
+                                df.loc[last_idx, "Low"] = min(float(df.loc[last_idx, "Low"]), live_p)
+                        else:
+                            ts_today = pd.Timestamp(today_date_str, tz=df.index.tz) if df.index.tz else pd.Timestamp(today_date_str)
+                            df.loc[ts_today, "Close"] = live_p
+                            df.sort_index(inplace=True)
 
                 df["SMA200"] = df["Close"].rolling(200).mean()
                 df["MOM"] = df["Close"].pct_change(20)
@@ -1285,7 +1372,7 @@ class PRVQuantEngine:
             current_bar = target_ts
         elif is_market_open and str(dates[-1])[:10] == today_date_str:
             # Active regular trading session on live data: evaluate point-in-time ranking on fresh scan-time data!
-            prev_bar = dates[-1]
+            prev_bar = dates[-2] if len(dates) >= 2 else dates[-1]
             current_bar = dates[-1]
         elif str(dates[-1])[:10] == today_date_str and now_uk.time() < regular_open:
             # Pre-market: observe completed bar T-1
@@ -1302,6 +1389,11 @@ class PRVQuantEngine:
                 data[k].loc[current_bar] = np.nan
 
         sig = core_compounding_strategy.evaluate_point_in_time_signal(current_bar, prev_bar, data)
+        for r in sig.get("rankings", []):
+            df_k = r.get("target_key")
+            if df_k in data and current_bar in data[df_k].index:
+                r["current_price"] = round(float(data[df_k].loc[current_bar, "Close"]), 4)
+
         if len(data) < len(core_compounding_strategy.CERTIFIED_UNIVERSE):
             missing_desc = ", ".join(missing_feeds) if missing_feeds else f"{len(core_compounding_strategy.CERTIFIED_UNIVERSE) - len(data)} missing"
             logger.warning(f"Market feed incomplete: {len(data)}/6 ETFs available ({missing_desc}). Fail-closed: entry disabled on partial data.")

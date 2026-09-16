@@ -3,6 +3,8 @@ import yfinance as yf
 from yfinance.data import new_session
 import pandas as pd
 import numpy as np
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional, Tuple
 
 class MarketDataProvider:
@@ -68,17 +70,33 @@ class MarketDataProvider:
         Authoritative current executable price lookup immediately before broker submission.
         Returns price in GBP (normalized if UK pence), or None if unavailable/invalid.
         Applies hard HTTP connect/read timeout at the network layer. Never returns 0.0 or negative prices.
+        Only returns price from the CURRENT trading session (Europe/London). Stale previous-session price is rejected.
         """
-        req_timeout = timeout or min(self.request_timeout, 4.0)
+        req_timeout = timeout or self.request_timeout
         try:
             sess = self.get_session()
             stock = yf.Ticker(yf_ticker, session=sess)
-            df = stock.history(period="1d", interval="1m", timeout=req_timeout)
+            df = stock.history(period="5d", interval="5m", timeout=req_timeout)
             if df.empty or "Close" not in df.columns:
-                df = stock.history(period="1d", interval="5m", timeout=req_timeout)
+                stock = yf.Ticker(yf_ticker, session=None)
+                df = stock.history(period="5d", interval="5m", timeout=req_timeout)
             if not df.empty and "Close" in df.columns:
                 valid_close = df["Close"].dropna()
                 if not valid_close.empty:
+                    last_ts = valid_close.index[-1]
+                    london_tz = ZoneInfo("Europe/London")
+                    now_uk = datetime.now(london_tz)
+                    cur_date_str = now_uk.strftime("%Y-%m-%d")
+
+                    if hasattr(last_ts, "tz") and last_ts.tz is not None:
+                        bar_date_str = str(last_ts.astimezone(london_tz))[:10]
+                    else:
+                        bar_date_str = str(last_ts)[:10]
+
+                    if bar_date_str != cur_date_str:
+                        # Price is from a previous session; do not return stale price as live price
+                        return None
+
                     price = float(valid_close.iloc[-1])
                     if price > 0 and not np.isnan(price):
                         return float(price / 100.0 if is_uk_pence else price)
