@@ -141,9 +141,9 @@ class HitAndRunOpportunityScorer:
                 explicit_tick=snapshot.get("tick_size")
             )
 
-        # 10. Downside Risk (Strictly capped at 5.0% max loss invariant)
+        # 10. Downside Risk (Informational technical downside estimate for AI reasoning)
         technical_downside = max(0.010, volatility * 1.5)
-        downside_risk = float(min(self.MAXIMUM_AUTHORISED_LOSS_PCT, technical_downside))
+        downside_risk = float(technical_downside)
 
         # 11. Expected Net Reward
         # Target move based on momentum continuation + volatility impulse

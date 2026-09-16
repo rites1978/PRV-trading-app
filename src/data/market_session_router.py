@@ -96,9 +96,11 @@ class MarketSessionRouter:
     ) -> Dict[str, Any]:
         """
         Evaluates instrument tradability incorporating workingScheduleId, exchange calendar, and extendedHours.
+        Separates Extended Market Hours (PRE_MARKET, AFTER_HOURS) from 24/5 Overnight Sessions (OVERNIGHT).
         Exposes:
         - SESSION_OPEN_NOW (bool)
         - EXTENDED_HOURS_ELIGIBLE (bool)
+        - OVERNIGHT_ELIGIBILITY (TRUE, FALSE, UNKNOWN)
         - EXECUTION_SESSION (PRE_MARKET, REGULAR, AFTER_HOURS, OVERNIGHT, CLOSED, UNKNOWN)
         - NEXT_SESSION_TRANSITION (Dict with timestamp & event_type, or None)
         Distinguishes:
@@ -108,10 +110,27 @@ class MarketSessionRouter:
         sched_id = instrument.get("workingScheduleId")
         extended_eligible = bool(instrument.get("extendedHours", False))
 
+        # Overnight / 24-5 eligibility model
+        # Trading212 Public API (/equity/metadata/instruments) does not expose an overnight/24-5 flag.
+        # If explicitly present in instrument record, use it; otherwise strictly "UNKNOWN".
+        raw_overnight = instrument.get("overnightHours")
+        if raw_overnight is None:
+            raw_overnight = instrument.get("overnightEligible")
+        if raw_overnight is None:
+            raw_overnight = instrument.get("is24_5")
+
+        if raw_overnight is True:
+            overnight_eligibility = "TRUE"
+        elif raw_overnight is False:
+            overnight_eligibility = "FALSE"
+        else:
+            overnight_eligibility = "UNKNOWN"
+
         if sched_id is None:
             return {
                 "session_open_now": False,
                 "extended_hours_eligible": extended_eligible,
+                "overnight_eligibility": overnight_eligibility,
                 "execution_session": "UNKNOWN",
                 "exchange_session": "UNKNOWN",
                 "exchange_name": "UNKNOWN",
@@ -134,6 +153,7 @@ class MarketSessionRouter:
             return {
                 "session_open_now": True,
                 "extended_hours_eligible": extended_eligible,
+                "overnight_eligibility": overnight_eligibility,
                 "execution_session": "REGULAR",
                 "exchange_session": "REGULAR",
                 "exchange_name": ex_name,
@@ -142,11 +162,13 @@ class MarketSessionRouter:
                 "next_session_transition": next_transition,
                 "status_reason": f"REGULAR_SESSION_OPEN: {ex_name} regular session active"
             }
-        elif ex_session in ("PRE_MARKET", "AFTER_HOURS", "OVERNIGHT"):
+        elif ex_session in ("PRE_MARKET", "AFTER_HOURS"):
+            # Extended market hours eligibility
             if extended_eligible:
                 return {
                     "session_open_now": True,
                     "extended_hours_eligible": True,
+                    "overnight_eligibility": overnight_eligibility,
                     "execution_session": ex_session,
                     "exchange_session": ex_session,
                     "exchange_name": ex_name,
@@ -159,6 +181,7 @@ class MarketSessionRouter:
                 return {
                     "session_open_now": False,
                     "extended_hours_eligible": False,
+                    "overnight_eligibility": overnight_eligibility,
                     "execution_session": "CLOSED",
                     "exchange_session": ex_session,
                     "exchange_name": ex_name,
@@ -170,10 +193,42 @@ class MarketSessionRouter:
                         f"not extended-hours eligible (INSTRUMENT_NOT_TRADABLE_NOW)"
                     )
                 }
+        elif ex_session == "OVERNIGHT":
+            # 24/5 Overnight session eligibility: DO NOT authorize from extendedHours alone!
+            if overnight_eligibility == "TRUE":
+                return {
+                    "session_open_now": True,
+                    "extended_hours_eligible": extended_eligible,
+                    "overnight_eligibility": "TRUE",
+                    "execution_session": "OVERNIGHT",
+                    "exchange_session": "OVERNIGHT",
+                    "exchange_name": ex_name,
+                    "regular_session_closed": True,
+                    "instrument_not_tradable_now": False,
+                    "next_session_transition": next_transition,
+                    "status_reason": f"OVERNIGHT_OPEN: {ex_name} in OVERNIGHT; instrument verified 24/5 overnight eligible"
+                }
+            else:
+                return {
+                    "session_open_now": False,
+                    "extended_hours_eligible": extended_eligible,
+                    "overnight_eligibility": overnight_eligibility,
+                    "execution_session": "CLOSED",
+                    "exchange_session": "OVERNIGHT",
+                    "exchange_name": ex_name,
+                    "regular_session_closed": True,
+                    "instrument_not_tradable_now": True,
+                    "next_session_transition": next_transition,
+                    "status_reason": (
+                        f"OVERNIGHT_UNVERIFIED: {ex_name} in OVERNIGHT but overnight eligibility "
+                        f"is {overnight_eligibility} (INSTRUMENT_NOT_TRADABLE_NOW)"
+                    )
+                }
         else:  # CLOSED or UNKNOWN
             return {
                 "session_open_now": False,
                 "extended_hours_eligible": extended_eligible,
+                "overnight_eligibility": overnight_eligibility,
                 "execution_session": ex_session,
                 "exchange_session": ex_session,
                 "exchange_name": ex_name,

@@ -1,6 +1,6 @@
 """
-PRV Capital - Hit-and-Run Authoritative Transaction Cost & Regulatory Tax Model
-Evaluates true Net P&L transaction friction with instrument/venue-specific rules:
+PRV Capital - Hit-and-Run Pre-Trade Transaction Cost & Regulatory Tax Model
+Evaluates PRETRADE_COST_ESTIMATE based on verified published broker/statutory fees:
 1. Trading212 FX Fee (0.15% per leg on non-GBP/GBX transactions)
 2. UK Stamp Duty Reserve Tax (0.50% on BUY of UK main-market ordinary equities; EXEMPT on ETFs, AIM, Foreign, Sells)
 3. Panel on Takeovers & Mergers (PTM) Levy (£1.50 on UK/CI/IoM transactions > £10,000; EXEMPT on ETFs and <= £10,000)
@@ -10,6 +10,12 @@ Evaluates true Net P&L transaction friction with instrument/venue-specific rules
 7. Italian Tobin Tax (0.10% on BUY of Borsa Italiana Italian equities)
 8. Spanish FTT (0.20% on BUY of Bolsa de Madrid Spanish equities > €1bn)
 9. Bid-Ask Spread Friction
+
+Cost Model Terminology Contract:
+No public Trading212 fee-preview endpoint is currently proven.
+Therefore this deterministic model provides a PRETRADE_COST_ESTIMATE based on verified
+published broker and statutory fee schedules.
+After execution, actual broker transaction and fill records own realized cost truth.
 
 Enforces strict completeness:
 If tax/fee applicability for an instrument cannot be established reliably:

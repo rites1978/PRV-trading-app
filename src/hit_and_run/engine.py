@@ -133,7 +133,7 @@ class HitAndRunEngine:
                     utc_dt=utc_dt
                 )
                 opportunity_states.append(state)
-                if state.is_fresh and state.current_price > 0:
+                if state.quote_freshness_status == "CURRENT" and state.current_price > 0:
                     fresh_quote_count += 1
             except Exception as e:
                 system_errors.append(f"OPPORTUNITY_STATE_BUILD_ERROR for {t_id}: {str(e)}")

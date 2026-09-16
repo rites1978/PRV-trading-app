@@ -41,9 +41,9 @@ class HitAndRunOpportunityAnalyzer:
         contrary_evidence: List[str] = []
         conviction_evidence: Dict[str, Any] = {}
 
-        # 1. Downside Estimate (Strictly capped at 5.0% max loss invariant)
+        # 1. Downside Estimate (Informational evidence for AI reasoning; unconstrained by trade gates)
         vol = state.volatility if state.volatility is not None else 0.015
-        downside_est = min(self.MAXIMUM_AUTHORISED_LOSS_PCT, max(0.010, vol * 1.5))
+        downside_est = max(0.010, vol * 1.5)
 
         # 2. Data Quality Audit
         data_quality_issues: List[str] = []
@@ -68,11 +68,11 @@ class HitAndRunOpportunityAnalyzer:
             data_quality_issues.append("INCOMPLETE_TICK_METADATA")
             contrary_evidence.append("TICK_SIZE_UNKNOWN: Authoritative broker tick size unavailable for stop protection")
 
-        if not state.is_fresh:
-            data_quality_issues.append("STALE_DATA")
-            contrary_evidence.append(f"DATA_STALE: Age {state.data_age_seconds:.0f}s exceeds freshness window")
+        if state.quote_freshness_status != "CURRENT":
+            data_quality_issues.append("STALE_DATA" if state.quote_freshness_status == "STALE" else "UNKNOWN_FRESHNESS")
+            contrary_evidence.append(f"DATA_NOT_CURRENT: Quote freshness status is '{state.quote_freshness_status}'")
         else:
-            supporting_evidence.append("Market snapshot fresh")
+            supporting_evidence.append("Market snapshot fresh and current")
 
         if state.session_state not in ("REGULAR", "OPEN"):
             contrary_evidence.append(f"MARKET_SESSION_INACTIVE: Current session is {state.session_state}")

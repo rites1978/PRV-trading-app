@@ -55,6 +55,7 @@ class LiveOpportunityStateBuilder:
         # Session State & Session Open Resolution
         session_open = False
         extended_hours_eligible = False
+        overnight_eligibility = "UNKNOWN"
         execution_session = "UNKNOWN"
         next_session_transition = None
 
@@ -63,6 +64,7 @@ class LiveOpportunityStateBuilder:
             s_details = market_session_router.get_instrument_session_details(sched_obj, utc_dt=utc_dt)
             session_open = bool(s_details["session_open_now"])
             extended_hours_eligible = bool(s_details["extended_hours_eligible"])
+            overnight_eligibility = str(s_details.get("overnight_eligibility", "UNKNOWN"))
             execution_session = str(s_details["execution_session"])
             next_session_transition = s_details["next_session_transition"]
             session_state = execution_session
@@ -77,6 +79,7 @@ class LiveOpportunityStateBuilder:
                 session_open = True
                 execution_session = "REGULAR"
             extended_hours_eligible = bool(snapshot.get("extendedHours", False))
+            overnight_eligibility = "UNKNOWN"
 
         # Prices & Quote Units
         current_price = float(snapshot.get("current_price", 0.0))
@@ -200,7 +203,7 @@ class LiveOpportunityStateBuilder:
         else:
             expected_net_opportunity = None
 
-        # Data Freshness
+        # Data Freshness & Quote Validity
         data_timestamp = snapshot.get("data_timestamp") or snapshot.get("timestamp") or utc_dt.isoformat()
         quote_timestamp = snapshot.get("quote_timestamp") or snapshot.get("last_quote_time")
         data_age_seconds = snapshot.get("data_age_seconds")
@@ -211,7 +214,25 @@ class LiveOpportunityStateBuilder:
             except Exception:
                 data_age_seconds = None
 
-        is_fresh = bool(data_age_seconds is None or data_age_seconds <= 600.0)
+        # Quote Freshness Model:
+        # Repositories/providers define their freshness contract; no invented seconds threshold.
+        # Possible statuses: CURRENT, STALE, UNKNOWN.
+        raw_freshness = snapshot.get("quote_freshness_status")
+        if raw_freshness is not None:
+            quote_freshness_status = str(raw_freshness).upper().strip()
+        elif snapshot.get("is_stale") is True:
+            quote_freshness_status = "STALE"
+        elif snapshot.get("is_fresh") is False:
+            quote_freshness_status = "STALE"
+        elif snapshot.get("is_current") is True or snapshot.get("is_fresh") is True:
+            quote_freshness_status = "CURRENT"
+        elif snapshot.get("bid") is not None or snapshot.get("ask") is not None or snapshot.get("current_price"):
+            # Live quote provided by feed without an explicit stale marker
+            quote_freshness_status = "CURRENT"
+        else:
+            quote_freshness_status = "UNKNOWN"
+
+        is_fresh = (quote_freshness_status == "CURRENT")
 
         # Technical Execution Supported flag
         technical_execution_supported = bool(
@@ -221,19 +242,19 @@ class LiveOpportunityStateBuilder:
             tick_size is not None and tick_size > 0
         )
 
-        # Authoritative Quote Timestamps & Session Executability (Requirement 4)
+        # Authoritative Quote Timestamps & Session Executability
         quote_fetch_timestamp = snapshot.get("quote_fetch_timestamp") or utc_dt.isoformat()
         quote_market_timestamp = snapshot.get("quote_market_timestamp") or quote_timestamp or snapshot.get("last_bar_date")
 
         # An opportunity is executable right now ONLY IF:
         # 1. The exchange trading session is actively OPEN (not closed)
-        # 2. Quote is fresh
+        # 2. QUOTE_FRESHNESS_STATUS == CURRENT
         # 3. Market price > 0
         # 4. Technical execution is verified
         # 5. Live bid/ask quote is present (actionable market spread)
         quote_executable_now = bool(
             session_open and
-            is_fresh and
+            quote_freshness_status == "CURRENT" and
             current_price > 0 and
             technical_execution_supported and
             bid is not None and
@@ -293,9 +314,11 @@ class LiveOpportunityStateBuilder:
             data_timestamp=data_timestamp,
             quote_timestamp=quote_timestamp,
             data_age_seconds=data_age_seconds,
+            quote_freshness_status=quote_freshness_status,
             is_fresh=is_fresh,
             session_open=session_open,
             extended_hours_eligible=extended_hours_eligible,
+            overnight_eligibility=overnight_eligibility,
             execution_session=execution_session,
             next_session_transition=next_session_transition,
             quote_executable_now=quote_executable_now,

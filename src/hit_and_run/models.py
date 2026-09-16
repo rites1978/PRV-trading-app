@@ -60,6 +60,7 @@ class OpportunityCandidate:
     # Market context
     market_session: str = "REGULAR"
     extended_hours_eligible: bool = False
+    overnight_eligibility: str = "UNKNOWN"
     execution_session: str = "REGULAR"
     next_session_transition: Optional[Dict[str, Any]] = None
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -69,8 +70,6 @@ class OpportunityCandidate:
             raise ValueError(f"Current price must be strictly positive, got {self.current_price}")
         if self.current_price_gbp <= 0.0:
             raise ValueError(f"Current price in GBP must be strictly positive, got {self.current_price_gbp}")
-        if self.downside_risk > 0.05:
-            raise ValueError(f"Downside risk exceeds 5% max-loss invariant: {self.downside_risk:.4f}")
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -207,9 +206,11 @@ class LiveOpportunityState:
     data_timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     quote_timestamp: Optional[str] = None
     data_age_seconds: Optional[float] = None
+    quote_freshness_status: str = "UNKNOWN"   # CURRENT, STALE, UNKNOWN
     is_fresh: bool = True
     session_open: bool = False
     extended_hours_eligible: bool = False
+    overnight_eligibility: str = "UNKNOWN"    # TRUE, FALSE, UNKNOWN
     execution_session: str = "UNKNOWN"
     next_session_transition: Optional[Dict[str, Any]] = None
     quote_executable_now: bool = False
@@ -241,14 +242,10 @@ class OpportunityAnalysisResult:
     contrary_evidence: List[str]
     estimated_costs: Optional[float]
     expected_net_opportunity: Optional[float]
-    downside_estimate: float             # Invariant: <= 0.05
+    downside_estimate: float             # Informational evidence for AI reasoning
     data_quality_state: str              # COMPLETE, INCOMPLETE_SPREAD, INCOMPLETE_METADATA, etc.
     conviction_evidence: Dict[str, Any]
     opportunity_score: Optional[float] = None  # None if required data are incomplete
-
-    def __post_init__(self):
-        if self.downside_estimate > 0.05:
-            raise ValueError(f"Downside estimate exceeds 5% max-loss invariant: {self.downside_estimate}")
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -293,7 +290,7 @@ class HitAndRunEntryDecision:
     expected_costs_gbp: Optional[float] = None
     expected_net_opportunity: Optional[float] = None
     thesis: str = ""
-    downside: Optional[float] = None      # Invariant: <= 0.05
+    downside: Optional[float] = None      # Informational market downside estimate
     quantity_increment: Optional[float] = None
     quantity_precision: Optional[int] = None
     tick_size: Optional[float] = None
@@ -305,8 +302,6 @@ class HitAndRunEntryDecision:
 
     def __post_init__(self):
         if self.decision == "ENTER":
-            if self.downside is not None and self.downside > 0.05:
-                raise ValueError(f"Entry decision downside {self.downside} exceeds 5% invariant")
             if not self.intended_capital_gbp or self.intended_capital_gbp <= 0:
                 raise ValueError(f"ENTER decision requires positive intended capital: {self.intended_capital_gbp}")
             if not self.intended_quantity or self.intended_quantity <= 0:

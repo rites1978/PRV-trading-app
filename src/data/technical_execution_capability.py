@@ -471,6 +471,11 @@ class TechnicalExecutionCapabilityValidator:
             "working_schedule_id": working_schedule_id,
             "exchange_venue": venue_name or "UNKNOWN",
             "extended_hours": bool(instrument.get("extendedHours", False)),
+            "overnight_eligibility": (
+                "TRUE" if instrument.get("overnightHours") is True or instrument.get("overnightEligible") is True or instrument.get("is24_5") is True
+                else ("FALSE" if instrument.get("overnightHours") is False or instrument.get("overnightEligible") is False or instrument.get("is24_5") is False
+                else "UNKNOWN")
+            ),
             "tick_size_rule": tick_rule,
             "tick_size": tick_size
         }

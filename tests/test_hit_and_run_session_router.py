@@ -167,9 +167,113 @@ class TestMarketSessionRouter(unittest.TestCase):
         state = opportunity_state_builder.build_state(snap, instrument_meta=inst_meta, utc_dt=utc_dt)
         self.assertTrue(state.session_open)
         self.assertTrue(state.extended_hours_eligible)
+        self.assertEqual(state.overnight_eligibility, "UNKNOWN")
         self.assertEqual(state.execution_session, "AFTER_HOURS")
         self.assertIsNotNone(state.next_session_transition)
         self.assertEqual(state.next_session_transition["event_type"], "OVERNIGHT_OPEN")
+
+    def test_overnight_session_distinguishes_eligibility_and_fails_closed_when_unknown(self):
+        """
+        Trading212 overnight / 24-5 session requires explicit overnight eligibility.
+        extendedHours alone MUST NOT authorise overnight execution.
+        """
+        # 02:00 UTC on 2026-09-17 is within NYSE/NASDAQ OVERNIGHT session (00:00 - 08:00 UTC)
+        utc_dt = datetime(2026, 9, 17, 2, 0, 0, tzinfo=timezone.utc)
+
+        # Instrument A: Standard extended hours stock (e.g. AAPL) without explicit overnight flag -> UNKNOWN
+        inst_ext_only = {"workingScheduleId": 107, "extendedHours": True}
+        d_ext_only = market_session_router.get_instrument_session_details(inst_ext_only, utc_dt=utc_dt)
+        self.assertEqual(d_ext_only["exchange_session"], "OVERNIGHT")
+        self.assertEqual(d_ext_only["overnight_eligibility"], "UNKNOWN")
+        # Must fail closed: not open for execution
+        self.assertFalse(d_ext_only["session_open_now"])
+        self.assertEqual(d_ext_only["execution_session"], "CLOSED")
+        self.assertTrue(d_ext_only["instrument_not_tradable_now"])
+        self.assertIn("OVERNIGHT_UNVERIFIED", d_ext_only["status_reason"])
+
+        # Instrument B: Explicitly verified 24/5 overnight instrument -> TRUE
+        inst_24_5 = {"workingScheduleId": 107, "extendedHours": True, "overnightHours": True}
+        d_24_5 = market_session_router.get_instrument_session_details(inst_24_5, utc_dt=utc_dt)
+        self.assertEqual(d_24_5["exchange_session"], "OVERNIGHT")
+        self.assertEqual(d_24_5["overnight_eligibility"], "TRUE")
+        self.assertTrue(d_24_5["session_open_now"])
+        self.assertEqual(d_24_5["execution_session"], "OVERNIGHT")
+        self.assertFalse(d_24_5["instrument_not_tradable_now"])
+        self.assertIn("OVERNIGHT_OPEN", d_24_5["status_reason"])
+
+    def test_quote_freshness_status_no_unauthorised_600s_gate(self):
+        """Quote freshness contract: uses CURRENT / STALE / UNKNOWN without invented seconds threshold."""
+        utc_dt = datetime(2026, 9, 16, 15, 0, 0, tzinfo=timezone.utc)
+        inst_meta = {
+            "ticker": "AAPL_US_EQ",
+            "workingScheduleId": 107,
+            "currencyCode": "USD",
+            "minTradeQuantity": 0.001,
+            "tickSize": 0.01
+        }
+        # Even with high data_age_seconds (e.g. 900s), feed-contract CURRENT is respected
+        snap_current = {
+            "instrument_id": "AAPL_US_EQ",
+            "current_price": 150.0,
+            "bid": 149.98,
+            "ask": 150.02,
+            "data_age_seconds": 900.0,
+            "quote_freshness_status": "CURRENT"
+        }
+        state_curr = opportunity_state_builder.build_state(snap_current, instrument_meta=inst_meta, utc_dt=utc_dt)
+        self.assertEqual(state_curr.quote_freshness_status, "CURRENT")
+        self.assertTrue(state_curr.is_fresh)
+        self.assertTrue(state_curr.quote_executable_now)
+
+        # STALE quote is not executable
+        snap_stale = dict(snap_current)
+        snap_stale["quote_freshness_status"] = "STALE"
+        state_stale = opportunity_state_builder.build_state(snap_stale, instrument_meta=inst_meta, utc_dt=utc_dt)
+        self.assertEqual(state_stale.quote_freshness_status, "STALE")
+        self.assertFalse(state_stale.is_fresh)
+        self.assertFalse(state_stale.quote_executable_now)
+
+    def test_downside_estimate_greater_than_5_pct_allowed_as_informational_evidence(self):
+        """Downside estimate is informational evidence for AI, not a <= 5% trade qualification gate."""
+        from src.hit_and_run.models import OpportunityAnalysisResult, HitAndRunEntryDecision, OpportunityCandidate
+
+        # OpportunityAnalysisResult with 8% estimated downside does not raise ValueError
+        res = OpportunityAnalysisResult(
+            instrument_id="TEST",
+            symbol="TEST",
+            feed_ticker="TEST",
+            state=None,  # type: ignore
+            setup_family="MOMENTUM_CONTINUATION",
+            opportunity_thesis="Volatile catalyst setup",
+            supporting_evidence=[],
+            contrary_evidence=[],
+            estimated_costs=0.003,
+            expected_net_opportunity=0.04,
+            downside_estimate=0.08,  # > 5% market downside estimate allowed
+            data_quality_state="COMPLETE",
+            conviction_evidence={},
+            opportunity_score=75.0
+        )
+        self.assertEqual(res.downside_estimate, 0.08)
+
+        # HitAndRunEntryDecision with 8% market downside does not raise ValueError
+        entry = HitAndRunEntryDecision(
+            decision="ENTER",
+            instrument_id="TEST",
+            symbol="TEST",
+            feed_ticker="TEST",
+            intended_capital_gbp=1000.0,
+            intended_quantity=10.0,
+            current_bid=100.0,
+            current_ask=100.1,
+            current_price=100.05,
+            expected_costs_gbp=3.0,
+            expected_net_opportunity=0.04,
+            thesis="Valid high-volatility opportunity",
+            downside=0.08,  # > 5% informational market downside
+            required_protective_level=95.05  # Position risk strictly protects at <= 5% loss ceiling
+        )
+        self.assertEqual(entry.downside, 0.08)
 
 
 if __name__ == "__main__":
