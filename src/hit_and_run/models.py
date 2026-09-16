@@ -59,6 +59,9 @@ class OpportunityCandidate:
 
     # Market context
     market_session: str = "REGULAR"
+    extended_hours_eligible: bool = False
+    execution_session: str = "REGULAR"
+    next_session_transition: Optional[Dict[str, Any]] = None
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def __post_init__(self):
@@ -206,6 +209,9 @@ class LiveOpportunityState:
     data_age_seconds: Optional[float] = None
     is_fresh: bool = True
     session_open: bool = False
+    extended_hours_eligible: bool = False
+    execution_session: str = "UNKNOWN"
+    next_session_transition: Optional[Dict[str, Any]] = None
     quote_executable_now: bool = False
     quote_market_timestamp: Optional[str] = None
     quote_fetch_timestamp: Optional[str] = None

@@ -470,6 +470,7 @@ class TechnicalExecutionCapabilityValidator:
             "gtc_stop_capable": gtc_stop_capable,
             "working_schedule_id": working_schedule_id,
             "exchange_venue": venue_name or "UNKNOWN",
+            "extended_hours": bool(instrument.get("extendedHours", False)),
             "tick_size_rule": tick_rule,
             "tick_size": tick_size
         }

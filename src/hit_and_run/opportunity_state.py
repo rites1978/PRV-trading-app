@@ -54,20 +54,29 @@ class LiveOpportunityStateBuilder:
 
         # Session State & Session Open Resolution
         session_open = False
-        session_state = snapshot.get("session_state")
-        if instrument_meta:
-            is_open, _ = market_session_router.is_instrument_open(instrument_meta, utc_dt=utc_dt)
-            session_open = bool(is_open)
-            session_state = "OPEN" if is_open else "CLOSED"
-        elif snapshot.get("workingScheduleId") is not None:
-            is_open, _ = market_session_router.is_schedule_open(int(snapshot["workingScheduleId"]), utc_dt=utc_dt)
-            session_open = bool(is_open)
-            session_state = "OPEN" if is_open else "CLOSED"
-        elif not session_state:
-            session_state = "REGULAR"
-            session_open = True
+        extended_hours_eligible = False
+        execution_session = "UNKNOWN"
+        next_session_transition = None
+
+        sched_obj = instrument_meta or snapshot
+        if sched_obj and (sched_obj.get("workingScheduleId") is not None or "extendedHours" in sched_obj):
+            s_details = market_session_router.get_instrument_session_details(sched_obj, utc_dt=utc_dt)
+            session_open = bool(s_details["session_open_now"])
+            extended_hours_eligible = bool(s_details["extended_hours_eligible"])
+            execution_session = str(s_details["execution_session"])
+            next_session_transition = s_details["next_session_transition"]
+            session_state = execution_session
         else:
-            session_open = (session_state.upper() in ("OPEN", "REGULAR"))
+            raw_state = snapshot.get("session_state")
+            if raw_state:
+                session_state = raw_state
+                session_open = (raw_state.upper() in ("OPEN", "REGULAR", "AFTER_HOURS", "PRE_MARKET", "OVERNIGHT"))
+                execution_session = raw_state
+            else:
+                session_state = "REGULAR"
+                session_open = True
+                execution_session = "REGULAR"
+            extended_hours_eligible = bool(snapshot.get("extendedHours", False))
 
         # Prices & Quote Units
         current_price = float(snapshot.get("current_price", 0.0))
@@ -286,6 +295,9 @@ class LiveOpportunityStateBuilder:
             data_age_seconds=data_age_seconds,
             is_fresh=is_fresh,
             session_open=session_open,
+            extended_hours_eligible=extended_hours_eligible,
+            execution_session=execution_session,
+            next_session_transition=next_session_transition,
             quote_executable_now=quote_executable_now,
             quote_market_timestamp=quote_market_timestamp,
             quote_fetch_timestamp=quote_fetch_timestamp,
