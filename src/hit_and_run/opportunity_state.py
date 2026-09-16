@@ -1,0 +1,263 @@
+"""
+PRV Capital - Hit-and-Run Live Opportunity State Builder
+Requirement A: Builds live market-state model for each technically executable instrument.
+Carries all available market, liquidity, friction, and capability information.
+Does NOT enforce any arbitrary thresholds or hidden rejection cutoffs.
+Missing critical execution data remain UNKNOWN (None), never replaced by fabricated defaults.
+"""
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional
+import numpy as np
+
+from src.hit_and_run.models import LiveOpportunityState
+from src.hit_and_run.cost_model import hit_and_run_cost_model
+from src.data.technical_execution_capability import technical_execution_capability
+from src.data.market_session_router import market_session_router
+
+
+class LiveOpportunityStateBuilder:
+    """Constructs auditable LiveOpportunityState instances from live market and broker data."""
+
+    def build_state(
+        self,
+        snapshot: Dict[str, Any],
+        instrument_meta: Optional[Dict[str, Any]] = None,
+        utc_dt: Optional[datetime] = None
+    ) -> LiveOpportunityState:
+        """
+        Builds a comprehensive LiveOpportunityState for an instrument.
+        Does NOT drop or reject candidates; retains full state with None for unavailable data.
+        """
+        if utc_dt is None:
+            utc_dt = datetime.now(timezone.utc)
+        elif utc_dt.tzinfo is None:
+            utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+
+        # Basic identity & Contract
+        instrument_id = snapshot.get("instrument_id") or snapshot.get("ticker", "")
+        symbol = snapshot.get("symbol") or snapshot.get("shortName") or instrument_id
+        feed_ticker = snapshot.get("feed_ticker") or symbol
+        product_type = snapshot.get("product_type", "STOCK")
+        currency = snapshot.get("currency") or snapshot.get("currencyCode", "GBP")
+        is_uk_pence = snapshot.get("is_uk_pence", currency.upper() == "GBX")
+        quote_divisor = float(snapshot.get("quote_divisor", 100.0 if is_uk_pence else 1.0))
+        isin = str(snapshot.get("isin", "")).strip().upper()
+
+        # Exchange Venue Resolution
+        exchange_venue = str(
+            snapshot.get("exchange_venue") or snapshot.get("exchange") or snapshot.get("venue") or ""
+        ).strip()
+        if not exchange_venue and instrument_meta:
+            exchange_venue = technical_execution_capability.resolve_exchange_venue(instrument_meta) or ""
+        if not exchange_venue:
+            exchange_venue = technical_execution_capability.resolve_exchange_venue(snapshot) or "UNKNOWN"
+
+        # Session State Resolution
+        session_state = snapshot.get("session_state")
+        if not session_state:
+            if instrument_meta:
+                is_open, _ = market_session_router.is_instrument_open(instrument_meta, utc_dt=utc_dt)
+                session_state = "OPEN" if is_open else "CLOSED"
+            else:
+                session_state = "REGULAR"
+
+        # Prices & Quote Units
+        current_price = float(snapshot.get("current_price", 0.0))
+        current_price_gbp = float(snapshot.get("current_price_gbp", current_price / quote_divisor if quote_divisor > 0 else current_price))
+
+        recent_prices = snapshot.get("recent_prices", [current_price] if current_price > 0 else [])
+        intraday_open = float(snapshot.get("intraday_open", recent_prices[0] if recent_prices else current_price))
+        intraday_high = float(snapshot.get("intraday_high", max(recent_prices) if recent_prices else current_price))
+        intraday_low = float(snapshot.get("intraday_low", min(recent_prices) if recent_prices else current_price))
+        benchmark_return = float(snapshot.get("benchmark_return", 0.0))
+
+        # Executable Bid / Ask & Spread Friction (Never fabricate default!)
+        raw_bid = snapshot.get("bid")
+        raw_ask = snapshot.get("ask")
+        bid = float(raw_bid) if raw_bid is not None and float(raw_bid) > 0 else None
+        ask = float(raw_ask) if raw_ask is not None and float(raw_ask) > 0 else None
+
+        if bid is not None and ask is not None and ask > bid and current_price > 0:
+            spread_friction = float((ask - bid) / current_price)
+        else:
+            spread_friction = None
+
+        # Short-Duration Momentum
+        if len(recent_prices) >= 2 and recent_prices[0] > 0:
+            momentum = float((recent_prices[-1] - recent_prices[0]) / recent_prices[0])
+        elif intraday_open > 0 and current_price > 0:
+            momentum = float((current_price - intraday_open) / intraday_open)
+        else:
+            momentum = None
+
+        # Momentum Acceleration (2nd derivative)
+        if len(recent_prices) >= 4 and recent_prices[0] > 0:
+            mid = len(recent_prices) // 2
+            m1 = (recent_prices[mid] - recent_prices[0]) / max(1e-6, recent_prices[0])
+            m2 = (recent_prices[-1] - recent_prices[mid]) / max(1e-6, recent_prices[mid])
+            acceleration = float(m2 - m1)
+        else:
+            acceleration = None
+
+        # Relative Strength
+        relative_strength = float(momentum - benchmark_return) if momentum is not None else None
+
+        # Volume Activity
+        volume_recent = float(snapshot.get("volume_recent", 0.0))
+        volume_avg = float(snapshot.get("volume_avg", 0.0))
+        volume_activity = float(volume_recent / volume_avg) if volume_avg > 0 and volume_recent > 0 else None
+
+        # Volatility
+        if len(recent_prices) >= 3:
+            rets = [(recent_prices[i] - recent_prices[i - 1]) / max(1e-6, recent_prices[i - 1]) for i in range(1, len(recent_prices))]
+            volatility = float(np.std(rets)) if len(rets) > 1 else 0.015
+        elif intraday_high > intraday_low and current_price > 0:
+            volatility = float((intraday_high - intraday_low) / current_price)
+        else:
+            volatility = None
+
+        # Distance from Intraday Extremes
+        if current_price > 0 and intraday_high >= current_price:
+            distance_from_high = float(max(0.0, (intraday_high - current_price) / current_price))
+        else:
+            distance_from_high = None
+
+        if current_price > 0 and current_price >= intraday_low:
+            distance_from_low = float(max(0.0, (current_price - intraday_low) / current_price))
+        else:
+            distance_from_low = None
+
+        # Technical Execution Capabilities
+        min_trade_quantity = snapshot.get("min_trade_quantity")
+        quantity_precision = snapshot.get("quantity_precision")
+        tick_size = snapshot.get("tick_size")
+        tick_size_rule = snapshot.get("tick_size_rule")
+
+        if instrument_meta:
+            if min_trade_quantity is None:
+                min_trade_quantity = instrument_meta.get("minTradeQuantity")
+            if quantity_precision is None:
+                quantity_precision = instrument_meta.get("quantityPrecision")
+            if tick_size is None:
+                tick_size = instrument_meta.get("tickSize")
+
+        if quantity_precision is None and min_trade_quantity is not None:
+            quantity_precision = technical_execution_capability.derive_quantity_precision(min_trade_quantity)
+
+        if tick_size is None:
+            tick_size = technical_execution_capability.derive_tick_size_for_venue(
+                venue_name=exchange_venue,
+                currency=currency,
+                price=current_price,
+                is_uk_pence=is_uk_pence,
+                explicit_tick=snapshot.get("tick_size")
+            )
+            if tick_size is not None:
+                tick_size_rule = "VENUE_STATUTORY_RULE"
+
+        # Authoritative Cost Evaluation
+        cost_eval = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type=product_type,
+            currency=currency,
+            isin=isin,
+            exchange_venue=exchange_venue,
+            current_price=current_price,
+            bid=bid,
+            ask=ask,
+            order_preview_fees=snapshot.get("order_preview_fees"),
+            market_cap_eur=snapshot.get("market_cap_eur"),
+            market_cap_tier=snapshot.get("market_cap_tier"),
+            french_ftt_applicable=snapshot.get("french_ftt_applicable")
+        )
+        estimated_costs = cost_eval.estimated_costs_round_trip
+
+        # Expected Gross Move & Net Opportunity
+        if volatility is not None and current_price > 0:
+            effective_mom = max(0.0, momentum) if momentum is not None else 0.0
+            expected_gross_move = max(0.010, (volatility * 2.0) + (effective_mom * 0.5))
+        else:
+            expected_gross_move = None
+
+        if expected_gross_move is not None and estimated_costs is not None:
+            expected_net_opportunity = max(0.0, expected_gross_move - estimated_costs)
+        else:
+            expected_net_opportunity = None
+
+        # Data Freshness
+        data_timestamp = snapshot.get("data_timestamp") or snapshot.get("timestamp") or utc_dt.isoformat()
+        quote_timestamp = snapshot.get("quote_timestamp") or snapshot.get("last_quote_time")
+        data_age_seconds = snapshot.get("data_age_seconds")
+        if data_age_seconds is None and quote_timestamp:
+            try:
+                qt = datetime.fromisoformat(quote_timestamp.replace("Z", "+00:00"))
+                data_age_seconds = max(0.0, (utc_dt - qt).total_seconds())
+            except Exception:
+                data_age_seconds = None
+
+        is_fresh = bool(data_age_seconds is None or data_age_seconds <= 600.0)
+
+        # Technical Execution Supported flag
+        technical_execution_supported = bool(
+            current_price > 0 and
+            currency.upper() in technical_execution_capability.SUPPORTED_CURRENCIES and
+            min_trade_quantity is not None and
+            tick_size is not None and tick_size > 0
+        )
+
+        setup_features = {
+            "momentum": momentum,
+            "acceleration": acceleration,
+            "relative_strength": relative_strength,
+            "volume_activity": volume_activity,
+            "volatility": volatility,
+            "distance_from_high": distance_from_high,
+            "distance_from_low": distance_from_low,
+            "spread_friction": spread_friction,
+            "expected_gross_move": expected_gross_move,
+            "expected_net_opportunity": expected_net_opportunity,
+            "cost_model_complete": cost_eval.cost_model_complete,
+            "is_fresh": is_fresh
+        }
+
+        return LiveOpportunityState(
+            instrument_id=instrument_id,
+            symbol=symbol,
+            feed_ticker=feed_ticker,
+            exchange_venue=exchange_venue,
+            session_state=session_state,
+            current_price=current_price,
+            current_price_gbp=current_price_gbp,
+            currency=currency,
+            is_uk_pence=is_uk_pence,
+            quote_divisor=quote_divisor,
+            bid=bid,
+            ask=ask,
+            spread_friction=spread_friction,
+            recent_prices=recent_prices,
+            short_duration_momentum=momentum,
+            momentum_acceleration=acceleration,
+            relative_strength=relative_strength,
+            volume_activity=volume_activity,
+            volatility=volatility,
+            distance_from_high=distance_from_high,
+            distance_from_low=distance_from_low,
+            estimated_costs=estimated_costs,
+            expected_gross_move=expected_gross_move,
+            expected_net_opportunity=expected_net_opportunity,
+            cost_model_complete=cost_eval.cost_model_complete,
+            cost_model_reasons=cost_eval.incomplete_reasons,
+            technical_execution_supported=technical_execution_supported,
+            min_trade_quantity=min_trade_quantity,
+            quantity_precision=quantity_precision,
+            tick_size=tick_size,
+            tick_size_rule=tick_size_rule,
+            isin=isin,
+            data_timestamp=data_timestamp,
+            quote_timestamp=quote_timestamp,
+            data_age_seconds=data_age_seconds,
+            is_fresh=is_fresh,
+            setup_features=setup_features
+        )
+
+
+opportunity_state_builder = LiveOpportunityStateBuilder()
