@@ -2,16 +2,50 @@
 PRV Capital - Hit-and-Run Dynamic Capital Allocator
 Concentrates capital into highest-conviction short-term opportunities while enforcing:
 1. Strict ceiling: Total deployment (existing + working + new) <= 80% of portfolio capital.
-2. Preference for fewer, larger positions over dilution into token trades.
-3. Re-concentration: Drops low-allocation candidates below minimum threshold (£250) and re-allocates.
-4. Per-holding maximum loss capped at 5.0%.
+2. Dynamic rejection of economically pointless allocations based on:
+   - expected net profit after costs
+   - spread/fees/FX friction
+   - capital efficiency
+   - opportunity quality
+   (No arbitrary fixed £ amount threshold).
+3. Clearly separated allocation interface: Auditable linear proportional weighting by default.
+   (No arbitrary quadratic or polynomial weighting).
+4. Strict 5% max-loss invariant: stop_price >= fill_price * 0.95 on all allocations.
 """
 import math
 import logging
-from typing import List, Dict, Any, Optional
+from abc import ABC, abstractmethod
+from typing import List, Dict, Any, Optional, Tuple
 from src.hit_and_run.models import OpportunityCandidate, AllocationDecision
 
 logger = logging.getLogger("hit_and_run.allocator")
+
+
+class AllocationWeightingPolicy(ABC):
+    """
+    Auditable interface for computing allocation budget shares from opportunity scores.
+    Prevents arbitrary mathematical weighting functions from becoming fixed strategy rules.
+    """
+    @abstractmethod
+    def compute_weights(self, candidates: List[OpportunityCandidate]) -> List[float]:
+        """Returns normalized budget weights summing to 1.0."""
+        pass
+
+
+class ProportionalConvictionPolicy(AllocationWeightingPolicy):
+    """
+    Auditable linear conviction policy: weights each candidate strictly in direct proportion
+    to its auditable opportunity conviction score without arbitrary polynomial or quadratic distortion.
+    weight_i = score_i / sum(scores)
+    """
+    def compute_weights(self, candidates: List[OpportunityCandidate]) -> List[float]:
+        if not candidates:
+            return []
+        scores = [max(0.0, float(c.opportunity_score)) for c in candidates]
+        total = sum(scores)
+        if total <= 0:
+            return [1.0 / len(candidates)] * len(candidates)
+        return [s / total for s in scores]
 
 
 class DynamicCapitalAllocator:
@@ -19,13 +53,63 @@ class DynamicCapitalAllocator:
     Allocates portfolio capital dynamically across qualified hit-and-run opportunities.
     """
 
+    MAX_DEPLOYMENT_PCT: float = 0.80
+    MAXIMUM_AUTHORISED_LOSS_PCT: float = 0.05
+
     def __init__(
         self,
         max_deployment_pct: float = 0.80,
-        min_allocation_gbp: float = 250.0
+        weighting_policy: Optional[AllocationWeightingPolicy] = None
     ):
-        self.max_deployment_pct = max_deployment_pct
-        self.min_allocation_gbp = min_allocation_gbp
+        self.max_deployment_pct = min(self.MAX_DEPLOYMENT_PCT, max_deployment_pct)
+        self.weighting_policy = weighting_policy or ProportionalConvictionPolicy()
+
+    @classmethod
+    def evaluate_economic_viability(
+        cls,
+        alloc_capital_gbp: float,
+        candidate: OpportunityCandidate
+    ) -> Tuple[bool, str]:
+        """
+        Dynamically evaluates whether an allocation is economically meaningful or pointless based on:
+        1. Expected net profit after costs: alloc_capital_gbp * expected_net_reward
+        2. Spread / fees / FX friction: alloc_capital_gbp * estimated_costs
+        3. Capital efficiency: expected net profit vs friction cost
+        4. Opportunity quality: candidate conviction score and qualification
+        Does NOT use an arbitrary fixed £ amount.
+        """
+        if alloc_capital_gbp <= 0.0:
+            return False, "ALLOCATION_ZERO_OR_NEGATIVE"
+
+        if not candidate.strategy_qualified:
+            return False, "OPPORTUNITY_NOT_QUALIFIED"
+
+        expected_net_profit_gbp = alloc_capital_gbp * candidate.expected_net_reward
+        friction_cost_gbp = alloc_capital_gbp * candidate.estimated_costs
+
+        # Net reward must be positive
+        if candidate.expected_net_reward <= 0.0 or expected_net_profit_gbp <= 0.0:
+            return False, f"NEGATIVE_OR_ZERO_NET_REWARD: {candidate.expected_net_reward:.4%}"
+
+        # Capital efficiency: expected net profit must exceed transaction friction
+        if expected_net_profit_gbp <= friction_cost_gbp:
+            return False, (
+                f"FRICTION_DOMINATED: expected net profit £{expected_net_profit_gbp:.2f} "
+                f"does not exceed round-trip friction £{friction_cost_gbp:.2f}"
+            )
+
+        # Buffer over friction: expected net gain must overcome minimum execution/slippage variance
+        if expected_net_profit_gbp < (friction_cost_gbp * 1.5):
+            return False, (
+                f"ECONOMICALLY_POINTLESS: expected net profit £{expected_net_profit_gbp:.2f} "
+                f"is insufficient buffer over friction £{friction_cost_gbp:.2f}"
+            )
+
+        # Minimum nominal edge: must be able to generate at least £0.50 net gain to justify order execution overhead
+        if expected_net_profit_gbp < 0.50:
+            return False, f"NEGLIGIBLE_NOMINAL_GAIN: expected net profit £{expected_net_profit_gbp:.2f} < £0.50"
+
+        return True, "ECONOMICALLY_VIABLE"
 
     def allocate(
         self,
@@ -37,12 +121,12 @@ class DynamicCapitalAllocator:
     ) -> List[AllocationDecision]:
         """
         Dynamically computes capital allocations across qualified opportunities.
-        Returns a list of AllocationDecision objects.
+        Concentrates capital into highest-conviction holdings and prunes economically pointless allocations.
         """
         if portfolio_capital <= 0.0 or available_cash <= 0.0:
             return []
 
-        # 1. Calculate Existing Exposure & Ceiling
+        # 1. Calculate Existing Exposure & 80% Deployment Ceiling
         current_pos_exposure = sum(float(p.get("current_value_gbp", 0.0)) for p in existing_positions)
         current_ord_exposure = sum(float(o.get("reserved_value_gbp", 0.0)) for o in outstanding_orders)
         current_committed = current_pos_exposure + current_ord_exposure
@@ -51,11 +135,8 @@ class DynamicCapitalAllocator:
         remaining_capacity = max(0.0, max_allowable_exposure - current_committed)
         deployable_budget = max(0.0, min(available_cash, remaining_capacity))
 
-        if deployable_budget < self.min_allocation_gbp:
-            logger.info(
-                f"Allocator: Deployable budget £{deployable_budget:.2f} below minimum allocation threshold "
-                f"£{self.min_allocation_gbp:.2f}. No new allocations."
-            )
+        if deployable_budget <= 0.0:
+            logger.info("Allocator: No deployable capacity within 80% ceiling. No new allocations.")
             return []
 
         # 2. Filter Qualified Candidates (avoiding already held/working symbols)
@@ -79,25 +160,30 @@ class DynamicCapitalAllocator:
         # 3. Sort by Conviction Score Descending
         qual.sort(key=lambda c: c.opportunity_score, reverse=True)
 
-        # 4. Iterative Re-concentration: Ensure no allocation is a token trade
+        # 4. Dynamic Iterative Re-concentration:
+        # Instead of fixed £ threshold, uses economic viability (expected net profit vs friction & capital efficiency).
         active_candidates = list(qual)
-        raw_allocations = []
+        raw_allocations: List[float] = []
 
         while len(active_candidates) > 0:
-            scores = [c.opportunity_score for c in active_candidates]
-            # Quadratic weighting to favor higher conviction
-            weights = [s ** 2 for s in scores]
-            sum_w = sum(weights)
-            if sum_w <= 0:
-                break
+            weights = self.weighting_policy.compute_weights(active_candidates)
+            tentative_allocs = [deployable_budget * w for w in weights]
 
-            tentative_allocs = [deployable_budget * (w / sum_w) for w in weights]
+            # Check if any candidate's allocation fails dynamic economic viability
+            has_pointless_allocation = False
+            for cand, alloc_val in zip(active_candidates, tentative_allocs):
+                is_viable, _ = self.evaluate_economic_viability(alloc_val, cand)
+                if not is_viable:
+                    has_pointless_allocation = True
+                    break
 
-            # Check if smallest allocation is below minimum threshold
-            if len(active_candidates) > 1 and min(tentative_allocs) < self.min_allocation_gbp:
-                # Drop lowest candidate and re-concentrate into higher conviction
+            if has_pointless_allocation and len(active_candidates) > 1:
+                # Drop the lowest-conviction candidate to concentrate capital into higher-conviction holdings
                 dropped = active_candidates.pop()
-                logger.debug(f"Allocator: Dropping lower-conviction candidate {dropped.symbol} to avoid token allocation.")
+                logger.debug(
+                    f"Allocator: Re-concentrating capital: dropped lower-conviction candidate {dropped.symbol} "
+                    f"because its allocation was economically pointless."
+                )
             else:
                 raw_allocations = tentative_allocs
                 break
@@ -105,9 +191,12 @@ class DynamicCapitalAllocator:
         if not active_candidates or not raw_allocations:
             return []
 
-        # Check if single remaining candidate is below minimum threshold
-        if raw_allocations[0] < self.min_allocation_gbp:
-            return []
+        # Verify single remaining candidate is economically viable
+        if len(active_candidates) == 1:
+            is_viable, reason = self.evaluate_economic_viability(raw_allocations[0], active_candidates[0])
+            if not is_viable:
+                logger.info(f"Allocator: Candidate {active_candidates[0].symbol} not economically viable ({reason}).")
+                return []
 
         # 5. Build Final Allocation Decisions
         decisions: List[AllocationDecision] = []
@@ -117,17 +206,21 @@ class DynamicCapitalAllocator:
                 continue
 
             raw_qty = target_budget / price_gbp
-            # Floor to 3 decimal places
+            # Floor to 3 decimal places (standard T212 precision)
             target_qty = math.floor(raw_qty * 1000.0) / 1000.0
             actual_alloc_gbp = round(target_qty * price_gbp, 2)
 
-            if actual_alloc_gbp < self.min_allocation_gbp or target_qty <= 0.0:
+            is_viable, reason = self.evaluate_economic_viability(actual_alloc_gbp, cand)
+            if not is_viable or target_qty <= 0.0:
                 continue
 
             pct_of_portfolio = round(actual_alloc_gbp / portfolio_capital, 4)
-            # Enforce 5.0% maximum loss invariant on holding
-            max_loss_pct = min(0.05, cand.downside_risk)
+
+            # Strict 5% loss invariant: stop_price >= fill_price * 0.95
+            max_loss_pct = min(self.MAXIMUM_AUTHORISED_LOSS_PCT, cand.downside_risk)
             stop_price = round(cand.current_price * (1.0 - max_loss_pct), 4)
+            min_stop = cand.current_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
+            stop_price = max(min_stop, stop_price)
 
             tp_target = None
             if cand.expected_net_reward > 0:

@@ -1,6 +1,14 @@
 """
 PRV Capital - Hit-and-Run Risk Management
 Enforces the strict 5.0% maximum loss invariant on any individual holding.
+
+For any long holding:
+    MAXIMUM_AUTHORISED_LOSS_PCT = 0.05
+    The protective stop must satisfy:
+    stop_price >= fill_price * 0.95
+    subject to valid broker tick-size rounding.
+
+The implementation must never permit a planned protective loss > 5% from authoritative fill price.
 Verifies native broker-level protective stop orders and fails closed if protection is unconfirmed.
 """
 import logging
@@ -14,7 +22,8 @@ class HitAndRunRiskManager:
     Authoritative risk manager enforcing per-holding 5% loss ceiling and broker stop verification.
     """
 
-    MAX_LOSS_PCT: float = 0.05  # Strict 5.0% maximum loss invariant
+    MAXIMUM_AUTHORISED_LOSS_PCT: float = 0.05  # Strict 5.0% maximum loss invariant
+    MAX_LOSS_PCT: float = MAXIMUM_AUTHORISED_LOSS_PCT  # Compatibility alias
 
     def calculate_protective_stop(
         self,
@@ -23,25 +32,34 @@ class HitAndRunRiskManager:
     ) -> float:
         """
         Derives protective stop price tied to authoritative fill price.
-        Strictly clamps loss percentage to <= 5.0%.
+        Strictly enforces: stop_price >= fill_price * 0.95 (MAXIMUM_AUTHORISED_LOSS_PCT = 0.05).
         """
         if fill_price <= 0.0:
             raise ValueError(f"Fill price must be strictly positive, got {fill_price}")
 
-        effective_loss_pct = self.MAX_LOSS_PCT
+        effective_loss_pct = self.MAXIMUM_AUTHORISED_LOSS_PCT
         if requested_risk_pct is not None and requested_risk_pct > 0:
-            effective_loss_pct = min(self.MAX_LOSS_PCT, requested_risk_pct)
+            effective_loss_pct = min(self.MAXIMUM_AUTHORISED_LOSS_PCT, requested_risk_pct)
 
         stop_price = fill_price * (1.0 - effective_loss_pct)
+        # Invariant floor: stop_price must be >= fill_price * 0.95
+        min_allowed_stop = fill_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
+        stop_price = max(min_allowed_stop, stop_price)
+
         return round(stop_price, 4)
 
     def verify_protective_stop_invariant(
         self,
         fill_price: float,
-        stop_price: float
+        stop_price: float,
+        tick_size: float = 0.0001
     ) -> Tuple[bool, str]:
         """
-        Verifies that stop price does not violate the 5% max-loss invariant.
+        Enforces the non-negotiable 5% loss invariant:
+        For any long holding:
+            stop_price >= fill_price * 0.95
+        subject to valid broker tick-size rounding.
+        The implementation must never permit a planned protective loss > 5% from authoritative fill price.
         """
         if fill_price <= 0.0:
             return False, "INVALID_FILL_PRICE: fill_price must be > 0"
@@ -49,9 +67,19 @@ class HitAndRunRiskManager:
         if stop_price >= fill_price:
             return False, f"INVALID_STOP_PRICE: stop_price ({stop_price}) MUST_BE_BELOW_FILL ({fill_price})"
 
-        loss_frac = (fill_price - stop_price) / fill_price
-        if loss_frac > (self.MAX_LOSS_PCT + 1e-4):
-            return False, f"EXCEEDS_5PCT_MAX_LOSS: loss fraction {loss_frac:.4%} exceeds {self.MAX_LOSS_PCT:.2%}"
+        min_allowed_stop = fill_price * (1.0 - self.MAXIMUM_AUTHORISED_LOSS_PCT)
+
+        # Allow at most half a tick for rounding down if applicable, but never allow planned loss > 5.0%
+        if stop_price < (min_allowed_stop - (tick_size * 0.5)):
+            planned_loss_pct = (fill_price - stop_price) / fill_price
+            return False, (
+                f"EXCEEDS_5PCT_MAX_LOSS: stop_price {stop_price:.4f} < fill_price * 0.95 ({min_allowed_stop:.4f}), "
+                f"planned loss {planned_loss_pct:.4%} exceeds authorised ceiling {self.MAXIMUM_AUTHORISED_LOSS_PCT:.2%}"
+            )
+
+        planned_loss_pct = (fill_price - stop_price) / fill_price
+        if planned_loss_pct > (self.MAXIMUM_AUTHORISED_LOSS_PCT + 1e-5):
+            return False, f"EXCEEDS_5PCT_MAX_LOSS: planned loss {planned_loss_pct:.4%} > {self.MAXIMUM_AUTHORISED_LOSS_PCT:.2%}"
 
         return True, "STOP_VERIFIED_VALID"
 

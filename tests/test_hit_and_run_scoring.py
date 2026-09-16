@@ -147,6 +147,34 @@ class TestHitAndRunScoring(unittest.TestCase):
         self.assertEqual(ranked[0].symbol, "STRONG")
         self.assertGreater(ranked[0].opportunity_score, ranked[1].opportunity_score)
 
+    def test_no_fixed_rr_rejection_threshold(self):
+        """Verifies that risk/reward ratio < 1.2x does NOT cause rejection if candidate has positive net edge and meets score threshold."""
+        snapshot = {
+            "instrument_id": "MOD_RR_EQ",
+            "symbol": "MOD_RR",
+            "feed_ticker": "MOD_RR",
+            "product_type": "STOCK",
+            "currency": "GBP",
+            "is_uk_pence": False,
+            "quote_divisor": 1.0,
+            "current_price": 100.0,
+            "current_price_gbp": 100.0,
+            "intraday_open": 98.0,
+            "intraday_high": 100.2,
+            "intraday_low": 97.9,
+            "recent_prices": [98.0, 98.5, 99.0, 99.5, 100.0],
+            "benchmark_return": 0.001,
+            "volume_recent": 500000,
+            "volume_avg": 250000,
+            "bid": 99.98,
+            "ask": 100.02,
+            "session_state": "REGULAR"
+        }
+
+        candidate = self.scorer.evaluate_opportunity(snapshot)
+        # Verify that even if R/R is around 1.0 - 1.1x, it is not rejected for R/R
+        self.assertNotIn("Risk-reward ratio", " ".join(candidate.qualification_reasons))
+
 
 if __name__ == "__main__":
     unittest.main()

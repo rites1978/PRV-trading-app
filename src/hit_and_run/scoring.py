@@ -26,9 +26,8 @@ class HitAndRunOpportunityScorer:
     """
 
     MIN_QUALIFICATION_SCORE: float = 60.0
-    MIN_RISK_REWARD_RATIO: float = 1.2
     MAX_SPREAD_FRICTION: float = 0.015  # 1.5% max spread
-    MAX_HOLDING_LOSS_PCT: float = 0.05   # Strict 5.0% max loss invariant
+    MAXIMUM_AUTHORISED_LOSS_PCT: float = 0.05  # Strict 5.0% max loss invariant
 
     def evaluate_opportunity(self, snapshot: Dict[str, Any]) -> OpportunityCandidate:
         """
@@ -108,7 +107,7 @@ class HitAndRunOpportunityScorer:
 
         # 10. Downside Risk (Strictly capped at 5.0% max loss invariant)
         technical_downside = max(0.010, volatility * 1.5)
-        downside_risk = float(min(self.MAX_HOLDING_LOSS_PCT, technical_downside))
+        downside_risk = float(min(self.MAXIMUM_AUTHORISED_LOSS_PCT, technical_downside))
 
         # 11. Expected Net Reward
         # Target move based on momentum continuation + volatility impulse
@@ -157,10 +156,6 @@ class HitAndRunOpportunityScorer:
         if expected_net_reward <= estimated_costs:
             is_qualified = False
             qualification_reasons.append(f"Insufficient net edge: net reward {expected_net_reward:.2%} <= costs {estimated_costs:.2%}")
-
-        if risk_reward_ratio < self.MIN_RISK_REWARD_RATIO:
-            is_qualified = False
-            qualification_reasons.append(f"Risk-reward ratio {risk_reward_ratio:.2f}x below minimum {self.MIN_RISK_REWARD_RATIO:.2f}x")
 
         if composite_score < self.MIN_QUALIFICATION_SCORE:
             is_qualified = False

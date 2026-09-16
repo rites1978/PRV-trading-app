@@ -33,10 +33,11 @@ class TestHitAndRunRiskManager(unittest.TestCase):
         self.assertEqual(stop_default, 95.0)
 
     def test_verify_protective_stop_invariant(self):
-        """Verifies stop price adheres to strict 5.0% max loss invariant."""
+        """Verifies stop price adheres to strict 5.0% max loss invariant: stop_price >= fill_price * 0.95."""
+        self.assertEqual(self.risk.MAXIMUM_AUTHORISED_LOSS_PCT, 0.05)
         fill = 250.0
 
-        # Exactly 5%
+        # Exactly 5%: stop_price = fill * 0.95 = 237.50
         valid_5pct, reason = self.risk.verify_protective_stop_invariant(fill, 237.50)
         self.assertTrue(valid_5pct)
 
@@ -53,6 +54,18 @@ class TestHitAndRunRiskManager(unittest.TestCase):
         invalid_high, reason = self.risk.verify_protective_stop_invariant(fill, 255.00)
         self.assertFalse(invalid_high)
         self.assertIn("MUST_BE_BELOW_FILL", reason)
+
+    def test_five_percent_invariant_boundary_conditions(self):
+        """Tests tick-size boundary conditions ensuring stop_price >= fill_price * 0.95."""
+        fill = 100.0
+        # Exactly 0.95 * 100.0 = 95.0
+        valid, _ = self.risk.verify_protective_stop_invariant(fill, 95.0, tick_size=0.01)
+        self.assertTrue(valid)
+
+        # Slight rounding below 95.0 beyond half tick -> REJECTED
+        invalid, reason = self.risk.verify_protective_stop_invariant(fill, 94.98, tick_size=0.01)
+        self.assertFalse(invalid)
+        self.assertIn("EXCEEDS_5PCT_MAX_LOSS", reason)
 
     def test_broker_native_stop_verification_confirmed(self):
         """Confirmed when broker open orders has active STOP with exact quantity."""
