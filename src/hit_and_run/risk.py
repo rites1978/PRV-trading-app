@@ -31,40 +31,38 @@ class HitAndRunRiskManager:
         currency: str = "GBP",
         price: float = 1.0,
         is_uk_pence: bool = False,
-        explicit_tick: Optional[float] = None
-    ) -> float:
+        explicit_tick: Optional[float] = None,
+        venue: Optional[str] = None
+    ) -> Optional[float]:
         """
-        Dynamically derives valid price tick size per instrument currency, price scale, and metadata.
-        - If broker metadata explicitly specifies tick_size, respects it.
-        - For UK pence (GBX):
-            price >= 100.0p -> 0.1p (standard LSE tick for equities >= 100p)
-            price < 100.0p -> 0.01p
-        - For GBP:
-            price >= 1.0 -> 0.01 (1 penny)
-            price < 1.0 -> 0.001
-        - For USD / EUR / foreign:
-            price >= 1.0 -> 0.01 ($0.01 / €0.01)
-            price < 1.0 -> 0.0001 (US sub-penny / penny pilot)
+        Derives authoritative tick size scoped strictly to explicit metadata or an independently
+        verified exchange capability table (e.g. SEC Rule 612 for US, LSE MiFID II for UK).
+        Returns None if tick size cannot be verified authoritatively (DO NOT GUESS).
         """
         if explicit_tick is not None and explicit_tick > 0:
             return float(explicit_tick)
 
-        curr = currency.upper().strip()
-        if is_uk_pence or curr == "GBX":
-            return 0.1 if price >= 100.0 else 0.01
-        elif curr == "GBP":
-            return 0.01 if price >= 1.0 else 0.001
-        else:
-            return 0.01 if price >= 1.0 else 0.0001
+        if venue:
+            from src.data.technical_execution_capability import TechnicalExecutionCapabilityValidator
+            return TechnicalExecutionCapabilityValidator.derive_tick_size_for_venue(
+                venue_name=venue,
+                currency=currency,
+                price=price,
+                is_uk_pence=is_uk_pence
+            )
+
+        # No guessing based on currency or generic price bands!
+        return None
 
     @staticmethod
-    def round_stop_up_to_tick(price: float, tick_size: float = 0.0001) -> float:
+    def round_stop_up_to_tick(price: float, tick_size: float) -> float:
         """
         Rounds a protective stop UP to the next valid broker tick.
         Guarantees stop_price >= price, ensuring planned loss NEVER exceeds the 5% ceiling.
+        Requires an authoritative tick_size.
         """
-        if tick_size <= 0:
-            return price
+        if tick_size is None or tick_size <= 0:
+            raise ValueError("TICK_SIZE_UNKNOWN: Authoritative tick size must be strictly positive")
         # High precision rounding before ceil eliminates IEEE-754 representation noise
         num_ticks = math.ceil(round(price / tick_size, 8))
         tick_str = f"{tick_size:.8f}".rstrip('0')
@@ -75,18 +73,22 @@ class HitAndRunRiskManager:
         self,
         fill_price: float,
         requested_risk_pct: Optional[float] = None,
-        tick_size: float = 0.0001
+        tick_size: Optional[float] = None
     ) -> float:
         """
         Derives protective stop price tied to authoritative fill price.
+        Requires an authoritative tick_size (explicit metadata or verified venue table).
+        Raises ValueError with TICK_SIZE_UNKNOWN if tick_size is missing or non-positive.
         Strictly enforces:
             theoretical_floor = fill_price * 0.95
             stop_price >= theoretical_floor
             planned_loss_pct = (fill_price - stop_price) / fill_price <= 0.05
-        Rounds the protective stop UP to the next valid broker tick if necessary.
+        Rounds the protective stop UP to the next valid broker tick.
         """
         if fill_price <= 0.0:
             raise ValueError(f"Fill price must be strictly positive, got {fill_price}")
+        if tick_size is None or tick_size <= 0:
+            raise ValueError("TICK_SIZE_UNKNOWN: Authoritative tick size is required for protective stop calculation")
 
         effective_loss_pct = self.MAXIMUM_AUTHORISED_LOSS_PCT
         if requested_risk_pct is not None and requested_risk_pct > 0:
@@ -106,7 +108,7 @@ class HitAndRunRiskManager:
         self,
         fill_price: float,
         stop_price: float,
-        tick_size: float = 0.0001
+        tick_size: Optional[float] = None
     ) -> Tuple[bool, str]:
         """
         Enforces the non-negotiable 5% loss invariant:
@@ -120,6 +122,7 @@ class HitAndRunRiskManager:
         - NO tick_size * 0.5 relaxation
         - NO epsilon permitting >5%
         - NO rounding downward through the 5% boundary
+        - If tick_size is provided, verifies exact tick alignment
         """
         if fill_price <= 0.0:
             return False, "INVALID_FILL_PRICE: fill_price must be > 0"
@@ -142,6 +145,12 @@ class HitAndRunRiskManager:
             return False, (
                 f"EXCEEDS_5PCT_MAX_LOSS: planned loss {planned_loss_pct:.6%} > authorised ceiling {self.MAXIMUM_AUTHORISED_LOSS_PCT:.2%}"
             )
+
+        # If tick_size is specified, verify alignment to authoritative tick increment
+        if tick_size is not None and tick_size > 0:
+            expected_rounded = self.round_stop_up_to_tick(stop_price, tick_size)
+            if abs(stop_price - expected_rounded) > 1e-6:
+                return False, f"INVALID_TICK_INCREMENT: stop_price {stop_price} not aligned to tick {tick_size}"
 
         return True, "STOP_VERIFIED_VALID"
 

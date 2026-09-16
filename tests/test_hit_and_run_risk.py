@@ -17,20 +17,26 @@ class TestHitAndRunRiskManager(unittest.TestCase):
         self.risk = HitAndRunRiskManager()
 
     def test_calculate_protective_stop_enforces_5pct_ceiling(self):
-        """Calculates protective stop clamped to 5% maximum loss."""
+        """Calculates protective stop clamped to 5% maximum loss with authoritative tick size."""
         fill_price = 100.0
+        tick_size = 0.01
 
         # Requesting 3% -> permitted
-        stop_3pct = self.risk.calculate_protective_stop(fill_price, requested_risk_pct=0.03)
+        stop_3pct = self.risk.calculate_protective_stop(fill_price, requested_risk_pct=0.03, tick_size=tick_size)
         self.assertEqual(stop_3pct, 97.0)
 
         # Requesting 7% -> clamped to 5%
-        stop_7pct = self.risk.calculate_protective_stop(fill_price, requested_risk_pct=0.07)
+        stop_7pct = self.risk.calculate_protective_stop(fill_price, requested_risk_pct=0.07, tick_size=tick_size)
         self.assertEqual(stop_7pct, 95.0)
 
         # Default (no risk requested) -> 5%
-        stop_default = self.risk.calculate_protective_stop(fill_price)
+        stop_default = self.risk.calculate_protective_stop(fill_price, tick_size=tick_size)
         self.assertEqual(stop_default, 95.0)
+
+        # Missing tick size -> raises TICK_SIZE_UNKNOWN (no guessing allowed)
+        with self.assertRaises(ValueError) as ctx:
+            self.risk.calculate_protective_stop(fill_price, tick_size=None)
+        self.assertIn("TICK_SIZE_UNKNOWN", str(ctx.exception))
 
     def test_verify_protective_stop_invariant(self):
         """Verifies stop price adheres to strict 5.0% max loss invariant: stop_price >= fill_price * 0.95."""

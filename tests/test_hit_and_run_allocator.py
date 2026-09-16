@@ -33,7 +33,11 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         price_gbp=100.0,
         qualified=True,
         estimated_costs=0.002,
-        expected_net_reward=0.080
+        expected_net_reward=0.080,
+        min_trade_quantity=0.001,
+        quantity_precision=3,
+        tick_size=0.01,
+        exchange_venue="London Stock Exchange"
     ):
         return OpportunityCandidate(
             instrument_id=f"{symbol}_EQ",
@@ -45,8 +49,13 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
             quote_divisor=1.0,
             current_price=price_gbp,
             current_price_gbp=price_gbp,
+            min_trade_quantity=min_trade_quantity,
+            quantity_precision=quantity_precision,
+            tick_size=tick_size,
+            exchange_venue=exchange_venue,
             opportunity_score=score,
             strategy_qualified=qualified,
+            cost_model_complete=True,
             downside_risk=0.045,  # 4.5% stop loss (within 5% max)
             estimated_costs=estimated_costs,
             expected_net_reward=expected_net_reward,
@@ -277,18 +286,71 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         self.assertEqual(alloc_map["FRAC"].target_quantity, 3.333)
 
     def test_dynamic_tick_size_derivation(self):
-        """Dynamically derives tick size for GBX vs GBP vs USD."""
+        """Dynamically derives tick size for GBX vs GBP vs USD using authoritative venue capability."""
         from src.hit_and_run.risk import HitAndRunRiskManager
-        # GBX >= 100p -> 0.1
-        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=150.0, is_uk_pence=True), 0.1)
-        # GBX < 100p -> 0.01
-        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=45.0, is_uk_pence=True), 0.01)
-        # GBP >= 1.0 -> 0.01
-        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBP", price=25.0), 0.01)
-        # USD >= 1.0 -> 0.01
-        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="USD", price=50.0), 0.01)
-        # USD < 1.0 -> 0.0001
-        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="USD", price=0.85), 0.0001)
+        # GBX >= 100p on LSE -> 0.1
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=150.0, is_uk_pence=True, venue="London Stock Exchange"), 0.1)
+        # GBX < 100p on LSE -> 0.05
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=45.0, is_uk_pence=True, venue="London Stock Exchange"), 0.05)
+        # GBP >= 1.0 on LSE -> 0.01
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBP", price=25.0, venue="London Stock Exchange"), 0.01)
+        # USD >= 1.0 on NYSE -> 0.01 (SEC Rule 612)
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="USD", price=50.0, venue="NYSE"), 0.01)
+        # USD < 1.0 on NASDAQ -> 0.0001 (SEC Rule 612)
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="USD", price=0.85, venue="NASDAQ"), 0.0001)
+        # Without venue or explicit metadata -> None (strict: NO GUESSING)
+        self.assertIsNone(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=150.0, is_uk_pence=True))
+        self.assertIsNone(HitAndRunRiskManager.derive_tick_size(currency="USD", price=50.0))
+
+    def test_unknown_quantity_fails_closed_zero_allocation(self):
+        """When quantity precision cannot be authoritatively determined, allocator fails closed with zero allocation."""
+        c = self._make_candidate("UNKNOWN_QTY", score=85.0, price_gbp=100.0)
+        c.min_trade_quantity = None
+        c.quantity_precision = None
+
+        policy = EvidenceConcentrationPolicy(sizing_decisions={"UNKNOWN_QTY": 1000.0})
+        allocator = DynamicCapitalAllocator(policy=policy)
+        allocs = allocator.allocate(
+            portfolio_capital=10000.0,
+            available_cash=10000.0,
+            existing_positions=[],
+            outstanding_orders=[],
+            candidates=[c]
+        )
+        self.assertEqual(allocs, [], "Must not create allocation for candidate with unknown quantity precision")
+
+    def test_unknown_tick_fails_closed_no_protected_order(self):
+        """When tick size cannot be authoritatively determined, candidate cannot have protected stop -> zero allocation."""
+        c = self._make_candidate("UNKNOWN_TICK", score=85.0, price_gbp=100.0)
+        c.tick_size = None
+        c.exchange_venue = "UNVERIFIED_VENUE"
+
+        policy = EvidenceConcentrationPolicy(sizing_decisions={"UNKNOWN_TICK": 1000.0})
+        allocator = DynamicCapitalAllocator(policy=policy)
+        allocs = allocator.allocate(
+            portfolio_capital=10000.0,
+            available_cash=10000.0,
+            existing_positions=[],
+            outstanding_orders=[],
+            candidates=[c]
+        )
+        self.assertEqual(allocs, [], "Must not authorise protected order when tick size is unknown")
+
+    def test_incomplete_cost_model_fails_closed_zero_allocation(self):
+        """When candidate cost model is incomplete (unknown material tax/fee), no real order may be allocated."""
+        c = self._make_candidate("INCOMPLETE_COST", score=90.0, price_gbp=100.0)
+        c.cost_model_complete = False
+
+        policy = EvidenceConcentrationPolicy(sizing_decisions={"INCOMPLETE_COST": 1000.0})
+        allocator = DynamicCapitalAllocator(policy=policy)
+        allocs = allocator.allocate(
+            portfolio_capital=10000.0,
+            available_cash=10000.0,
+            existing_positions=[],
+            outstanding_orders=[],
+            candidates=[c]
+        )
+        self.assertEqual(allocs, [], "Must not allocate capital when cost model is incomplete")
 
 
 if __name__ == "__main__":

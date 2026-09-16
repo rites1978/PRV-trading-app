@@ -63,16 +63,35 @@ class TestHitAndRunDeliverableOneIntegration(unittest.TestCase):
         self.assertIn("STOCK", product_families)
         self.assertIn("ETF", product_families)
 
+        # Raw broker instruments lacking explicit minTradeQuantity fail closed with QUANTITY_INCREMENT_UNKNOWN.
+        # Only instruments with authoritative/certified broker metadata (such as the 6 core ETFs) qualify.
         executable_universe = hit_and_run_universe.get_executable_universe()
-        self.assertGreater(len(executable_universe), 10000)
+        self.assertEqual(len(executable_universe), 6)
 
         # --- Component B & C: Candidate Data Model & Scoring ---
-        sample_inst = executable_universe[0]
+        # With authoritative broker metadata (minTradeQuantity, verified venue, ISIN)
+        sample_inst = {
+            "instrument_id": "BARCl_EQ",
+            "symbol": "BARC",
+            "feed_ticker": "BARC.L",
+            "product_type": "STOCK",
+            "currency": "GBX",
+            "is_uk_pence": True,
+            "quote_divisor": 100.0,
+            "isin": "GB0031348658",
+            "exchange_venue": "London Stock Exchange",
+            "min_trade_quantity": 0.001,
+            "max_open_quantity": 100000.0,
+            "working_schedule_id": 56
+        }
         snapshot = {
             "instrument_id": sample_inst["instrument_id"],
             "symbol": sample_inst["symbol"],
             "feed_ticker": sample_inst["feed_ticker"],
             "product_type": sample_inst["product_type"],
+            "isin": sample_inst["isin"],
+            "exchange_venue": sample_inst["exchange_venue"],
+            "min_trade_quantity": sample_inst["min_trade_quantity"],
             "currency": sample_inst["currency"],
             "is_uk_pence": sample_inst["is_uk_pence"],
             "quote_divisor": sample_inst["quote_divisor"],

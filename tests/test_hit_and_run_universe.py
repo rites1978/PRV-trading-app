@@ -47,27 +47,90 @@ class TestHitAndRunUniverseDiscovery(unittest.TestCase):
         self.assertIn("WARRANT", telemetry["UNSUPPORTED_PRODUCT_FAMILIES"])
 
     def test_technical_execution_capability_gate(self):
-        """Verifies technical capability gate distinguishes tradable from technically supported."""
-        all_candidates = self.discovery.get_executable_universe()
-        self.assertGreater(len(all_candidates), 10000)
+        """Verifies technical capability gate strictly enforces quantity and tick verification."""
+        from src.data.technical_execution_capability import technical_execution_capability
 
-        # Ensure no WARRANT made it into executable universe
-        for cand in all_candidates[:500]:
-            self.assertIn(cand["product_type"], ("STOCK", "ETF"))
-            self.assertTrue(cand["feed_ticker"] is not None and len(cand["feed_ticker"]) > 0)
-            self.assertIn(cand["currency"], ("GBP", "GBX", "USD", "EUR", "CAD", "CHF"))
+        # 1. Raw broker instruments lacking explicit minTradeQuantity fail closed with QUANTITY_INCREMENT_UNKNOWN
+        tradable = self.discovery.get_tradable_instruments() if hasattr(self.discovery, "get_tradable_instruments") else []
+        if not tradable:
+            from src.data.broker_discovery import broker_discovery
+            tradable = broker_discovery.get_tradable_instruments()
+
+        raw_inst = tradable[0]
+        is_supp, reason, _ = technical_execution_capability.validate(raw_inst)
+        self.assertFalse(is_supp)
+        self.assertIn("QUANTITY_INCREMENT_UNKNOWN", reason)
+
+        # 2. Instruments with authoritative metadata succeed with derived precision and verified tick rule
+        qualified_us = {
+            "ticker": "AAPL_US_EQ",
+            "type": "STOCK",
+            "currencyCode": "USD",
+            "minTradeQuantity": 0.001,
+            "maxOpenQuantity": 10000.0,
+            "workingScheduleId": 56
+        }
+        is_supp_us, reason_us, details_us = technical_execution_capability.validate(qualified_us)
+        self.assertTrue(is_supp_us, f"Qualified US instrument must be supported: {reason_us}")
+        self.assertEqual(details_us["quantity_precision"], 3)
+        self.assertEqual(details_us["tick_size_rule"], "US_SEC_RULE_612")
+
+        # 3. Whole-share instrument derives precision 0
+        qualified_whole = {
+            "ticker": "BARCl_EQ",
+            "type": "STOCK",
+            "currencyCode": "GBX",
+            "minTradeQuantity": 1.0,
+            "maxOpenQuantity": 50000.0,
+            "exchange_venue": "London Stock Exchange"
+        }
+        is_supp_uk, _, details_uk = technical_execution_capability.validate(qualified_whole)
+        self.assertTrue(is_supp_uk)
+        self.assertEqual(details_uk["quantity_precision"], 0)
+        self.assertEqual(details_uk["tick_size_rule"], "LSE_MIFID_II")
+
+        # 4. Ensure WARRANT is rejected with UNSUPPORTED_PRODUCT_FAMILY
+        warrant_inst = {
+            "ticker": "TEST_WARRANT",
+            "type": "WARRANT",
+            "currencyCode": "USD",
+            "minTradeQuantity": 1.0,
+            "maxOpenQuantity": 100.0
+        }
+        is_supp_w, reason_w, _ = technical_execution_capability.validate(warrant_inst)
+        self.assertFalse(is_supp_w)
+        self.assertIn("UNSUPPORTED_PRODUCT_FAMILY", reason_w)
+
+        # 5. Unverified venue without explicit tick fails closed with TICK_SIZE_UNKNOWN
+        unverified_venue = {
+            "ticker": "UNKNOWN_VEN_EQ",
+            "type": "STOCK",
+            "currencyCode": "USD",
+            "minTradeQuantity": 0.001,
+            "exchange_venue": "UNKNOWN_OFFSHORE_EXCHANGE"
+        }
+        is_supp_uv, reason_uv, _ = technical_execution_capability.validate(unverified_venue)
+        self.assertFalse(is_supp_uv)
+        self.assertIn("TICK_SIZE_UNKNOWN", reason_uv)
 
     def test_no_arbitrary_geography_or_product_restrictions(self):
-        """Verifies universe contains US, UK, and European instruments across stocks and ETFs."""
-        all_candidates = self.discovery.get_executable_universe()
+        """Verifies technical capability supports US, UK, and European instruments across stocks and ETFs without bias."""
+        from src.data.technical_execution_capability import technical_execution_capability
 
-        currencies = {c["currency"] for c in all_candidates}
-        self.assertIn("USD", currencies)
-        self.assertIn("GBX", currencies)
-        self.assertIn("EUR", currencies)
+        test_cases = [
+            {"ticker": "MSFT_US_EQ", "type": "STOCK", "currencyCode": "USD", "minTradeQuantity": 0.001, "exchange_venue": "NASDAQ"},
+            {"ticker": "SPY_US_EQ", "type": "ETF", "currencyCode": "USD", "minTradeQuantity": 0.001, "exchange_venue": "NYSE"},
+            {"ticker": "BARCl_EQ", "type": "STOCK", "currencyCode": "GBX", "minTradeQuantity": 0.001, "exchange_venue": "London Stock Exchange"},
+            {"ticker": "CSP1l_EQ", "type": "ETF", "currencyCode": "GBX", "minTradeQuantity": 0.001, "exchange_venue": "London Stock Exchange"},
+            {"ticker": "SAPd_EQ", "type": "STOCK", "currencyCode": "EUR", "minTradeQuantity": 0.001, "exchange_venue": "Deutsche Börse Xetra"},
+            {"ticker": "ORp_EQ", "type": "STOCK", "currencyCode": "EUR", "minTradeQuantity": 0.001, "exchange_venue": "Euronext Paris"},
+        ]
 
-        product_types = {c["product_type"] for c in all_candidates}
-        self.assertEqual(product_types, {"STOCK", "ETF"})
+        for case in test_cases:
+            is_supp, reason, details = technical_execution_capability.validate(case)
+            self.assertTrue(is_supp, f"Case {case['ticker']} must be supported: {reason}")
+            self.assertIn(details["currency"], ("USD", "GBX", "EUR"))
+            self.assertIn(details["product_type"], ("STOCK", "ETF"))
 
 
 if __name__ == "__main__":

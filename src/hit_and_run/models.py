@@ -25,9 +25,12 @@ class OpportunityCandidate:
 
     # Broker contract & metadata attributes
     isin: str = ""
-    min_trade_quantity: Optional[float] = 0.001
+    min_trade_quantity: Optional[float] = None
     quantity_precision: Optional[int] = None
     tick_size: Optional[float] = None
+    exchange_venue: str = ""
+    cost_model_complete: bool = True
+    cost_model_reasons: List[str] = field(default_factory=list)
 
     # Short-term quantitative indicators
     momentum: float = 0.0

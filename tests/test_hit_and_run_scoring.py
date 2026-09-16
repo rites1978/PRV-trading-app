@@ -42,6 +42,9 @@ class TestHitAndRunScoring(unittest.TestCase):
             "quote_divisor": 1.0,
             "current_price": 121.50,
             "current_price_gbp": 92.50,
+            "exchange_venue": "NASDAQ",
+            "min_trade_quantity": 0.001,
+            "isin": "US67066G1040",
             "intraday_open": 116.0,
             "intraday_high": 122.0,
             "intraday_low": 115.80,
@@ -212,8 +215,116 @@ class TestHitAndRunScoring(unittest.TestCase):
         # 4. US Stock (USD)
         snap_us = {**base_snap, "instrument_id": "AAPL_US_EQ", "product_type": "STOCK", "isin": "US0378331005", "currency": "USD", "is_uk_pence": False}
         c_us = self.scorer.evaluate_opportunity(snap_us)
-        # SDRT = 0.0, FX = 0.0015 * 2 = 0.003, spread = 0.001 -> estimated_costs ~ 0.004
-        self.assertAlmostEqual(c_us.estimated_costs, 0.003 + 0.001, delta=0.0005)
+        # SDRT = 0.0, FX = 0.0015 * 2 = 0.003, spread = 0.001, SEC = 0.0000206 -> estimated_costs ~ 0.00402
+        self.assertAlmostEqual(c_us.estimated_costs, 0.003 + 0.001 + 0.000025, delta=0.0005)
+
+    def test_sdrt_aim_statutory_exemption(self):
+        """UK AIM equities are legally exempt from SDRT under Finance Act 2014."""
+        base_snap = {
+            "current_price": 50.0,
+            "recent_prices": [49.0, 50.0],
+            "bid": 49.975,
+            "ask": 50.025,
+            "session_state": "REGULAR"
+        }
+        snap_aim = {
+            **base_snap,
+            "instrument_id": "FDMl_EQ",
+            "symbol": "FDM",
+            "product_type": "STOCK",
+            "isin": "GB00B033TF11",
+            "currency": "GBX",
+            "is_uk_pence": True,
+            "exchange_venue": "London Stock Exchange AIM",
+            "min_trade_quantity": 0.001
+        }
+        c_aim = self.scorer.evaluate_opportunity(snap_aim)
+        # AIM equity is exempt from SDRT (0.0000), FX is 0.0000
+        self.assertAlmostEqual(c_aim.estimated_costs, 0.001, delta=0.0005)
+        self.assertTrue(c_aim.cost_model_complete)
+
+    def test_missing_isin_uk_main_market_stock_fails_qualification(self):
+        """Missing ISIN on UK Main Market equity prevents SDRT verification -> cost_model_complete = False -> disqualified."""
+        base_snap = {
+            "current_price": 100.0,
+            "recent_prices": [95.0, 100.0],
+            "session_state": "REGULAR"
+        }
+        snap_no_isin = {
+            **base_snap,
+            "instrument_id": "UNKNOWN_UK_EQ",
+            "product_type": "STOCK",
+            "isin": "",
+            "currency": "GBX",
+            "is_uk_pence": True,
+            "exchange_venue": "London Stock Exchange",
+            "min_trade_quantity": 0.001
+        }
+        c = self.scorer.evaluate_opportunity(snap_no_isin)
+        self.assertFalse(c.cost_model_complete)
+        self.assertFalse(c.strategy_qualified)
+        self.assertTrue(any("SDRT_STATUS_UNKNOWN" in r for r in c.qualification_reasons))
+
+    def test_french_ftt_market_cap_qualification(self):
+        """French stock on Euronext Paris with market cap > €1bn incurs 0.30% FTT on Buy. Unverified market cap -> incomplete."""
+        base_snap = {
+            "current_price": 50.0,
+            "recent_prices": [48.0, 50.0],
+            "session_state": "REGULAR"
+        }
+        # 1. Large cap with confirmed market cap > €1bn
+        snap_fr_large = {
+            **base_snap,
+            "instrument_id": "OR_EQ",
+            "product_type": "STOCK",
+            "isin": "FR0000120321",
+            "currency": "EUR",
+            "exchange_venue": "Euronext Paris",
+            "market_cap_eur": 2e10,
+            "min_trade_quantity": 0.001
+        }
+        c_large = self.scorer.evaluate_opportunity(snap_fr_large)
+        self.assertTrue(c_large.cost_model_complete)
+        # FX round trip (0.0030) + French FTT (0.0030) + spread (0.0010) = 0.0070
+        self.assertAlmostEqual(c_large.estimated_costs, 0.0070, delta=0.0005)
+
+        # 2. Market cap unverified -> incomplete cost model -> disqualified from orders
+        snap_fr_unknown_mcap = {
+            **base_snap,
+            "instrument_id": "UNKNOWN_FR_EQ",
+            "product_type": "STOCK",
+            "isin": "FR0000123456",
+            "currency": "EUR",
+            "exchange_venue": "Euronext Paris",
+            "min_trade_quantity": 0.001
+        }
+        c_unverified = self.scorer.evaluate_opportunity(snap_fr_unknown_mcap)
+        self.assertFalse(c_unverified.cost_model_complete)
+        self.assertFalse(c_unverified.strategy_qualified)
+        self.assertTrue(any("FRENCH_FTT_STATUS_UNKNOWN" in r for r in c_unverified.qualification_reasons))
+
+    def test_ptm_levy_over_10k_gbp(self):
+        """PTM levy (£1.50 per leg = £3.00 round trip) applies on UK equities when consideration > £10,000."""
+        from src.hit_and_run.cost_model import hit_and_run_cost_model
+        # Under £10k: £0.00
+        res_small = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type="STOCK",
+            currency="GBX",
+            isin="GB0031348658",
+            exchange_venue="London Stock Exchange",
+            order_size_gbp=5000.0
+        )
+        self.assertEqual(res_small.ptm_levy_amount_gbp, 0.0)
+
+        # Over £10k: £3.00
+        res_large = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type="STOCK",
+            currency="GBX",
+            isin="GB0031348658",
+            exchange_venue="London Stock Exchange",
+            order_size_gbp=15000.0
+        )
+        self.assertEqual(res_large.ptm_levy_amount_gbp, 3.0)
 
 
 if __name__ == "__main__":

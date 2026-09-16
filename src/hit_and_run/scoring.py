@@ -18,6 +18,8 @@ Strictly caps downside risk at 5.0% and rejects negative expected net edge.
 import numpy as np
 from typing import Dict, Any, List, Optional
 from src.hit_and_run.models import OpportunityCandidate
+from src.hit_and_run.cost_model import hit_and_run_cost_model
+from src.data.technical_execution_capability import technical_execution_capability
 
 
 class HitAndRunOpportunityScorer:
@@ -39,6 +41,11 @@ class HitAndRunOpportunityScorer:
         is_uk_pence = snapshot.get("is_uk_pence", False)
         quote_divisor = snapshot.get("quote_divisor", 100.0 if is_uk_pence else 1.0)
         isin = str(snapshot.get("isin", "")).strip().upper()
+        exchange_venue = str(
+            snapshot.get("exchange_venue") or snapshot.get("exchange") or snapshot.get("venue") or ""
+        ).strip()
+        if not exchange_venue:
+            exchange_venue = technical_execution_capability.resolve_exchange_venue(snapshot) or ""
         min_trade_quantity = snapshot.get("min_trade_quantity")
         quantity_precision = snapshot.get("quantity_precision")
         tick_size = snapshot.get("tick_size")
@@ -101,20 +108,37 @@ class HitAndRunOpportunityScorer:
         distance_from_high = float(max(0.0, (intraday_high - current_price) / max(1e-6, current_price)))
         distance_from_low = float(max(0.0, (current_price - intraday_low) / max(1e-6, current_price)))
 
-        # 9. Estimated Round-Trip Trading Costs
-        # FX fee: Trading212 charges 0.15% per side only when instrument currency != account base currency (GBP).
-        # When currency is GBP or GBX, FX fee is strictly 0.0%.
-        fx_fee = 0.0015 if currency not in ("GBP", "GBX") else 0.0
+        # 9. Authoritative Transaction Cost & Tax Evaluation
+        # Evaluates Trading212 FX fee (0.15% per leg), UK SDRT (0.50% buy), PTM levy (£1.50 > £10k),
+        # SEC Section 31 (0.00206% sell), FINRA TAF (zsh.000195/sh sell), French FTT (0.30% buy),
+        # Italian/Spanish FTT, and spread friction.
+        cost_eval = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type=product_type,
+            currency=currency,
+            isin=isin,
+            exchange_venue=exchange_venue,
+            current_price=current_price,
+            bid=bid,
+            ask=ask,
+            market_cap_eur=snapshot.get("market_cap_eur"),
+            market_cap_tier=snapshot.get("market_cap_tier"),
+            french_ftt_applicable=snapshot.get("french_ftt_applicable"),
+            custom_spread_pct=spread_friction
+        )
+        estimated_costs = cost_eval.estimated_costs_round_trip
 
-        # Stamp Duty Reserve Tax (UK SDRT):
-        # By UK law (Finance Act 2014), ETFs are legally exempt from SDRT. AIM shares are exempt.
-        # Foreign-domiciled shares (non-GB ISIN) are exempt even if traded in GBX.
-        # Only UK ordinary shares (product_type == "STOCK" and UK ISIN starting with "GB") incur 0.5% SDRT.
-        is_uk_ordinary_stock = (product_type == "STOCK" and isin.startswith("GB"))
-        stamp_duty = 0.0050 if is_uk_ordinary_stock else 0.0
+        # Authoritative quantity precision and tick size derivation
+        if quantity_precision is None and min_trade_quantity is not None:
+            quantity_precision = technical_execution_capability.derive_quantity_precision(min_trade_quantity)
 
-        # Round trip costs = 2 * FX fee + spread friction + stamp duty
-        estimated_costs = float((fx_fee * 2.0) + spread_friction + stamp_duty)
+        if tick_size is None:
+            tick_size = technical_execution_capability.derive_tick_size_for_venue(
+                venue_name=exchange_venue,
+                currency=currency,
+                price=current_price,
+                is_uk_pence=is_uk_pence,
+                explicit_tick=snapshot.get("tick_size")
+            )
 
         # 10. Downside Risk (Strictly capped at 5.0% max loss invariant)
         technical_downside = max(0.010, volatility * 1.5)
@@ -161,6 +185,23 @@ class HitAndRunOpportunityScorer:
             is_qualified = False
             qualification_reasons.append(f"No genuine net edge after costs: net reward {expected_net_reward:.4%} <= 0")
 
+        # Strict Cost Completeness Check:
+        # If tax/fee applicability cannot be established reliably: COST_MODEL_COMPLETE = False.
+        # Strategy may score instrument informationally, but it MUST NOT be authorised for a real order.
+        if not cost_eval.cost_model_complete:
+            is_qualified = False
+            qualification_reasons.extend(cost_eval.incomplete_reasons)
+
+        # Quantity precision check: do not guess quantity precision
+        if quantity_precision is None and min_trade_quantity is None:
+            is_qualified = False
+            qualification_reasons.append("QUANTITY_INCREMENT_UNKNOWN: Missing quantity increment metadata")
+
+        # Tick size check: do not guess tick size
+        if tick_size is None or tick_size <= 0:
+            is_qualified = False
+            qualification_reasons.append("TICK_SIZE_UNKNOWN: Unable to determine authoritative tick size from metadata or verified venue table")
+
         # Construct Entry Thesis
         if is_qualified:
             entry_thesis = (
@@ -183,9 +224,12 @@ class HitAndRunOpportunityScorer:
             current_price=current_price,
             current_price_gbp=current_price_gbp,
             isin=isin,
-            min_trade_quantity=min_trade_quantity if min_trade_quantity is not None else 0.001,
+            min_trade_quantity=min_trade_quantity,
             quantity_precision=quantity_precision,
             tick_size=tick_size,
+            exchange_venue=exchange_venue,
+            cost_model_complete=cost_eval.cost_model_complete,
+            cost_model_reasons=cost_eval.incomplete_reasons,
             momentum=round(momentum, 5),
             acceleration=round(acceleration, 5),
             relative_strength=round(relative_strength, 5),

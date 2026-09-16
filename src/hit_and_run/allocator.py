@@ -179,6 +179,7 @@ class DynamicCapitalAllocator:
         qual = [
             c for c in candidates
             if c.strategy_qualified
+            and getattr(c, "cost_model_complete", True)
             and c.instrument_id.upper() not in held_tickers
             and c.symbol.upper() not in held_tickers
             and c.feed_ticker.upper() not in held_tickers
@@ -216,16 +217,25 @@ class DynamicCapitalAllocator:
                 continue
 
             raw_qty = target_budget / price_gbp
-            # Dynamic quantity precision: derived from broker metadata / product contract
+
+            # Dynamic quantity precision: derived strictly from broker metadata / product contract
+            # NO 3-DECIMAL FALLBACK: If valid order quantity cannot be determined authoritatively,
+            # fail closed with zero order allocation.
             min_trade_qty = getattr(cand, "min_trade_quantity", None)
             prec = getattr(cand, "quantity_precision", None)
+            if min_trade_qty is not None:
+                from src.data.technical_execution_capability import TechnicalExecutionCapabilityValidator
+                derived_prec = TechnicalExecutionCapabilityValidator.derive_quantity_precision(min_trade_qty)
+                if derived_prec is not None:
+                    prec = derived_prec
+
             if prec is None:
-                if min_trade_qty is not None and min_trade_qty >= 1.0:
-                    prec = 0
-                elif min_trade_qty is not None and "." in str(min_trade_qty):
-                    prec = len(str(min_trade_qty).rstrip('0').split('.')[1])
-                else:
-                    prec = 3
+                logger.warning(
+                    f"DynamicCapitalAllocator: QUANTITY_INCREMENT_UNKNOWN for {cand.symbol}. "
+                    f"No valid order quantity determined authoritatively. Zero allocation."
+                )
+                continue
+
             factor = 10.0 ** prec
             target_qty = math.floor(raw_qty * factor) / factor
             actual_alloc_gbp = round(target_qty * price_gbp, 2)
@@ -240,11 +250,25 @@ class DynamicCapitalAllocator:
             # theoretical_floor = cand.current_price * 0.95
             # Protective stop MUST be rounded UP to next valid broker tick so:
             # stop_price >= theoretical_floor and planned_loss_pct <= 0.05
-            tick_size = cand.tick_size or HitAndRunRiskManager.derive_tick_size(
-                currency=cand.currency,
-                price=cand.current_price,
-                is_uk_pence=cand.is_uk_pence
-            )
+            # NO GUESSED TICK-SIZE FALLBACK: A guessed tick size must never determine a 5% protective stop.
+            tick_size = getattr(cand, "tick_size", None)
+            if tick_size is None or tick_size <= 0:
+                venue = getattr(cand, "exchange_venue", "")
+                from src.data.technical_execution_capability import TechnicalExecutionCapabilityValidator
+                tick_size = TechnicalExecutionCapabilityValidator.derive_tick_size_for_venue(
+                    venue_name=venue,
+                    currency=cand.currency,
+                    price=cand.current_price,
+                    is_uk_pence=cand.is_uk_pence
+                )
+
+            if tick_size is None or tick_size <= 0:
+                logger.warning(
+                    f"DynamicCapitalAllocator: TICK_SIZE_UNKNOWN for {cand.symbol}. "
+                    f"Authoritative tick size required for protective stop. No protected order may be authorised."
+                )
+                continue
+
             effective_risk = min(self.MAXIMUM_AUTHORISED_LOSS_PCT, cand.downside_risk)
             stop_price = HitAndRunRiskManager.round_stop_up_to_tick(
                 cand.current_price * (1.0 - effective_risk),
