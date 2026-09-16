@@ -273,7 +273,7 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             analyzed_opportunities=[analysis]
         )
         self.assertFalse(ai_dec.whether_to_trade)
-        self.assertEqual(ai_dec.status, "NO_VALID_EDGE")
+        self.assertEqual(ai_dec.status, "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE")
 
     # -------------------------------------------------------------
     # Test 8: Missing tick size fails closed (TICK_SIZE_UNKNOWN)

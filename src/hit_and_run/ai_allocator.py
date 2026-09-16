@@ -122,14 +122,31 @@ class ConvictionConcentrationAIProvider(AIAllocationInterface):
         ]
 
         if not viable:
+            # Audit why viable is empty per Deliverable 2A Section A:
+            # NO_VALID_EDGE is permitted ONLY when relevant universe was successfully evaluated,
+            # execution capability resolved, required live market data available, costs complete,
+            # and no executable positive edge remained. If infrastructure prevented evaluation: PRODUCTION_FAILURE.
+            if not analyzed_opportunities:
+                status = "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE"
+                rationale = "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE - Zero candidate opportunity states were available for evaluation."
+            elif any(not op.state.technical_execution_supported for op in analyzed_opportunities):
+                status = "PRODUCTION_FAILURE: EXECUTION_CAPABILITY_COVERAGE_INCOMPLETE"
+                rationale = "PRODUCTION_FAILURE: EXECUTION_CAPABILITY_COVERAGE_INCOMPLETE - Evaluated candidates lacked verified broker technical execution capability."
+            elif any(op.data_quality_state != "COMPLETE" or not getattr(op.state, "quote_executable_now", False) for op in analyzed_opportunities):
+                status = "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE"
+                rationale = "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE - Live executable quotes or spread friction were unavailable across candidates."
+            else:
+                status = "NO_VALID_EDGE"
+                rationale = "NO_VALID_EDGE: Relevant universe was evaluated with complete execution data, but no candidate presented positive net expected reward after costs."
+
             return AIAllocationDecision(
                 whether_to_trade=False,
                 selected_allocations={},
                 total_deployment_gbp=0.0,
                 total_deployment_pct=0.0,
-                rationale="NO_VALID_EDGE: No candidates have verified complete execution data and positive expected net reward after costs.",
+                rationale=rationale,
                 concentration_summary="ZERO_TRADES",
-                status="NO_VALID_EDGE"
+                status=status
             )
 
         # AI Reasoning on Concentration:
