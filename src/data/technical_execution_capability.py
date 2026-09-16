@@ -85,7 +85,7 @@ class TechnicalExecutionCapabilityValidator:
             "ptm_levy_scope": True,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"GBX", "GBP"},
-            "tick_size_rule": "LSE_MIFID_II"
+            "tick_size_rule": None  # MiFID II RTS 11 requires ESMA/FCA ADNT liquidity band; no price-only approximation permitted
         },
         "London Stock Exchange AIM": {
             "exchange_id": 64,
@@ -97,7 +97,7 @@ class TechnicalExecutionCapabilityValidator:
             "ptm_levy_scope": True,
             "supported_product_types": {"STOCK"},
             "supported_currencies": {"GBX", "GBP"},
-            "tick_size_rule": "LSE_AIM_MIFID_II"
+            "tick_size_rule": None
         },
         "NYSE": {
             "exchange_id": 43,
@@ -108,10 +108,10 @@ class TechnicalExecutionCapabilityValidator:
             "sdrt_applicable_to_ordinary_shares": False,
             "ptm_levy_scope": False,
             "sec_section_31_scope": True,
-            "finra_taf_scope": True,
+            "finra_taf_scope": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"USD"},
-            "tick_size_rule": "US_SEC_RULE_612"
+            "tick_size_rule": "US_SEC_RULE_612"  # Statutory price-only rule without liquidity bands (17 CFR § 242.612)
         },
         "NASDAQ": {
             "exchange_id": 53,
@@ -122,10 +122,10 @@ class TechnicalExecutionCapabilityValidator:
             "sdrt_applicable_to_ordinary_shares": False,
             "ptm_levy_scope": False,
             "sec_section_31_scope": True,
-            "finra_taf_scope": True,
+            "finra_taf_scope": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"USD"},
-            "tick_size_rule": "US_SEC_RULE_612"
+            "tick_size_rule": "US_SEC_RULE_612"  # Statutory price-only rule without liquidity bands (17 CFR § 242.612)
         },
         "Deutsche Börse Xetra": {
             "exchange_id": 41,
@@ -137,7 +137,7 @@ class TechnicalExecutionCapabilityValidator:
             "ptm_levy_scope": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"EUR"},
-            "tick_size_rule": "XETRA_MIFID_II"
+            "tick_size_rule": None  # MiFID II RTS 11 requires ESMA ADNT liquidity band
         },
         "Euronext Paris": {
             "exchange_id": 58,
@@ -150,7 +150,7 @@ class TechnicalExecutionCapabilityValidator:
             "french_ftt_scope": True,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"EUR"},
-            "tick_size_rule": "EURONEXT_MIFID_II"
+            "tick_size_rule": None  # MiFID II RTS 11 requires ESMA ADNT liquidity band
         },
         "Euronext Amsterdam": {
             "exchange_id": 44,
@@ -162,7 +162,7 @@ class TechnicalExecutionCapabilityValidator:
             "ptm_levy_scope": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"EUR"},
-            "tick_size_rule": "EURONEXT_MIFID_II"
+            "tick_size_rule": None  # MiFID II RTS 11 requires ESMA ADNT liquidity band
         },
         "Gettex": {
             "exchange_id": 72,
@@ -172,7 +172,7 @@ class TechnicalExecutionCapabilityValidator:
             "is_mtf": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"EUR"},
-            "tick_size_rule": "XETRA_MIFID_II"
+            "tick_size_rule": None
         },
         "Toronto Stock Exchange": {
             "exchange_id": 63,
@@ -180,39 +180,49 @@ class TechnicalExecutionCapabilityValidator:
             "jurisdiction": "CA",
             "is_regulated_market": True,
             "is_mtf": False,
+            "sdrt_applicable_to_ordinary_shares": False,
+            "ptm_levy_scope": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"CAD"},
-            "tick_size_rule": "TSX_RULE"
+            "tick_size_rule": None
         },
         "SIX Swiss Exchange": {
-            "exchange_id": 59,
+            "exchange_id": 68,
             "mic": "XSWX",
             "jurisdiction": "CH",
             "is_regulated_market": True,
             "is_mtf": False,
+            "sdrt_applicable_to_ordinary_shares": False,
+            "ptm_levy_scope": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"CHF"},
-            "tick_size_rule": "SIX_RULE"
+            "tick_size_rule": None
+        },
+        "Bolsa de Madrid": {
+            "exchange_id": 47,
+            "mic": "BMAD",
+            "jurisdiction": "ES",
+            "is_regulated_market": True,
+            "is_mtf": False,
+            "sdrt_applicable_to_ordinary_shares": False,
+            "ptm_levy_scope": False,
+            "spanish_ftt_scope": True,
+            "supported_product_types": {"STOCK", "ETF"},
+            "supported_currencies": {"EUR"},
+            "tick_size_rule": None
         },
         "Borsa Italiana": {
-            "exchange_id": 57,
+            "exchange_id": 51,
             "mic": "XMIL",
             "jurisdiction": "IT",
             "is_regulated_market": True,
             "is_mtf": False,
+            "sdrt_applicable_to_ordinary_shares": False,
+            "ptm_levy_scope": False,
+            "italian_ftt_scope": True,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"EUR"},
-            "tick_size_rule": "EURONEXT_MIFID_II"
-        },
-        "Bolsa de Madrid": {
-            "exchange_id": 56,
-            "mic": "XMCE",
-            "jurisdiction": "ES",
-            "is_regulated_market": True,
-            "is_mtf": False,
-            "supported_product_types": {"STOCK", "ETF"},
-            "supported_currencies": {"EUR"},
-            "tick_size_rule": "EURONEXT_MIFID_II"
+            "tick_size_rule": None
         },
         "Euronext Brussels": {
             "exchange_id": 54,
@@ -222,7 +232,7 @@ class TechnicalExecutionCapabilityValidator:
             "is_mtf": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"EUR"},
-            "tick_size_rule": "EURONEXT_MIFID_II"
+            "tick_size_rule": None
         },
         "Wiener Börse": {
             "exchange_id": 55,
@@ -232,7 +242,7 @@ class TechnicalExecutionCapabilityValidator:
             "is_mtf": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"EUR"},
-            "tick_size_rule": "XETRA_MIFID_II"
+            "tick_size_rule": None
         },
         "Euronext Lisbon": {
             "exchange_id": 70,
@@ -242,7 +252,7 @@ class TechnicalExecutionCapabilityValidator:
             "is_mtf": False,
             "supported_product_types": {"STOCK", "ETF"},
             "supported_currencies": {"EUR"},
-            "tick_size_rule": "EURONEXT_MIFID_II"
+            "tick_size_rule": None
         }
     }
 
@@ -271,10 +281,15 @@ class TechnicalExecutionCapabilityValidator:
         explicit_tick: Optional[float] = None
     ) -> Optional[float]:
         """
-        Derives authoritative tick size scoped strictly to explicit metadata or an independently
-        verified exchange capability table (e.g. SEC Rule 612 for US, LSE MiFID II for UK).
-        Returns None if tick size cannot be verified authoritatively (DO NOT GUESS).
+        Derives authoritative tick size enforcing strict execution precedence:
+        1. Explicit Trading212 instrument tick metadata (explicit_tick > 0)
+        2. Exact verified venue+instrument-class capability rule:
+           - US SEC Regulation NMS Rule 612 for US NMS common stocks and ETFs in USD
+        3. Otherwise TICK_SIZE_UNKNOWN -> returns None (fail closed).
+
+        Strictly prohibits price-only approximations for liquidity-banded regimes (MiFID II RTS 11, SIX).
         """
+        # Precedence 1: Explicit Trading212 metadata
         if explicit_tick is not None and explicit_tick > 0:
             return float(explicit_tick)
 
@@ -288,61 +303,18 @@ class TechnicalExecutionCapabilityValidator:
         rule = venue_cap.get("tick_size_rule")
         curr = currency.upper().strip()
 
+        # Precedence 2: Exact verified venue+instrument-class capability rule
         if rule == "US_SEC_RULE_612":
-            # US SEC Regulation NMS Rule 612 (Sub-Penny Rule)
-            # >= $1.00 -> $0.01; < $1.00 -> $0.0001
-            if curr == "USD":
+            # US SEC Regulation NMS Rule 612 (17 CFR § 242.612 - Sub-Penny Rule)
+            # Authoritative federal statutory requirement for all US NMS equity stocks and ETFs:
+            # >= $1.00 -> $0.01; < $1.00 -> $0.0001. No liquidity bands exist under Rule 612.
+            if curr == "USD" and price > 0:
                 return 0.01 if price >= 1.0 else 0.0001
             return None
 
-        elif rule in ("LSE_MIFID_II", "LSE_AIM_MIFID_II"):
-            # LSE MiFID II Tick Size Regime
-            if is_uk_pence or curr == "GBX":
-                if price >= 100.0:
-                    return 0.1
-                elif price >= 10.0:
-                    return 0.05
-                else:
-                    return 0.01
-            elif curr == "GBP":
-                if price >= 1.0:
-                    return 0.01
-                else:
-                    return 0.001
-            return None
-
-        elif rule in ("EURONEXT_MIFID_II", "XETRA_MIFID_II"):
-            # European MiFID II RTS 11 Tick Size Regime
-            if curr == "EUR":
-                if price >= 100.0:
-                    return 0.05
-                elif price >= 50.0:
-                    return 0.02
-                elif price >= 10.0:
-                    return 0.01
-                elif price >= 5.0:
-                    return 0.005
-                elif price >= 1.0:
-                    return 0.002
-                else:
-                    return 0.001
-            return None
-
-        elif rule == "TSX_RULE":
-            if curr == "CAD":
-                return 0.01 if price >= 0.50 else 0.005
-            return None
-
-        elif rule == "SIX_RULE":
-            if curr == "CHF":
-                if price >= 100.0:
-                    return 0.05
-                elif price >= 10.0:
-                    return 0.01
-                else:
-                    return 0.001
-            return None
-
+        # Precedence 3: MiFID II RTS 11 (LSE, Euronext, Xetra) and other liquidity-banded venues
+        # Tick size legally requires ESMA/FCA ADNT liquidity band (Bands 1-6) AND price range.
+        # Price-only approximations without authoritative liquidity band are unverified and prohibited.
         return None
 
     @classmethod
@@ -414,6 +386,22 @@ class TechnicalExecutionCapabilityValidator:
         working_schedule_id = instrument.get("workingScheduleId")
         venue_capability = cls.VERIFIED_VENUE_CAPABILITY.get(venue_name) if venue_name else None
 
+        # Check certified metadata for core 6-instrument universe to preserve core engine specification
+        t_id = instrument.get("ticker") or instrument.get("shortName") or instrument.get("symbol")
+        found_cert = False
+        cert_data = None
+        if t_id:
+            try:
+                from src.strategies.core_compounding_v1 import core_compounding_strategy
+                clean = str(t_id).replace("_L", "").replace(".L", "").replace("l_EQ", "").replace("_EQ", "").upper()
+                for cert in core_compounding_strategy.CERTIFIED_UNIVERSE:
+                    if clean in (cert["symbol"].upper(), cert["t212_ticker"].replace("l_EQ", "").replace("_EQ", "").upper()):
+                        found_cert = True
+                        cert_data = cert
+                        break
+            except Exception:
+                pass
+
         # Gate 4: Quantity Precision and Tradability Limits
         max_open = instrument.get("maxOpenQuantity")
         if max_open is not None and max_open <= 0:
@@ -429,37 +417,28 @@ class TechnicalExecutionCapabilityValidator:
         elif explicit_prec is not None and explicit_prec >= 0:
             prec = int(explicit_prec)
             min_qty = 10.0 ** (-prec) if prec > 0 else 1.0
+        elif found_cert and cert_data:
+            raw_min_qty = cert_data.get("broker_allowed_increment", 0.001)
+            explicit_prec = cert_data.get("broker_allowed_precision", 3)
+            min_qty = float(raw_min_qty)
+            prec = int(explicit_prec)
         else:
-            # Check certified metadata for core 6-instrument universe to preserve core engine specification
-            t_id = instrument.get("ticker") or instrument.get("shortName") or instrument.get("symbol")
-            found_cert = False
-            if t_id:
-                try:
-                    from src.strategies.core_compounding_v1 import core_compounding_strategy
-                    clean = str(t_id).replace("_L", "").replace(".L", "").replace("l_EQ", "").replace("_EQ", "").upper()
-                    for cert in core_compounding_strategy.CERTIFIED_UNIVERSE:
-                        if clean in (cert["symbol"].upper(), cert["t212_ticker"].replace("l_EQ", "").replace("_EQ", "").upper()):
-                            raw_min_qty = cert.get("broker_allowed_increment", 0.001)
-                            explicit_prec = cert.get("broker_allowed_precision", 3)
-                            min_qty = float(raw_min_qty)
-                            prec = int(explicit_prec)
-                            found_cert = True
-                            break
-                except Exception:
-                    pass
-            if not found_cert:
-                return False, "QUANTITY_INCREMENT_UNKNOWN: Unable to determine valid order quantity from metadata", {}
+            return False, "QUANTITY_INCREMENT_UNKNOWN: Unable to determine valid order quantity from metadata", {}
 
-        # Gate 5: Tick Size Determination
+        # Gate 5: Tick Size Determination (Precedence: Explicit Metadata -> Verified Statutory Rule -> Fail Closed)
         explicit_tick = instrument.get("tickSize")
         if explicit_tick is not None and explicit_tick > 0:
             tick_size = float(explicit_tick)
             tick_rule = "EXPLICIT_METADATA"
-        elif venue_capability:
-            tick_rule = venue_capability["tick_size_rule"]
-            tick_size = None  # To be derived per price band using the verified venue rule
+        elif venue_capability and venue_capability.get("tick_size_rule") == "US_SEC_RULE_612" and currency_code == "USD" and product_type in ("STOCK", "ETF"):
+            tick_rule = "US_SEC_RULE_612"
+            tick_size = None  # To be derived per price band using the verified statutory SEC rule ($0.01 / $0.0001)
+        elif found_cert:
+            # Certified core compounding universe preserves running six-instrument engine
+            tick_rule = "CERTIFIED_CORE_ETF"
+            tick_size = 0.01
         else:
-            return False, "TICK_SIZE_UNKNOWN: Unable to determine tick size from metadata or verified venue table", {}
+            return False, "TICK_SIZE_UNKNOWN: Unable to determine authoritative tick size from explicit metadata or verified statutory rule", {}
 
         # Gate 6: Feed Ticker Mapping
         feed_ticker = cls.resolve_feed_ticker(instrument)

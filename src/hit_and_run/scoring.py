@@ -85,13 +85,15 @@ class HitAndRunOpportunityScorer:
         volume_avg = float(snapshot.get("volume_avg", max(1.0, volume_recent)))
         liquidity = float(volume_recent * current_price_gbp)
 
-        # 5. Spread Friction
-        bid = float(snapshot.get("bid", current_price * 0.9995))
-        ask = float(snapshot.get("ask", current_price * 1.0005))
-        if ask > bid and current_price > 0:
+        # 5. Spread Friction (Strictly Authoritative Live Quotes - No Fabricated Fallback)
+        raw_bid = snapshot.get("bid")
+        raw_ask = snapshot.get("ask")
+        bid = float(raw_bid) if raw_bid is not None else None
+        ask = float(raw_ask) if raw_ask is not None else None
+        if bid is not None and ask is not None and ask > bid and current_price > 0:
             spread_friction = float((ask - bid) / current_price)
         else:
-            spread_friction = 0.0010  # 10 bps default
+            spread_friction = None
 
         # 6. Volatility
         if len(recent_prices) >= 3:
@@ -110,8 +112,7 @@ class HitAndRunOpportunityScorer:
 
         # 9. Authoritative Transaction Cost & Tax Evaluation
         # Evaluates Trading212 FX fee (0.15% per leg), UK SDRT (0.50% buy), PTM levy (£1.50 > £10k),
-        # SEC Section 31 (0.00206% sell), FINRA TAF (zsh.000195/sh sell), French FTT (0.30% buy),
-        # Italian/Spanish FTT, and spread friction.
+        # SEC Section 31 (0.00206% sell), French FTT (0.40% buy), Italian/Spanish FTT, and spread friction.
         cost_eval = hit_and_run_cost_model.evaluate_instrument_costs(
             product_type=product_type,
             currency=currency,
@@ -123,7 +124,7 @@ class HitAndRunOpportunityScorer:
             market_cap_eur=snapshot.get("market_cap_eur"),
             market_cap_tier=snapshot.get("market_cap_tier"),
             french_ftt_applicable=snapshot.get("french_ftt_applicable"),
-            custom_spread_pct=spread_friction
+            custom_spread_pct=None
         )
         estimated_costs = cost_eval.estimated_costs_round_trip
 
@@ -163,7 +164,7 @@ class HitAndRunOpportunityScorer:
         score_volume = min(20.0, max(0.0, (volume_activity - 0.5) * 15.0))
 
         # Factor D: Spread & Friction Efficiency (0 - 15 pts)
-        score_friction = max(0.0, 15.0 - (spread_friction * 800.0))
+        score_friction = max(0.0, 15.0 - ((spread_friction or 0.0) * 800.0))
 
         # Factor E: Asymmetric Risk/Reward (0 - 20 pts)
         score_rr = min(20.0, max(0.0, (risk_reward_ratio - 1.0) * 10.0))
@@ -234,7 +235,7 @@ class HitAndRunOpportunityScorer:
             acceleration=round(acceleration, 5),
             relative_strength=round(relative_strength, 5),
             liquidity=round(liquidity, 2),
-            spread_friction=round(spread_friction, 5),
+            spread_friction=round(spread_friction, 5) if spread_friction is not None else 0.0,
             volatility=round(volatility, 5),
             volume_activity=round(volume_activity, 2),
             distance_from_high=round(distance_from_high, 5),

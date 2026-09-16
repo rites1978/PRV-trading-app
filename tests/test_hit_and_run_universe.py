@@ -82,12 +82,13 @@ class TestHitAndRunUniverseDiscovery(unittest.TestCase):
             "currencyCode": "GBX",
             "minTradeQuantity": 1.0,
             "maxOpenQuantity": 50000.0,
-            "exchange_venue": "London Stock Exchange"
+            "exchange_venue": "London Stock Exchange",
+            "tickSize": 0.1
         }
         is_supp_uk, _, details_uk = technical_execution_capability.validate(qualified_whole)
         self.assertTrue(is_supp_uk)
         self.assertEqual(details_uk["quantity_precision"], 0)
-        self.assertEqual(details_uk["tick_size_rule"], "LSE_MIFID_II")
+        self.assertEqual(details_uk["tick_size_rule"], "EXPLICIT_METADATA")
 
         # 4. Ensure WARRANT is rejected with UNSUPPORTED_PRODUCT_FAMILY
         warrant_inst = {
@@ -120,10 +121,10 @@ class TestHitAndRunUniverseDiscovery(unittest.TestCase):
         test_cases = [
             {"ticker": "MSFT_US_EQ", "type": "STOCK", "currencyCode": "USD", "minTradeQuantity": 0.001, "exchange_venue": "NASDAQ"},
             {"ticker": "SPY_US_EQ", "type": "ETF", "currencyCode": "USD", "minTradeQuantity": 0.001, "exchange_venue": "NYSE"},
-            {"ticker": "BARCl_EQ", "type": "STOCK", "currencyCode": "GBX", "minTradeQuantity": 0.001, "exchange_venue": "London Stock Exchange"},
-            {"ticker": "CSP1l_EQ", "type": "ETF", "currencyCode": "GBX", "minTradeQuantity": 0.001, "exchange_venue": "London Stock Exchange"},
-            {"ticker": "SAPd_EQ", "type": "STOCK", "currencyCode": "EUR", "minTradeQuantity": 0.001, "exchange_venue": "Deutsche Börse Xetra"},
-            {"ticker": "ORp_EQ", "type": "STOCK", "currencyCode": "EUR", "minTradeQuantity": 0.001, "exchange_venue": "Euronext Paris"},
+            {"ticker": "BARCl_EQ", "type": "STOCK", "currencyCode": "GBX", "minTradeQuantity": 0.001, "exchange_venue": "London Stock Exchange", "tickSize": 0.1},
+            {"ticker": "CSP1l_EQ", "type": "ETF", "currencyCode": "GBX", "minTradeQuantity": 0.001, "exchange_venue": "London Stock Exchange", "tickSize": 0.1},
+            {"ticker": "SAPd_EQ", "type": "STOCK", "currencyCode": "EUR", "minTradeQuantity": 0.001, "exchange_venue": "Deutsche Börse Xetra", "tickSize": 0.01},
+            {"ticker": "ORp_EQ", "type": "STOCK", "currencyCode": "EUR", "minTradeQuantity": 0.001, "exchange_venue": "Euronext Paris", "tickSize": 0.01},
         ]
 
         for case in test_cases:
@@ -131,6 +132,12 @@ class TestHitAndRunUniverseDiscovery(unittest.TestCase):
             self.assertTrue(is_supp, f"Case {case['ticker']} must be supported: {reason}")
             self.assertIn(details["currency"], ("USD", "GBX", "EUR"))
             self.assertIn(details["product_type"], ("STOCK", "ETF"))
+
+        # Invariant: European instrument without explicit tickSize fails closed with TICK_SIZE_UNKNOWN
+        euro_no_tick = {"ticker": "ORp_EQ", "type": "STOCK", "currencyCode": "EUR", "minTradeQuantity": 0.001, "exchange_venue": "Euronext Paris"}
+        is_ok, reason_no_tick, _ = technical_execution_capability.validate(euro_no_tick)
+        self.assertFalse(is_ok)
+        self.assertIn("TICK_SIZE_UNKNOWN", reason_no_tick)
 
 
 if __name__ == "__main__":

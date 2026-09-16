@@ -286,18 +286,22 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
         self.assertEqual(alloc_map["FRAC"].target_quantity, 3.333)
 
     def test_dynamic_tick_size_derivation(self):
-        """Dynamically derives tick size for GBX vs GBP vs USD using authoritative venue capability."""
+        """Dynamically derives tick size enforcing strict execution precedence."""
         from src.hit_and_run.risk import HitAndRunRiskManager
-        # GBX >= 100p on LSE -> 0.1
-        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=150.0, is_uk_pence=True, venue="London Stock Exchange"), 0.1)
-        # GBX < 100p on LSE -> 0.05
-        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=45.0, is_uk_pence=True, venue="London Stock Exchange"), 0.05)
-        # GBP >= 1.0 on LSE -> 0.01
-        self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="GBP", price=25.0, venue="London Stock Exchange"), 0.01)
-        # USD >= 1.0 on NYSE -> 0.01 (SEC Rule 612)
+        # Precedence 1: Explicit metadata is always honored regardless of venue
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(explicit_tick=0.1, currency="GBX", price=150.0, venue="London Stock Exchange"), 0.1)
+        self.assertEqual(HitAndRunRiskManager.derive_tick_size(explicit_tick=0.01, currency="EUR", price=50.0, venue="Euronext Paris"), 0.01)
+
+        # Precedence 2: Exact verified venue+instrument-class rule (US SEC Rule 612 for US NMS stocks/ETFs in USD)
+        # USD >= $1.0 on NYSE -> 0.01 (SEC Rule 612)
         self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="USD", price=50.0, venue="NYSE"), 0.01)
-        # USD < 1.0 on NASDAQ -> 0.0001 (SEC Rule 612)
+        # USD < $1.0 on NASDAQ -> 0.0001 (SEC Rule 612)
         self.assertEqual(HitAndRunRiskManager.derive_tick_size(currency="USD", price=0.85, venue="NASDAQ"), 0.0001)
+
+        # Precedence 3: MiFID II RTS 11 liquidity-banded venues without explicit metadata -> None (NO price-only guessing!)
+        self.assertIsNone(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=150.0, is_uk_pence=True, venue="London Stock Exchange"))
+        self.assertIsNone(HitAndRunRiskManager.derive_tick_size(currency="EUR", price=50.0, venue="Euronext Paris"))
+        self.assertIsNone(HitAndRunRiskManager.derive_tick_size(currency="EUR", price=100.0, venue="Deutsche Börse Xetra"))
         # Without venue or explicit metadata -> None (strict: NO GUESSING)
         self.assertIsNone(HitAndRunRiskManager.derive_tick_size(currency="GBX", price=150.0, is_uk_pence=True))
         self.assertIsNone(HitAndRunRiskManager.derive_tick_size(currency="USD", price=50.0))

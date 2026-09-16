@@ -215,8 +215,8 @@ class TestHitAndRunScoring(unittest.TestCase):
         # 4. US Stock (USD)
         snap_us = {**base_snap, "instrument_id": "AAPL_US_EQ", "product_type": "STOCK", "isin": "US0378331005", "currency": "USD", "is_uk_pence": False}
         c_us = self.scorer.evaluate_opportunity(snap_us)
-        # SDRT = 0.0, FX = 0.0015 * 2 = 0.003, spread = 0.001, SEC = 0.0000206 -> estimated_costs ~ 0.00402
-        self.assertAlmostEqual(c_us.estimated_costs, 0.003 + 0.001 + 0.000025, delta=0.0005)
+        # SDRT = 0.0, FX = 0.0015 * 2 = 0.003, spread = 0.001, SEC FY2026 = 0.0000206, FINRA customer pass-through = 0.0 -> estimated_costs ~ 0.0040206
+        self.assertAlmostEqual(c_us.estimated_costs, 0.003 + 0.001 + 0.0000206, delta=0.0005)
 
     def test_sdrt_aim_statutory_exemption(self):
         """UK AIM equities are legally exempt from SDRT under Finance Act 2014."""
@@ -248,6 +248,8 @@ class TestHitAndRunScoring(unittest.TestCase):
         base_snap = {
             "current_price": 100.0,
             "recent_prices": [95.0, 100.0],
+            "bid": 99.95,
+            "ask": 100.05,
             "session_state": "REGULAR"
         }
         snap_no_isin = {
@@ -266,10 +268,12 @@ class TestHitAndRunScoring(unittest.TestCase):
         self.assertTrue(any("SDRT_STATUS_UNKNOWN" in r for r in c.qualification_reasons))
 
     def test_french_ftt_market_cap_qualification(self):
-        """French stock on Euronext Paris with market cap > €1bn incurs 0.30% FTT on Buy. Unverified market cap -> incomplete."""
+        """French stock on Euronext Paris with market cap > €1bn incurs 0.40% FTT on Buy. Unverified market cap -> incomplete."""
         base_snap = {
             "current_price": 50.0,
             "recent_prices": [48.0, 50.0],
+            "bid": 49.975,
+            "ask": 50.025,
             "session_state": "REGULAR"
         }
         # 1. Large cap with confirmed market cap > €1bn
@@ -285,8 +289,8 @@ class TestHitAndRunScoring(unittest.TestCase):
         }
         c_large = self.scorer.evaluate_opportunity(snap_fr_large)
         self.assertTrue(c_large.cost_model_complete)
-        # FX round trip (0.0030) + French FTT (0.0030) + spread (0.0010) = 0.0070
-        self.assertAlmostEqual(c_large.estimated_costs, 0.0070, delta=0.0005)
+        # FX round trip (0.0030) + French FTT (0.0040) + spread (0.0010) = 0.0080 (0.80%)
+        self.assertAlmostEqual(c_large.estimated_costs, 0.0080, delta=0.0005)
 
         # 2. Market cap unverified -> incomplete cost model -> disqualified from orders
         snap_fr_unknown_mcap = {
@@ -302,6 +306,30 @@ class TestHitAndRunScoring(unittest.TestCase):
         self.assertFalse(c_unverified.cost_model_complete)
         self.assertFalse(c_unverified.strategy_qualified)
         self.assertTrue(any("FRENCH_FTT_STATUS_UNKNOWN" in r for r in c_unverified.qualification_reasons))
+
+    def test_missing_spread_fails_closed_without_10bps_fallback(self):
+        """When live bid/ask quotes are missing, cost model fails closed with LIVE_SPREAD_UNKNOWN without 10bps fallback."""
+        snap_no_spread = {
+            "instrument_id": "NVDA_US_EQ",
+            "symbol": "NVDA",
+            "feed_ticker": "NVDA",
+            "product_type": "STOCK",
+            "currency": "USD",
+            "is_uk_pence": False,
+            "quote_divisor": 1.0,
+            "current_price": 120.0,
+            "current_price_gbp": 90.0,
+            "exchange_venue": "NASDAQ",
+            "min_trade_quantity": 0.001,
+            "isin": "US67066G1040",
+            "recent_prices": [118.0, 120.0],
+            "session_state": "REGULAR"
+            # bid and ask are intentionally omitted!
+        }
+        c = self.scorer.evaluate_opportunity(snap_no_spread)
+        self.assertFalse(c.cost_model_complete)
+        self.assertFalse(c.strategy_qualified)
+        self.assertTrue(any("LIVE_SPREAD_UNKNOWN" in r for r in c.cost_model_reasons))
 
     def test_ptm_levy_over_10k_gbp(self):
         """PTM levy (£1.50 per leg = £3.00 round trip) applies on UK equities when consideration > £10,000."""

@@ -81,6 +81,7 @@ class TestHitAndRunDeliverableOneIntegration(unittest.TestCase):
             "isin": "GB0031348658",
             "exchange_venue": "London Stock Exchange",
             "min_trade_quantity": 0.001,
+            "tick_size": 0.1,
             "max_open_quantity": 100000.0,
             "working_schedule_id": 56
         }
@@ -92,6 +93,7 @@ class TestHitAndRunDeliverableOneIntegration(unittest.TestCase):
             "isin": sample_inst["isin"],
             "exchange_venue": sample_inst["exchange_venue"],
             "min_trade_quantity": sample_inst["min_trade_quantity"],
+            "tick_size": sample_inst["tick_size"],
             "currency": sample_inst["currency"],
             "is_uk_pence": sample_inst["is_uk_pence"],
             "quote_divisor": sample_inst["quote_divisor"],

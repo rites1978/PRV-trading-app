@@ -47,10 +47,10 @@ class HitAndRunCostModel:
     UK_SDRT_RATE = 0.0050                   # 0.50% UK SDRT on qualifying main-market equity buys
     PTM_LEVY_THRESHOLD_GBP = 10000.0        # £10,000 Takeover Panel threshold
     PTM_LEVY_PER_LEG_GBP = 1.50             # £1.50 flat fee per qualifying leg
-    SEC_SECTION_31_RATE = 0.0000206         # .60 per m (0.00206%) on US sells
-    FINRA_TAF_PER_SHARE = 0.000195          # zsh.000195 per share on US sells
-    FINRA_TAF_MAX_FEE = 9.79                # .79 statutory cap per trade
-    FRENCH_FTT_RATE = 0.0030                # 0.30% on Euronext Paris French equities > €1bn
+    SEC_SECTION_31_RATE = 0.0000206         # Current FY2026 rate from 4 April 2026: $20.60 per $1,000,000 (0.00206%) on US sells
+    FINRA_TAF_PER_SHARE = 0.000195          # Statutory SRO rate: $0.000195/share (not charged as separate retail customer fee by Trading212)
+    FINRA_TAF_MAX_FEE = 9.79                # $9.79 statutory cap per trade
+    FRENCH_FTT_RATE = 0.0040                # 0.40% on Euronext Paris French equities > €1bn (effective 1 April 2025 per French BOFiP / Art. 235 ter ZD and Trading212 fee schedule)
     ITALIAN_FTT_RATE = 0.0010               # 0.10% on Borsa Italiana Italian equities
     SPANISH_FTT_RATE = 0.0020               # 0.20% on Bolsa de Madrid Spanish equities > €1bn
 
@@ -90,10 +90,16 @@ class HitAndRunCostModel:
         market_cap_eur: Optional[float] = None,
         market_cap_tier: Optional[str] = None,
         french_ftt_applicable: Optional[bool] = None,
-        custom_spread_pct: Optional[float] = None
+        custom_spread_pct: Optional[float] = None,
+        order_preview_fees: Optional[Dict[str, float]] = None
     ) -> CostEvaluationResult:
         """
-        Evaluates all applicable fees and taxes with strict completeness checking.
+        Evaluates all applicable customer execution fees and taxes with strict completeness checking.
+        Enforces execution source precedence:
+        1. Trading212 order preview / broker metadata if available
+        2. Current Trading212 published customer fee schedule
+        3. Authoritative statutory/exchange source where broker treatment is established
+        4. Otherwise COST_MODEL_COMPLETE = False
         """
         cost_complete = True
         reasons: List[str] = []
@@ -103,121 +109,141 @@ class HitAndRunCostModel:
         isin_upper = isin.upper().strip()
         venue_clean = exchange_venue.strip()
 
-        # 1. Trading212 FX Fee
-        # Applied on both entry buy and exit sell when currency is not GBP or GBX
-        if curr_upper in ("GBP", "GBX"):
-            fx_rate = 0.0
-        elif curr_upper in ("USD", "EUR", "CAD", "CHF"):
-            # 15 bps on buy + 15 bps on sell = 30 bps round trip
-            fx_rate = self.TRADING212_FX_FEE_RATE * 2.0
+        # Precedence 1: Exact Broker Order Preview
+        if order_preview_fees is not None:
+            # If explicit broker order preview metadata provides customer charges
+            fx_rate = float(order_preview_fees.get("fx_rate", 0.0))
+            stamp_duty_rate = float(order_preview_fees.get("stamp_duty_rate", 0.0))
+            sec_rate = float(order_preview_fees.get("sec_rate", 0.0))
+            finra_rate = float(order_preview_fees.get("finra_rate", 0.0))
+            french_ftt_rate = float(order_preview_fees.get("french_ftt_rate", 0.0))
+            italian_ftt_rate = float(order_preview_fees.get("italian_ftt_rate", 0.0))
+            spanish_ftt_rate = float(order_preview_fees.get("spanish_ftt_rate", 0.0))
+            ptm_levy_amount = float(order_preview_fees.get("ptm_levy_amount_gbp", 0.0))
         else:
-            fx_rate = self.TRADING212_FX_FEE_RATE * 2.0
-            cost_complete = False
-            reasons.append(f"CURRENCY_UNKNOWN: Currency '{curr_upper}' unverified for currency accounting")
-
-        # 2. UK Stamp Duty Reserve Tax (SDRT)
-        # Authoritative Rules:
-        # - ETFs: EXEMPT by statute (Finance Act 2014 s.65)
-        # - AIM: EXEMPT by statute (Finance Act 2014 s.110)
-        # - Foreign incorporated (non-GB ISIN): EXEMPT even if quoted in GBX on LSE
-        # - Sells: EXEMPT (SDRT applies on purchase only)
-        # - Only UK ordinary shares (product_type == STOCK, ISIN starts with GB) on UK Main Market incur 0.5% SDRT
-        stamp_duty_rate = 0.0
-        if pt_upper == "ETF":
-            stamp_duty_rate = 0.0
-        elif venue_clean in self.UK_MTF_VENUES:
-            stamp_duty_rate = 0.0
-        elif venue_clean in self.UK_MAIN_MARKET_VENUES:
-            if isin_upper.startswith("GB") and pt_upper == "STOCK":
-                stamp_duty_rate = self.UK_SDRT_RATE
-            elif isin_upper and not isin_upper.startswith("GB"):
-                # Foreign incorporated stock trading in UK (e.g. Irish IE, Jersey JE)
-                stamp_duty_rate = 0.0
-            elif not isin_upper:
-                # ISIN is missing on an LSE stock: SDRT cannot be established reliably!
+            # Precedence 2 & 3: Trading212 Published Fee Schedule & Established Statutory Treatment
+            # 1. Trading212 FX Fee
+            # Applied on both entry buy and exit sell when currency is not GBP or GBX
+            if curr_upper in ("GBP", "GBX"):
+                fx_rate = 0.0
+            elif curr_upper in ("USD", "EUR", "CAD", "CHF"):
+                # 15 bps on buy + 15 bps on sell = 30 bps round trip
+                fx_rate = self.TRADING212_FX_FEE_RATE * 2.0
+            else:
+                fx_rate = self.TRADING212_FX_FEE_RATE * 2.0
                 cost_complete = False
-                reasons.append("SDRT_STATUS_UNKNOWN: Missing ISIN on UK Main Market equity prevents SDRT verification")
-        else:
-            # Non-UK venues (NYSE, NASDAQ, Xetra, Paris, etc.)
-            stamp_duty_rate = 0.0
+                reasons.append(f"CURRENCY_UNKNOWN: Currency '{curr_upper}' unverified for currency accounting")
 
-        # 3. Takeover Panel PTM Levy
-        # Rule: £1.50 per leg for UK/CI/IoM companies on UK venues if consideration > £10,000. ETFs exempt.
-        ptm_levy_amount = 0.0
-        order_nominal = order_size_gbp or 0.0
-        if pt_upper == "ETF":
+            # 2. UK Stamp Duty Reserve Tax (SDRT)
+            # Authoritative Rules:
+            # - ETFs: EXEMPT by statute (Finance Act 2014 s.65)
+            # - AIM: EXEMPT by statute (Finance Act 2014 s.110)
+            # - Foreign incorporated (non-GB ISIN): EXEMPT even if quoted in GBX on LSE
+            # - Sells: EXEMPT (SDRT applies on purchase only)
+            # - Only UK ordinary shares (product_type == STOCK, ISIN starts with GB) on UK Main Market incur 0.5% SDRT
+            stamp_duty_rate = 0.0
+            if pt_upper == "ETF":
+                stamp_duty_rate = 0.0
+            elif venue_clean in self.UK_MTF_VENUES:
+                stamp_duty_rate = 0.0
+            elif venue_clean in self.UK_MAIN_MARKET_VENUES:
+                if isin_upper.startswith("GB") and pt_upper == "STOCK":
+                    stamp_duty_rate = self.UK_SDRT_RATE
+                elif isin_upper and not isin_upper.startswith("GB"):
+                    # Foreign incorporated stock trading in UK (e.g. Irish IE, Jersey JE)
+                    stamp_duty_rate = 0.0
+                elif not isin_upper:
+                    # ISIN is missing on an LSE stock: SDRT cannot be established reliably!
+                    cost_complete = False
+                    reasons.append("SDRT_STATUS_UNKNOWN: Missing ISIN on UK Main Market equity prevents SDRT verification")
+            else:
+                # Non-UK venues (NYSE, NASDAQ, Xetra, Paris, etc.)
+                stamp_duty_rate = 0.0
+
+            # 3. Takeover Panel PTM Levy
+            # Rule: £1.50 per leg for UK/CI/IoM companies on UK venues if consideration > £10,000. ETFs exempt.
             ptm_levy_amount = 0.0
-        elif order_nominal <= self.PTM_LEVY_THRESHOLD_GBP and order_nominal > 0:
-            # Under threshold: strictly exempt (£0.00)
-            ptm_levy_amount = 0.0
-        elif order_nominal > self.PTM_LEVY_THRESHOLD_GBP:
-            if venue_clean in (self.UK_MAIN_MARKET_VENUES | self.UK_MTF_VENUES):
-                if any(isin_upper.startswith(p) for p in ("GB", "JE", "GG", "IM")):
-                    # Round trip = £1.50 buy + £1.50 sell = £3.00
-                    ptm_levy_amount = self.PTM_LEVY_PER_LEG_GBP * 2.0
-                elif isin_upper:
+            order_nominal = order_size_gbp or 0.0
+            if pt_upper == "ETF":
+                ptm_levy_amount = 0.0
+            elif order_nominal <= self.PTM_LEVY_THRESHOLD_GBP and order_nominal > 0:
+                # Under threshold: strictly exempt (£0.00)
+                ptm_levy_amount = 0.0
+            elif order_nominal > self.PTM_LEVY_THRESHOLD_GBP:
+                if venue_clean in (self.UK_MAIN_MARKET_VENUES | self.UK_MTF_VENUES):
+                    if any(isin_upper.startswith(p) for p in ("GB", "JE", "GG", "IM")):
+                        # Round trip = £1.50 buy + £1.50 sell = £3.00
+                        ptm_levy_amount = self.PTM_LEVY_PER_LEG_GBP * 2.0
+                    elif isin_upper:
+                        ptm_levy_amount = 0.0
+                    else:
+                        cost_complete = False
+                        reasons.append("PTM_STATUS_UNKNOWN: Order consideration > £10,000 but issuer jurisdiction cannot be verified")
+                else:
                     ptm_levy_amount = 0.0
+            else:
+                # Order size not specified at evaluation time: assume standard position <= £10k (ptm = 0.0)
+                ptm_levy_amount = 0.0
+
+            # 4. US Transaction Fee (SEC Section 31) & FINRA TAF
+            # Primary execution source: Trading212 customer schedule
+            # SEC Section 31 is passed through on US sells at FY2026 rate: 0.00206% ($20.60 per $1,000,000)
+            # FINRA TAF: NOT passed through as customer charge on cash equity trades in Trading212 Invest accounts.
+            sec_rate = 0.0
+            finra_rate = 0.0
+            if venue_clean in self.US_VENUES:
+                sec_rate = self.SEC_SECTION_31_RATE
+                finra_rate = 0.0  # Zero customer charge unless explicit order preview confirms it
+
+            # 5. French Financial Transaction Tax (FTT)
+            # 0.40% on BUY of French tax resident equities (ISIN prefix FR) with market cap > €1bn on Euronext Paris
+            # Effective 1 April 2025 per French BOFiP / Article 235 ter ZD and current Trading212 fee schedule
+            french_ftt_rate = 0.0
+            if venue_clean == "Euronext Paris" and isin_upper.startswith("FR") and pt_upper == "STOCK":
+                if french_ftt_applicable is True or market_cap_tier == "LARGE" or (market_cap_eur and market_cap_eur > 1e9):
+                    french_ftt_rate = self.FRENCH_FTT_RATE
+                elif french_ftt_applicable is False or (market_cap_eur and market_cap_eur <= 1e9):
+                    french_ftt_rate = 0.0
+                else:
+                    # Market cap eligibility cannot be established reliably
+                    cost_complete = False
+                    reasons.append("FRENCH_FTT_STATUS_UNKNOWN: Market capitalization unverified for French FTT applicability")
+
+            # 6. Italian Tobin Tax
+            # 0.10% on BUY of Italian tax resident equities (ISIN prefix IT) with market cap >= €500m on Borsa Italiana
+            italian_ftt_rate = 0.0
+            if venue_clean == "Borsa Italiana" and isin_upper.startswith("IT") and pt_upper == "STOCK":
+                if market_cap_tier == "LARGE" or (market_cap_eur and market_cap_eur >= 5e8):
+                    italian_ftt_rate = self.ITALIAN_FTT_RATE
+                elif market_cap_eur and market_cap_eur < 5e8:
+                    italian_ftt_rate = 0.0
                 else:
                     cost_complete = False
-                    reasons.append("PTM_STATUS_UNKNOWN: Order consideration > £10,000 but issuer jurisdiction cannot be verified")
-            else:
-                ptm_levy_amount = 0.0
-        else:
-            # Order size not specified at evaluation time: assume standard position <= £10k (ptm = 0.0)
-            ptm_levy_amount = 0.0
+                    reasons.append("ITALIAN_FTT_STATUS_UNKNOWN: Market capitalization unverified for Italian Tobin Tax applicability")
 
-        # 4. US SEC Section 31 Fee & FINRA TAF
-        # Charged on SELL of US-listed securities only
-        sec_rate = 0.0
-        finra_rate = 0.0
-        if venue_clean in self.US_VENUES:
-            sec_rate = self.SEC_SECTION_31_RATE
-            finra_rate = 0.000005  # Representative 0.05 bps for TAF (zsh.000195/sh capped at .79)
+            # 7. Spanish FTT
+            # 0.20% on BUY of Spanish tax resident equities (ISIN prefix ES) with market cap > €1bn on Bolsa de Madrid
+            spanish_ftt_rate = 0.0
+            if venue_clean == "Bolsa de Madrid" and isin_upper.startswith("ES") and pt_upper == "STOCK":
+                if market_cap_tier == "LARGE" or (market_cap_eur and market_cap_eur > 1e9):
+                    spanish_ftt_rate = self.SPANISH_FTT_RATE
+                elif market_cap_eur and market_cap_eur <= 1e9:
+                    spanish_ftt_rate = 0.0
+                else:
+                    cost_complete = False
+                    reasons.append("SPANISH_FTT_STATUS_UNKNOWN: Market capitalization unverified for Spanish FTT applicability")
 
-        # 5. French Financial Transaction Tax (FTT)
-        # 0.30% on BUY of French tax resident equities (ISIN prefix FR) with market cap > €1bn on Euronext Paris
-        french_ftt_rate = 0.0
-        if venue_clean == "Euronext Paris" and isin_upper.startswith("FR") and pt_upper == "STOCK":
-            if french_ftt_applicable is True or market_cap_tier == "LARGE" or (market_cap_eur and market_cap_eur > 1e9):
-                french_ftt_rate = self.FRENCH_FTT_RATE
-            elif french_ftt_applicable is False or (market_cap_eur and market_cap_eur <= 1e9):
-                french_ftt_rate = 0.0
-            else:
-                # Market cap eligibility cannot be established reliably
-                cost_complete = False
-                reasons.append("FRENCH_FTT_STATUS_UNKNOWN: Market capitalization unverified for French FTT applicability")
-
-        # 6. Italian Tobin Tax
-        # 0.10% on BUY of Italian tax resident equities (ISIN prefix IT) with market cap >= €500m on Borsa Italiana
-        italian_ftt_rate = 0.0
-        if venue_clean == "Borsa Italiana" and isin_upper.startswith("IT") and pt_upper == "STOCK":
-            if market_cap_tier == "LARGE" or (market_cap_eur and market_cap_eur >= 5e8):
-                italian_ftt_rate = self.ITALIAN_FTT_RATE
-            elif market_cap_eur and market_cap_eur < 5e8:
-                italian_ftt_rate = 0.0
-            else:
-                cost_complete = False
-                reasons.append("ITALIAN_FTT_STATUS_UNKNOWN: Market capitalization unverified for Italian Tobin Tax applicability")
-
-        # 7. Spanish FTT
-        # 0.20% on BUY of Spanish tax resident equities (ISIN prefix ES) with market cap > €1bn on Bolsa de Madrid
-        spanish_ftt_rate = 0.0
-        if venue_clean == "Bolsa de Madrid" and isin_upper.startswith("ES") and pt_upper == "STOCK":
-            if market_cap_tier == "LARGE" or (market_cap_eur and market_cap_eur > 1e9):
-                spanish_ftt_rate = self.SPANISH_FTT_RATE
-            elif market_cap_eur and market_cap_eur <= 1e9:
-                spanish_ftt_rate = 0.0
-            else:
-                cost_complete = False
-                reasons.append("SPANISH_FTT_STATUS_UNKNOWN: Market capitalization unverified for Spanish FTT applicability")
-
-        # 8. Spread Friction
+        # 8. Spread Friction (STRICTLY AUTHORITATIVE LIVE QUOTES - NO FABRICATED FALLBACK)
+        # If authoritative live bid/ask spread is unavailable:
+        # COST_MODEL_COMPLETE = False, reason = LIVE_SPREAD_UNKNOWN, REAL ORDER AUTHORISATION = False
         if bid is not None and ask is not None and ask > bid and current_price > 0:
             spread_friction = float((ask - bid) / current_price)
         elif custom_spread_pct is not None and custom_spread_pct > 0:
             spread_friction = float(custom_spread_pct)
         else:
-            spread_friction = 0.0010  # 10 bps default spread baseline
+            spread_friction = 0.0
+            cost_complete = False
+            reasons.append("LIVE_SPREAD_UNKNOWN: Authoritative live bid/ask spread unavailable")
 
         # Total Estimated Round-Trip Friction Rate
         total_costs = float(
