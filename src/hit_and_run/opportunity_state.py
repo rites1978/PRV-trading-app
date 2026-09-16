@@ -52,14 +52,22 @@ class LiveOpportunityStateBuilder:
         if not exchange_venue:
             exchange_venue = technical_execution_capability.resolve_exchange_venue(snapshot) or "UNKNOWN"
 
-        # Session State Resolution
+        # Session State & Session Open Resolution
+        session_open = False
         session_state = snapshot.get("session_state")
-        if not session_state:
-            if instrument_meta:
-                is_open, _ = market_session_router.is_instrument_open(instrument_meta, utc_dt=utc_dt)
-                session_state = "OPEN" if is_open else "CLOSED"
-            else:
-                session_state = "REGULAR"
+        if instrument_meta:
+            is_open, _ = market_session_router.is_instrument_open(instrument_meta, utc_dt=utc_dt)
+            session_open = bool(is_open)
+            session_state = "OPEN" if is_open else "CLOSED"
+        elif snapshot.get("workingScheduleId") is not None:
+            is_open, _ = market_session_router.is_schedule_open(int(snapshot["workingScheduleId"]), utc_dt=utc_dt)
+            session_open = bool(is_open)
+            session_state = "OPEN" if is_open else "CLOSED"
+        elif not session_state:
+            session_state = "REGULAR"
+            session_open = True
+        else:
+            session_open = (session_state.upper() in ("OPEN", "REGULAR"))
 
         # Prices & Quote Units
         current_price = float(snapshot.get("current_price", 0.0))
@@ -204,6 +212,25 @@ class LiveOpportunityStateBuilder:
             tick_size is not None and tick_size > 0
         )
 
+        # Authoritative Quote Timestamps & Session Executability (Requirement 4)
+        quote_fetch_timestamp = snapshot.get("quote_fetch_timestamp") or utc_dt.isoformat()
+        quote_market_timestamp = snapshot.get("quote_market_timestamp") or quote_timestamp or snapshot.get("last_bar_date")
+
+        # An opportunity is executable right now ONLY IF:
+        # 1. The exchange trading session is actively OPEN (not closed)
+        # 2. Quote is fresh
+        # 3. Market price > 0
+        # 4. Technical execution is verified
+        # 5. Live bid/ask quote is present (actionable market spread)
+        quote_executable_now = bool(
+            session_open and
+            is_fresh and
+            current_price > 0 and
+            technical_execution_supported and
+            bid is not None and
+            ask is not None
+        )
+
         setup_features = {
             "momentum": momentum,
             "acceleration": acceleration,
@@ -216,7 +243,9 @@ class LiveOpportunityStateBuilder:
             "expected_gross_move": expected_gross_move,
             "expected_net_opportunity": expected_net_opportunity,
             "cost_model_complete": cost_eval.cost_model_complete,
-            "is_fresh": is_fresh
+            "is_fresh": is_fresh,
+            "session_open": session_open,
+            "quote_executable_now": quote_executable_now
         }
 
         return LiveOpportunityState(
@@ -256,6 +285,10 @@ class LiveOpportunityStateBuilder:
             quote_timestamp=quote_timestamp,
             data_age_seconds=data_age_seconds,
             is_fresh=is_fresh,
+            session_open=session_open,
+            quote_executable_now=quote_executable_now,
+            quote_market_timestamp=quote_market_timestamp,
+            quote_fetch_timestamp=quote_fetch_timestamp,
             setup_features=setup_features
         )
 

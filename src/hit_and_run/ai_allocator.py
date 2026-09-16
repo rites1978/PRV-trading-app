@@ -110,7 +110,9 @@ class ConvictionConcentrationAIProvider(AIAllocationInterface):
         viable = [
             op for op in analyzed_opportunities
             if op.data_quality_state == "COMPLETE"
-            and op.state.session_state in ("REGULAR", "OPEN")
+            and op.state.technical_execution_supported is True
+            and getattr(op.state, "session_open", False) is True
+            and getattr(op.state, "quote_executable_now", False) is True
             and op.state.spread_friction is not None
             and op.expected_net_opportunity is not None
             and op.expected_net_opportunity > 0.0

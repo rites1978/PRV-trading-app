@@ -200,11 +200,15 @@ class LiveOpportunityState:
     tick_size_rule: Optional[str] = None
     isin: str = ""
 
-    # Data Freshness
+    # Data Freshness & Session Executability Verification
     data_timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     quote_timestamp: Optional[str] = None
     data_age_seconds: Optional[float] = None
     is_fresh: bool = True
+    session_open: bool = False
+    quote_executable_now: bool = False
+    quote_market_timestamp: Optional[str] = None
+    quote_fetch_timestamp: Optional[str] = None
 
     # Setup features and metadata
     setup_features: Dict[str, Any] = field(default_factory=dict)
