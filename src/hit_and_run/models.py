@@ -37,7 +37,7 @@ class OpportunityCandidate:
     acceleration: float = 0.0
     relative_strength: float = 0.0
     liquidity: float = 0.0
-    spread_friction: float = 0.0
+    spread_friction: Optional[float] = None
     volatility: float = 0.0
     volume_activity: float = 1.0
     distance_from_high: float = 0.0
@@ -50,10 +50,11 @@ class OpportunityCandidate:
     risk_reward_ratio: float = 0.0
 
     # AI Conviction & Thesis
-    opportunity_score: float = 0.0
+    opportunity_score: Optional[float] = None
     entry_thesis: str = ""
     technical_execution_supported: bool = True
     strategy_qualified: bool = False
+    execution_authorised: bool = False
     qualification_reasons: List[str] = field(default_factory=list)
 
     # Market context

@@ -127,13 +127,14 @@ class DynamicCapitalAllocator:
         if alloc_capital_gbp <= 0.0:
             return False, "ALLOCATION_ZERO_OR_NEGATIVE"
 
-        if not candidate.strategy_qualified:
-            return False, "OPPORTUNITY_NOT_QUALIFIED"
+        if not candidate.strategy_qualified or not getattr(candidate, "execution_authorised", True):
+            return False, "OPPORTUNITY_NOT_QUALIFIED_OR_EXECUTION_UNAUTHORISED"
+
+        if candidate.expected_net_reward is None or candidate.expected_net_reward <= 0.0:
+            return False, "NON_POSITIVE_NET_PROFIT: expected net reward is None or non-positive"
 
         expected_net_profit_gbp = alloc_capital_gbp * candidate.expected_net_reward
-
-        # Net profit after all costs must be strictly positive (> 0)
-        if candidate.expected_net_reward <= 0.0 or expected_net_profit_gbp <= 0.0:
+        if expected_net_profit_gbp <= 0.0:
             return False, (
                 f"NON_POSITIVE_NET_PROFIT: expected net profit £{expected_net_profit_gbp:.2f} "
                 f"(net reward {candidate.expected_net_reward:.4%}) <= 0"
@@ -180,10 +181,12 @@ class DynamicCapitalAllocator:
             c for c in candidates
             if c.strategy_qualified
             and getattr(c, "cost_model_complete", True)
+            and getattr(c, "execution_authorised", True)
+            and getattr(c, "spread_friction", None) is not None
             and c.instrument_id.upper() not in held_tickers
             and c.symbol.upper() not in held_tickers
             and c.feed_ticker.upper() not in held_tickers
-            and c.expected_net_reward > 0.0
+            and (c.expected_net_reward or 0.0) > 0.0
         ]
 
         if not qual:
@@ -281,7 +284,7 @@ class DynamicCapitalAllocator:
             actual_loss_pct = round((cand.current_price - stop_price) / cand.current_price, 4)
 
             tp_target = None
-            if cand.expected_net_reward > 0:
+            if cand.expected_net_reward is not None and cand.expected_net_reward > 0:
                 tp_target = round(cand.current_price * (1.0 + cand.expected_net_reward), 4)
 
             decisions.append(AllocationDecision(
@@ -292,7 +295,7 @@ class DynamicCapitalAllocator:
                 allocation_pct_of_portfolio=pct_of_portfolio,
                 target_quantity=target_qty,
                 estimated_fill_price=cand.current_price,
-                opportunity_score=cand.opportunity_score,
+                opportunity_score=cand.opportunity_score or 0.0,
                 entry_thesis=cand.entry_thesis,
                 stop_loss_price=stop_price,
                 max_loss_pct=actual_loss_pct,

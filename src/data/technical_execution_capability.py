@@ -305,9 +305,18 @@ class TechnicalExecutionCapabilityValidator:
 
         # Precedence 2: Exact verified venue+instrument-class capability rule
         if rule == "US_SEC_RULE_612":
-            # US SEC Regulation NMS Rule 612 (17 CFR § 242.612 - Sub-Penny Rule)
-            # Authoritative federal statutory requirement for all US NMS equity stocks and ETFs:
-            # >= $1.00 -> $0.01; < $1.00 -> $0.0001. No liquidity bands exist under Rule 612.
+            # US SEC Regulation NMS Rule 612 (17 CFR § 242.612 - Minimum Pricing Increments)
+            # Regulatory Status (2026 Operative Execution):
+            # In September 2024, the SEC adopted amendments to Rule 612 (Release No. 34-100980)
+            # introducing a $0.005 tick for certain NMS stocks based on TWAQS <= $0.015.
+            # HOWEVER, by Commission Order granting temporary exemptive relief, compliance
+            # with the amended minimum pricing increment has been delayed until the first business
+            # day of November 2027.
+            # Therefore, for current 2026 execution, the presently operative statutory standard
+            # and venue/broker requirement remains the pre-amendment Rule 612 standard:
+            # - For bids, offers, or orders priced >= $1.00: minimum increment is $0.01
+            # - For bids, offers, or orders priced < $1.00: minimum increment is $0.0001
+            # Note: Precedence #1 remains explicit Trading212 instrument `tickSize` metadata.
             if curr == "USD" and price > 0:
                 return 0.01 if price >= 1.0 else 0.0001
             return None

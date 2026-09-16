@@ -215,8 +215,8 @@ class TestHitAndRunScoring(unittest.TestCase):
         # 4. US Stock (USD)
         snap_us = {**base_snap, "instrument_id": "AAPL_US_EQ", "product_type": "STOCK", "isin": "US0378331005", "currency": "USD", "is_uk_pence": False}
         c_us = self.scorer.evaluate_opportunity(snap_us)
-        # SDRT = 0.0, FX = 0.0015 * 2 = 0.003, spread = 0.001, SEC FY2026 = 0.0000206, FINRA customer pass-through = 0.0 -> estimated_costs ~ 0.0040206
-        self.assertAlmostEqual(c_us.estimated_costs, 0.003 + 0.001 + 0.0000206, delta=0.0005)
+        # SDRT = 0.0, FX = 0.0015 * 2 = 0.003, spread = 0.001, SEC FY2026 = 0.0000206, FINRA = $0.000195 / $100 = 0.00000195 -> estimated_costs ~ 0.00402255
+        self.assertAlmostEqual(c_us.estimated_costs, 0.003 + 0.001 + 0.0000206 + 0.00000195, delta=0.0005)
 
     def test_sdrt_aim_statutory_exemption(self):
         """UK AIM equities are legally exempt from SDRT under Finance Act 2014."""
@@ -308,7 +308,7 @@ class TestHitAndRunScoring(unittest.TestCase):
         self.assertTrue(any("FRENCH_FTT_STATUS_UNKNOWN" in r for r in c_unverified.qualification_reasons))
 
     def test_missing_spread_fails_closed_without_10bps_fallback(self):
-        """When live bid/ask quotes are missing, cost model fails closed with LIVE_SPREAD_UNKNOWN without 10bps fallback."""
+        """When live bid/ask quotes are missing, cost model fails closed with LIVE_SPREAD_UNKNOWN without zero-benefit fallback."""
         snap_no_spread = {
             "instrument_id": "NVDA_US_EQ",
             "symbol": "NVDA",
@@ -329,7 +329,13 @@ class TestHitAndRunScoring(unittest.TestCase):
         c = self.scorer.evaluate_opportunity(snap_no_spread)
         self.assertFalse(c.cost_model_complete)
         self.assertFalse(c.strategy_qualified)
+        self.assertFalse(c.execution_authorised)
+        self.assertIsNone(c.spread_friction)
+        self.assertIsNone(c.opportunity_score)
+        self.assertIsNone(c.estimated_costs)
+        self.assertIsNone(c.expected_net_reward)
         self.assertTrue(any("LIVE_SPREAD_UNKNOWN" in r for r in c.cost_model_reasons))
+        self.assertTrue(any("LIVE_SPREAD_UNKNOWN" in r for r in c.qualification_reasons))
 
     def test_ptm_levy_over_10k_gbp(self):
         """PTM levy (£1.50 per leg = £3.00 round trip) applies on UK equities when consideration > £10,000."""
@@ -353,6 +359,93 @@ class TestHitAndRunScoring(unittest.TestCase):
             order_size_gbp=15000.0
         )
         self.assertEqual(res_large.ptm_levy_amount_gbp, 3.0)
+
+    def test_finra_fee_precedence_and_formula(self):
+        """FINRA fee enforces execution precedence: (1) preview -> (2) published $0.000195*qty -> (3) fail closed."""
+        from src.hit_and_run.cost_model import hit_and_run_cost_model
+
+        # Precedence 1: Live order preview override
+        res_preview = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type="STOCK",
+            currency="USD",
+            exchange_venue="NASDAQ",
+            current_price=100.0,
+            bid=99.98,
+            ask=100.02,
+            order_preview_fees={"finra_fee": 0.50, "finra_rate": 0.00005}
+        )
+        self.assertTrue(res_preview.cost_model_complete)
+        self.assertEqual(res_preview.finra_fee_rate, 0.00005)
+        self.assertEqual(res_preview.finra_fee_amount_usd, 0.50)
+
+        # Precedence 2: Current Trading212 Published Fee Schedule ($0.000195 * quantity sold)
+        res_published_qty = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type="STOCK",
+            currency="USD",
+            exchange_venue="NASDAQ",
+            current_price=100.0,
+            bid=99.98,
+            ask=100.02,
+            order_quantity=1000.0  # 1,000 shares
+        )
+        self.assertTrue(res_published_qty.cost_model_complete)
+        self.assertAlmostEqual(res_published_qty.finra_fee_amount_usd, 0.195, places=4)
+        self.assertAlmostEqual(res_published_qty.finra_fee_rate, 0.195 / 100000.0, places=7)
+
+        # Precedence 2 with cap ($9.74 max)
+        res_published_capped = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type="STOCK",
+            currency="USD",
+            exchange_venue="NASDAQ",
+            current_price=10.0,
+            bid=9.99,
+            ask=10.01,
+            order_quantity=100000.0  # 100,000 shares -> 100k * 0.000195 = $19.50 -> capped at $9.74
+        )
+        self.assertTrue(res_published_capped.cost_model_complete)
+        self.assertEqual(res_published_capped.finra_fee_amount_usd, 9.74)
+
+        # Precedence 3: Missing price and quantity fails closed
+        res_unknown = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type="STOCK",
+            currency="USD",
+            exchange_venue="NASDAQ",
+            current_price=0.0,
+            bid=None,
+            ask=None
+        )
+        self.assertFalse(res_unknown.cost_model_complete)
+        self.assertTrue(any("FINRA_FEE_UNKNOWN" in r for r in res_unknown.incomplete_reasons))
+
+    def test_italian_and_spanish_cost_status_unknown(self):
+        """Italian and Spanish equities fail closed with COST_STATUS_UNKNOWN without verified live preview."""
+        from src.hit_and_run.cost_model import hit_and_run_cost_model
+
+        # Borsa Italiana equity without order preview -> unverified customer execution applicability
+        res_it = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type="STOCK",
+            currency="EUR",
+            isin="IT0003132476",
+            exchange_venue="Borsa Italiana",
+            current_price=25.0,
+            bid=24.99,
+            ask=25.01
+        )
+        self.assertFalse(res_it.cost_model_complete)
+        self.assertTrue(any("COST_STATUS_UNKNOWN" in r and "Italian Tobin Tax" in r for r in res_it.incomplete_reasons))
+
+        # Bolsa de Madrid equity without order preview -> unverified customer execution applicability
+        res_es = hit_and_run_cost_model.evaluate_instrument_costs(
+            product_type="STOCK",
+            currency="EUR",
+            isin="ES0113900J37",
+            exchange_venue="Bolsa de Madrid",
+            current_price=40.0,
+            bid=39.98,
+            ask=40.02
+        )
+        self.assertFalse(res_es.cost_model_complete)
+        self.assertTrue(any("COST_STATUS_UNKNOWN" in r and "Spanish FTT" in r for r in res_es.incomplete_reasons))
 
 
 if __name__ == "__main__":

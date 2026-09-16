@@ -55,7 +55,9 @@ class TestDynamicCapitalAllocator(unittest.TestCase):
             exchange_venue=exchange_venue,
             opportunity_score=score,
             strategy_qualified=qualified,
+            execution_authorised=qualified,
             cost_model_complete=True,
+            spread_friction=0.0005,
             downside_risk=0.045,  # 4.5% stop loss (within 5% max)
             estimated_costs=estimated_costs,
             expected_net_reward=expected_net_reward,
