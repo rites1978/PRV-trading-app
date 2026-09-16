@@ -229,8 +229,8 @@ class MasterPDFGenerator:
             ("UK Stamp Duty (SDRT)", "0.50% on UK stock purchases (HSBA, ULVR, REL, AAL)", f"-£{sdrt_paid:.2f}", "BROKER_DEBITED", "Cash debited by broker upon fill execution"),
             ("FX Conversion Fees", f"0.15% on non-GBP buys & sells ({us_orders_count} US orders)", f"-£{fx_paid:.2f}", "BROKER_DEBITED", "Cash debited by broker upon currency exchange"),
             ("Broker Fill Spread & Slippage", "Difference between mid-quote and execution fill", "£0.00", "EMBEDDED_IN_FILL", "Economically embedded in purchase prices"),
-            ("PTM Levy", "£1.00 on UK purchases > £10,000", "£0.00", "BROKER_DEBITED", "Zero UK trades exceeded £10,000 threshold"),
-            ("SEC & Regulatory Fees", "SEC Sec 31 ($0.0000278) + FINRA TAF", "£0.00", "MODELLED_ONLY", "Debited only upon US equity liquidation"),
+            ("PTM Levy", "£1.50 on UK purchases > £10,000", "£0.00", "BROKER_DEBITED", "Zero UK trades exceeded £10,000 threshold"),
+            ("SEC & Regulatory Fees", "SEC Sec 31 ($0.0000206) + FINRA TAF", "£0.00", "MODELLED_ONLY", "Debited only upon US equity liquidation"),
             ("Dividends & Interest", "Cash interest and corporate dividends", "£0.00", "BROKER_CREDITED", f"Zero corporate dividend distributions through Day {day_num}")
         ]
         for row in bridge_data:

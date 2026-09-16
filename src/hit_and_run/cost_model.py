@@ -5,8 +5,8 @@ Evaluates true Net P&L transaction friction with instrument/venue-specific rules
 2. UK Stamp Duty Reserve Tax (0.50% on BUY of UK main-market ordinary equities; EXEMPT on ETFs, AIM, Foreign, Sells)
 3. Panel on Takeovers & Mergers (PTM) Levy (£1.50 on UK/CI/IoM transactions > £10,000; EXEMPT on ETFs and <= £10,000)
 4. US SEC Section 31 Fee (0.00206% on SELL of US-listed securities)
-5. US FINRA Trading Activity Fee (zsh.000195/share capped at .79 on SELL of US securities)
-6. French Financial Transaction Tax (0.30% on BUY of Euronext Paris French equities with market cap > €1bn)
+5. US FINRA Trading Activity Fee ($0.000195/share capped at $9.79 on SELL of US securities)
+6. French Financial Transaction Tax (0.40% on BUY of Euronext Paris French equities with market cap > €1bn)
 7. Italian Tobin Tax (0.10% on BUY of Borsa Italiana Italian equities)
 8. Spanish FTT (0.20% on BUY of Bolsa de Madrid Spanish equities > €1bn)
 9. Bid-Ask Spread Friction
