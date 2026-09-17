@@ -164,10 +164,28 @@ class HitAndRunScanPipeline:
         opportunity_analysis_duration = time.time() - t5
         total_pipeline_duration = time.time() - t_pipeline_start
 
+        fresh_quotes = sum(1 for s in opportunity_states if s.quote_freshness_status == "CURRENT" and s.current_price > 0 and s.bid is not None and s.ask is not None)
+        cost_complete = sum(1 for s in opportunity_states if s.cost_model_complete)
+        positive_edge_candidates = sum(1 for op in analyzed_opportunities if op.data_quality_state == "COMPLETE" and op.expected_net_opportunity is not None and op.expected_net_opportunity > 0.0)
+        discovery_telem = broker_discovery.get_discovery_telemetry()
+
         return {
             "DISCOVERED_COUNT": discovered_count,
-            "TRADABLE_COUNT": tradable_count,
+            "BROKER_TRADABLE_KNOWN_COUNT": tradable_count,
+            "BROKER_TRADABILITY_UNKNOWN_COUNT": discovery_telem.get("BROKER_API_TRADABILITY_UNKNOWN", 0),
             "OPEN_SESSION_COUNT": open_session_count,
+            "MARKET_DATA_REQUESTED_COUNT": screen_requested_count,
+            "MARKET_DATA_SUCCESS_COUNT": screen_success_count,
+            "MARKET_DATA_FAILURE_COUNT": screen_failure_count,
+            "CURRENT_EXECUTION_GRADE_QUOTE_COUNT": fresh_quotes,
+            "TECHNICALLY_EXECUTABLE_COUNT": tradable_count,
+            "COST_COMPLETE_COUNT": cost_complete,
+            "STRATEGY_ANALYSED_COUNT": len(analyzed_opportunities),
+            "POSITIVE_EDGE_CANDIDATE_COUNT": positive_edge_candidates,
+            "AI_EVALUATED_COUNT": 0,
+            "FINAL_APPROVAL_COUNT": 0,
+            "ORDERS_SUBMITTED_COUNT": 0,
+            "TRADABLE_COUNT": tradable_count,
             "MARKET_DATA_REQUESTED": screen_requested_count,
             "MARKET_DATA_SUCCESS": screen_success_count,
             "MARKET_DATA_FAILURE": screen_failure_count,

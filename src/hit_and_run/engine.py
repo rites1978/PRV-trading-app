@@ -37,6 +37,7 @@ from src.hit_and_run.ai_allocator import (
 from src.hit_and_run.lifecycle import position_lifecycle_manager
 from src.hit_and_run.banking import DailyBankingLedger, daily_banking_ledger
 from src.hit_and_run.telemetry import production_telemetry_classifier
+from src.hit_and_run.dashboard import HitAndRunDashboardPresenter
 from src.data.market_session_router import market_session_router
 from src.data.broker_discovery import broker_discovery
 
@@ -64,7 +65,13 @@ class HitAndRunEngine:
         available_cash_gbp: float,
         market_snapshots: Optional[List[Dict[str, Any]]] = None,
         utc_dt: Optional[datetime] = None,
-        simulate_exits: bool = True
+        simulate_exits: bool = True,
+        scan_universe_type: Optional[str] = None,
+        ai_allocation_provider_available: bool = True,
+        expected_move_model_available: bool = True,
+        cost_model_complete_override: Optional[bool] = None,
+        all_relevant_candidates_evaluated: Optional[bool] = None,
+        broker_execution_error: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Runs the complete hit-and-run pipeline in read-only mode:
@@ -227,13 +234,48 @@ class HitAndRunEngine:
         # -------------------------------------------------------------
         updated_banking = self.ledger.get_banking_summary()
 
+        # Count fresh quotes & cost complete
+        cost_complete_count = sum(1 for s in opportunity_states if s.cost_model_complete)
+        market_data_requested_count = len(snapshots_to_process)
+        market_data_success_count = sum(1 for s in snapshots_to_process if s.get("success") or (s.get("current_price") is not None and float(s.get("current_price", 0)) > 0))
+        market_data_failure_count = market_data_requested_count - market_data_success_count
+
+        # Scope classification
+        if scan_universe_type is None:
+            if open_session_count > 10 and len(snapshots_to_process) <= 10:
+                scan_universe_type = "TEST_SUBSET"
+            else:
+                scan_universe_type = "FULL_UNIVERSE"
+
+        if all_relevant_candidates_evaluated is None:
+            all_relevant_candidates_evaluated = (
+                scan_universe_type == "FULL_UNIVERSE" and
+                len(snapshots_to_process) >= open_session_count and
+                open_session_count > 0
+            )
+
         # -------------------------------------------------------------
         # Step 8: Production Failure Classification & Telemetry
         # -------------------------------------------------------------
         telemetry_classification = production_telemetry_classifier.classify_run(
             discovered_count=discovered_count,
-            technically_executable_count=technically_executable_count,
+            broker_tradable_known_count=tradable_count,
+            broker_tradability_unknown_count=telemetry.get("TRADABILITY_UNKNOWN_COUNT", 0),
             open_session_count=open_session_count,
+            market_data_requested_count=market_data_requested_count,
+            market_data_success_count=market_data_success_count,
+            market_data_failure_count=market_data_failure_count,
+            current_execution_grade_quote_count=fresh_quote_count,
+            technically_executable_count=technically_executable_count,
+            cost_complete_count=cost_complete_count,
+            strategy_analysed_count=len(analyzed_opportunities),
+            positive_edge_candidate_count=qualified_count,
+            ai_evaluated_count=len(analyzed_opportunities) if ai_decision else 0,
+            final_approval_count=len(entry_decisions),
+            orders_submitted_count=len(entry_decisions),
+            scan_process_completed=True,
+            scan_universe_type=scan_universe_type,
+            all_relevant_candidates_evaluated=all_relevant_candidates_evaluated,
             fresh_quote_count=fresh_quote_count,
             opportunity_count=opportunity_count,
             qualified_count=qualified_count,
@@ -244,17 +286,42 @@ class HitAndRunEngine:
             lifecycle_running=True,
             order_lifecycle_consistent=True,
             metadata_defect=False,
+            cost_status="UNKNOWN" if (cost_model_complete_override is False or (cost_complete_count == 0 and open_session_count > 0)) else ("COMPLETE" if cost_model_complete_override is True else None),
+            ai_allocation_decision_status="AVAILABLE" if ai_allocation_provider_available else "UNAVAILABLE",
+            expected_move_decision_status="AVAILABLE" if expected_move_model_available else "UNAVAILABLE",
+            broker_execution_error=broker_execution_error,
             details={
                 "closed_trades_count": updated_banking["total_closed_trades"],
-                "ai_allocation_status": ai_decision.status if ai_decision else "NO_AI_DECISION"
+                "ai_allocation_status": ai_decision.status if ai_decision else "NO_AI_DECISION",
+                "ai_allocation_provider_available": ai_allocation_provider_available,
+                "expected_move_model_available": expected_move_model_available
             }
         )
+        dashboard_status = production_telemetry_classifier.get_dashboard_status(telemetry_classification)
 
         return {
             "telemetry": telemetry_classification.to_dict(),
+            "dashboard_status": dashboard_status.to_dict(),
+            "dashboard_banner": HitAndRunDashboardPresenter.render_dashboard_banner(dashboard_status),
             "discovered_count": discovered_count,
-            "technically_executable_count": technically_executable_count,
+            "broker_tradable_known_count": tradable_count,
+            "broker_tradability_unknown_count": telemetry.get("TRADABILITY_UNKNOWN_COUNT", 0),
             "open_session_count": open_session_count,
+            "market_data_requested_count": market_data_requested_count,
+            "market_data_success_count": market_data_success_count,
+            "market_data_failure_count": market_data_failure_count,
+            "current_execution_grade_quote_count": fresh_quote_count,
+            "technically_executable_count": technically_executable_count,
+            "cost_complete_count": cost_complete_count,
+            "strategy_analysed_count": len(analyzed_opportunities),
+            "positive_edge_candidate_count": qualified_count,
+            "ai_evaluated_count": len(analyzed_opportunities) if ai_decision else 0,
+            "final_approval_count": len(entry_decisions),
+            "orders_submitted_count": len(entry_decisions),
+            "scan_process_completed": True,
+            "market_evaluation_complete": telemetry_classification.market_evaluation_complete,
+            "no_valid_edge_prerequisites_proven": telemetry_classification.no_valid_edge_prerequisites_proven,
+            "scan_universe_type": scan_universe_type,
             "fresh_quote_count": fresh_quote_count,
             "opportunity_count": opportunity_count,
             "qualified_count": qualified_count,

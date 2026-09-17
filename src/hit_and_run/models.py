@@ -152,10 +152,14 @@ class LifecycleAction:
 
 
 class ProductionClassification:
-    """Authoritative production telemetry classification per Requirement H."""
+    """Authoritative production telemetry classification per Requirement H and Non-Negotiable Gate."""
     PRODUCTION_FAILURE = "PRODUCTION_FAILURE"
     STRATEGY_OUTCOME = "STRATEGY_OUTCOME"
     NO_VALID_EDGE = "NO_VALID_EDGE"
+    TRADE_EXECUTED = "TRADE_EXECUTED"
+    BROKER_EXECUTION_FAILURE = "BROKER_EXECUTION_FAILURE"
+    STRATEGY_DECISION_UNAVAILABLE = "STRATEGY_DECISION_UNAVAILABLE"
+    TRADING_LOSS = "TRADING_LOSS"
 
 
 @dataclass
@@ -396,23 +400,84 @@ class LifecycleAssessment:
 @dataclass
 class ProductionTelemetry:
     """
-    Authoritative production telemetry distinguishing failures, outcomes, and edge availability (Requirement H).
+    Authoritative production telemetry distinguishing failures, outcomes, and edge availability.
+    Enforces the Non-Negotiable No-Trade Acceptance Gate:
+    - NO_VALID_EDGE only when all prerequisites are proven.
+    - Product failures are never classified as NO_VALID_EDGE.
+    - Decoupled scan process completion vs market evaluation complete.
     """
     timestamp: str
-    classification: str                  # PRODUCTION_FAILURE, STRATEGY_OUTCOME, NO_VALID_EDGE
-    discovered_count: int
-    technically_executable_count: int
-    open_session_count: int
-    fresh_quote_count: int
-    opportunity_count: int
-    qualified_count: int
-    active_holdings_count: int
-    banked_net_profit_today_gbp: float
-    remaining_to_100_base_target_gbp: float
-    base_target_achieved: bool
-    continue_trading: bool
+    classification: str                  # Allowed: TRADE_EXECUTED, NO_VALID_EDGE, PRODUCTION_FAILURE, BROKER_EXECUTION_FAILURE, STRATEGY_DECISION_UNAVAILABLE, STRATEGY_OUTCOME, TRADING_LOSS
+    
+    # Scan Coverage Telemetry (Section 5)
+    discovered_count: Any                # int or "UNKNOWN"
+    broker_tradable_known_count: Any     # int or "UNKNOWN"
+    broker_tradability_unknown_count: Any# int or "UNKNOWN"
+    open_session_count: Any              # int or "UNKNOWN"
+    market_data_requested_count: Any     # int or "UNKNOWN"
+    market_data_success_count: Any       # int or "UNKNOWN"
+    market_data_failure_count: Any       # int or "UNKNOWN"
+    current_execution_grade_quote_count: Any # int or "UNKNOWN"
+    technically_executable_count: Any    # int or "UNKNOWN"
+    cost_complete_count: Any             # int or "UNKNOWN"
+    strategy_analysed_count: Any         # int or "UNKNOWN"
+    positive_edge_candidate_count: Any   # int or "UNKNOWN"
+    ai_evaluated_count: Any              # int or "UNKNOWN"
+    final_approval_count: Any            # int or "UNKNOWN"
+    orders_submitted_count: Any          # int or "UNKNOWN"
+
+    # Process & Evaluation Decoupling (Section 1 & 3)
+    scan_process_completed: bool = True
+    market_evaluation_complete: bool = False
+    no_valid_edge_prerequisites_proven: bool = False
+    scan_universe_type: str = "FULL_UNIVERSE" # "FULL_UNIVERSE" or "TEST_SUBSET"
+
+    # Prerequisite Statuses (Section 1)
+    universe_discovery_status: str = "UNKNOWN"
+    broker_tradability_status: str = "UNKNOWN"
+    session_status: str = "UNKNOWN"
+    market_data_status: str = "UNKNOWN"
+    quote_status: str = "UNKNOWN"
+    bid_ask_status: str = "UNKNOWN"
+    cost_status: str = "UNKNOWN"
+    technical_execution_status: str = "UNKNOWN"
+    expected_move_decision_status: str = "UNKNOWN"
+    ai_allocation_decision_status: str = "UNKNOWN"
+    strategy_analysis_status: str = "UNKNOWN"
+
+    # Business & Portfolio Metrics
+    active_holdings_count: int = 0
+    banked_net_profit_today_gbp: float = 0.0
+    remaining_to_100_base_target_gbp: float = 100.0
+    base_target_achieved: bool = False
+    continue_trading: bool = True
     failures_found: List[str] = field(default_factory=list)
+    primary_failure_reason: Optional[str] = None
     details: Dict[str, Any] = field(default_factory=dict)
+
+    # Legacy compatibility fields
+    fresh_quote_count: int = 0
+    opportunity_count: int = 0
+    qualified_count: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class DashboardScanStatus:
+    """
+    Independent dashboard status view preventing healthy infrastructure from being
+    mistaken for successful trading capability (Section 10).
+    """
+    engine_health: str                   # "HEALTHY", "DEGRADED", "UNHEALTHY"
+    scan_process_status: str             # "COMPLETED", "IN_PROGRESS", "FAILED"
+    market_evaluation_status: str        # "COMPLETE", "INCOMPLETE"
+    trade_outcome: str                   # "TRADE_EXECUTED", "NO_VALID_EDGE", "NONE"
+    production_status: str               # "OK", "FAILURE"
+    production_failure_reason: Optional[str] = None
+    no_valid_edge_prerequisites_proven: bool = False
+    scan_universe_type: str = "FULL_UNIVERSE"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
