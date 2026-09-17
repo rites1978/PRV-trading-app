@@ -116,7 +116,6 @@ class ConvictionConcentrationAIProvider(AIAllocationInterface):
             and op.state.spread_friction is not None
             and op.expected_net_opportunity is not None
             and op.expected_net_opportunity > 0.0
-            and op.opportunity_score is not None
             and op.instrument_id.upper() not in held_ids
             and op.symbol.upper() not in held_ids
         ]
@@ -151,7 +150,7 @@ class ConvictionConcentrationAIProvider(AIAllocationInterface):
 
         # AI Reasoning on Concentration:
         # Preference: fewer/larger meaningful positions when evidence supports concentration.
-        # If one candidate has standout conviction (e.g. score >= 75 and clear lead over #2):
+        # If one candidate has standout conviction (clear net reward lead over #2):
         # AI selects 1 concentrated position deploying 60-80% of budget.
         # If multiple candidates have close high-tier conviction:
         # AI selects several positions (2 or 3) weighted by net edge quality.
@@ -162,27 +161,28 @@ class ConvictionConcentrationAIProvider(AIAllocationInterface):
         rationale_lines = []
 
         # Case 1: Standout high conviction -> 1 concentrated position
-        if len(viable) == 1 or (runner_up and (top.opportunity_score - (runner_up.opportunity_score or 0)) >= 15.0):
+        top_lead = (top.expected_net_opportunity - (runner_up.expected_net_opportunity or 0.0)) if runner_up else 1.0
+        if len(viable) == 1 or top_lead >= 0.01:
             alloc_gbp = round(max_allocatable_budget * 0.90, 2)  # Deploy 90% of the 80% budget (<= 80% ceiling)
             selected[top.instrument_id] = alloc_gbp
             summary = f"SINGLE_CONCENTRATED_POSITION ({top.symbol})"
             rationale_lines.append(
-                f"Selected 1 concentrated position in {top.symbol} (Score {top.opportunity_score:.1f}, "
-                f"NetReward {top.expected_net_opportunity:+.2%}) deploying £{alloc_gbp:.2f}."
+                f"Selected 1 concentrated position in {top.symbol} (NetReward {top.expected_net_opportunity:+.2%}) "
+                f"deploying £{alloc_gbp:.2f}."
             )
         # Case 2: Multiple strong opportunities -> AI selects several positions
         else:
             # Select up to top 2-3 distinct strong opportunities
             selected_candidates = viable[:min(3, len(viable))]
-            total_score = sum(c.opportunity_score for c in selected_candidates)
+            total_net = sum((c.expected_net_opportunity or 0.0) for c in selected_candidates)
             summary = f"CONCENTRATED_MULTI_POSITION ({len(selected_candidates)} positions)"
 
             for c in selected_candidates:
-                weight = c.opportunity_score / total_score
+                weight = ((c.expected_net_opportunity or 0.0) / total_net) if total_net > 0 else (1.0 / len(selected_candidates))
                 c_alloc = round(max_allocatable_budget * weight * 0.95, 2)
                 selected[c.instrument_id] = c_alloc
                 rationale_lines.append(
-                    f"Allocated £{c_alloc:.2f} ({weight:.1%}) to {c.symbol} (Score {c.opportunity_score:.1f}, NetReward {c.expected_net_opportunity:+.2%})."
+                    f"Allocated £{c_alloc:.2f} ({weight:.1%}) to {c.symbol} (NetReward {c.expected_net_opportunity:+.2%})."
                 )
 
         total_dep = sum(selected.values())

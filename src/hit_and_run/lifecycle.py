@@ -225,13 +225,14 @@ class HitAndRunPositionLifecycleManager:
                 if op.instrument_id != holding.instrument_id
                 and op.symbol != holding.symbol
                 and op.data_quality_state == "COMPLETE"
-                and op.opportunity_score is not None
                 and (op.expected_net_opportunity or 0.0) > 0.015
             ]
             if strong_alts:
                 best_alt = strong_alts[0]
-                # If current position is sluggish (e.g. flat P&L and low momentum) while alternative has standout conviction
-                if best_alt.opportunity_score >= 70.0 and abs(net_unrealised_pct) < 0.008 and (mom is None or abs(mom) < 0.005):
+                # If current position is sluggish (e.g. flat P&L and low momentum) while alternative has active net edge
+                alt_net = best_alt.expected_net_opportunity or 0.0
+                holding_net = getattr(current_state, "expected_net_opportunity", None) or 0.015
+                if alt_net > holding_net and abs(net_unrealised_pct) < 0.008 and (mom is None or abs(mom) < 0.005):
                     return LifecycleAssessment(
                         holding_id=holding.holding_id,
                         instrument_id=holding.instrument_id,
@@ -247,8 +248,8 @@ class HitAndRunPositionLifecycleManager:
                         thesis_health="STAGNANT_OPPORTUNITY_SUPERIOR",
                         rationale=(
                             f"Rotating stagnant capital ({holding.symbol} net {net_unrealised_pct:+.2%}) "
-                            f"into higher conviction opportunity {best_alt.symbol} (Score {best_alt.opportunity_score:.1f}, "
-                            f"NetReward {best_alt.expected_net_opportunity:+.2%})."
+                            f"into higher conviction opportunity {best_alt.symbol} ("
+                            f"NetReward {alt_net:+.2%})."
                         ),
                         target_rotation_symbol=best_alt.symbol,
                         timestamp=now_iso

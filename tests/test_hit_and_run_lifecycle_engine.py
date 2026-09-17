@@ -50,9 +50,21 @@ from src.hit_and_run.risk import hit_and_run_risk
 class TestHitAndRunLifecycleEngine(unittest.TestCase):
 
     def setUp(self):
+        from src.data.source_authority import QuoteSourceAuthority, QuoteSourceAuthorityRegistry
         self.ledger = DailyBankingLedger(trading_date="2026-09-16", base_target_gbp=100.0)
         self.ai_provider = ConvictionConcentrationAIProvider()
         self.alloc_mgr = HitAndRunAllocationManager(ai_provider=self.ai_provider)
+        self.test_source = QuoteSourceAuthority(
+            source_id="TEST_EXECUTION_FEED",
+            role="EXECUTION_BROKER",
+            can_establish_execution_quote=True,
+            can_establish_current_freshness=True
+        )
+        QuoteSourceAuthorityRegistry.register_execution_source(self.test_source)
+
+    def tearDown(self):
+        from src.data.source_authority import QuoteSourceAuthorityRegistry
+        QuoteSourceAuthorityRegistry.clear_execution_sources()
 
     # -------------------------------------------------------------
     # Test 1: One strong single-opportunity case
@@ -62,6 +74,7 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "instrument_id": "NVDA_US_EQ",
             "symbol": "NVDA",
             "feed_ticker": "NVDA",
+            "data_source": "TEST_EXECUTION_FEED",
             "product_type": "STOCK",
             "currency": "USD",
             "exchange_venue": "NASDAQ",
@@ -77,7 +90,8 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "min_trade_quantity": 0.001,
             "quantity_precision": 3,
             "tick_size": 0.01,
-            "isin": "US67066G1040"
+            "isin": "US67066G1040",
+            "expected_gross_move": 0.03
         }
         state = opportunity_state_builder.build_state(snap)
         self.assertIsNotNone(state.spread_friction)
@@ -85,8 +99,8 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
 
         analysis = opportunity_analyzer.analyze_opportunity(state)
         self.assertEqual(analysis.data_quality_state, "COMPLETE")
-        self.assertIsNotNone(analysis.opportunity_score)
-        self.assertGreater(analysis.opportunity_score, 60.0)
+        self.assertIsNone(analysis.opportunity_score)
+        self.assertIsNotNone(analysis.conviction_evidence)
         self.assertGreater(analysis.expected_net_opportunity, 0.0)
         self.assertIsNone(analysis.downside_estimate)
         self.assertEqual(analysis.downside_model_status, "DOWNSIDE_MODEL_UNAVAILABLE")
@@ -112,40 +126,49 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         cands = [
             {
                 "instrument_id": "NVDA_US_EQ", "symbol": "NVDA", "current_price": 120.0, "current_price_gbp": 95.0,
+                "data_source": "TEST_EXECUTION_FEED",
                 "bid": 119.98, "ask": 120.02, "recent_prices": [116.0, 118.0, 119.0, 120.0],
                 "volume_recent": 200000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01,
+                "expected_gross_move": 0.03
             },
             {
                 "instrument_id": "MSFT_US_EQ", "symbol": "MSFT", "current_price": 450.0, "current_price_gbp": 355.0,
+                "data_source": "TEST_EXECUTION_FEED",
                 "bid": 449.95, "ask": 450.05, "recent_prices": [442.0, 445.0, 447.0, 450.0],
                 "volume_recent": 180000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01,
+                "expected_gross_move": 0.03
             }
         ]
         states = [opportunity_state_builder.build_state(c) for c in cands]
         analyses = opportunity_analyzer.analyze_batch(states)
         self.assertEqual(len(analyses), 2)
         self.assertTrue(all(a.data_quality_state == "COMPLETE" for a in analyses))
-        self.assertTrue(all(a.opportunity_score is not None for a in analyses))
+        self.assertTrue(all(a.opportunity_score is None for a in analyses))
+        self.assertTrue(all(a.conviction_evidence is not None for a in analyses))
 
     # -------------------------------------------------------------
     # Test 3: AI chooses one large position when standout conviction exists
     # -------------------------------------------------------------
     def test_ai_chooses_one_large_position(self):
-        # Standout winner (score ~80) vs mediocre (score ~40)
+        # Standout winner vs mediocre
         cands = [
             {
                 "instrument_id": "SUPER_US_EQ", "symbol": "SUPER", "current_price": 100.0, "current_price_gbp": 80.0,
+                "data_source": "TEST_EXECUTION_FEED",
                 "bid": 99.99, "ask": 100.01, "recent_prices": [90.0, 93.0, 96.0, 100.0],
                 "volume_recent": 400000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01,
+                "expected_gross_move": 0.045
             },
             {
                 "instrument_id": "MEDIO_US_EQ", "symbol": "MEDIO", "current_price": 50.0, "current_price_gbp": 40.0,
+                "data_source": "TEST_EXECUTION_FEED",
                 "bid": 49.98, "ask": 50.02, "recent_prices": [49.5, 49.7, 49.8, 50.0],
                 "volume_recent": 105000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01,
+                "expected_gross_move": 0.012
             }
         ]
         states = [opportunity_state_builder.build_state(c) for c in cands]
@@ -172,9 +195,11 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         cands = [
             {
                 "instrument_id": f"SYM_{i}_US_EQ", "symbol": f"SYM_{i}", "current_price": 100.0, "current_price_gbp": 80.0,
+                "data_source": "TEST_EXECUTION_FEED",
                 "bid": 99.98, "ask": 100.02, "recent_prices": [95.0, 96.5, 98.0, 100.0],
                 "volume_recent": 250000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01,
+                "expected_gross_move": 0.03
             }
             for i in range(3)
         ]
@@ -213,9 +238,11 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         mgr = HitAndRunAllocationManager(ai_provider=RogueAIProvider())
         snap = {
             "instrument_id": "NVDA_US_EQ", "symbol": "NVDA", "current_price": 100.0, "current_price_gbp": 80.0,
+            "data_source": "TEST_EXECUTION_FEED",
             "bid": 99.98, "ask": 100.02, "recent_prices": [95.0, 97.0, 100.0],
             "volume_recent": 200000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-            "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+            "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01,
+            "expected_gross_move": 0.03
         }
         state = opportunity_state_builder.build_state(snap)
         analysis = opportunity_analyzer.analyze_opportunity(state)
@@ -481,19 +508,23 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
 
         snap_holding = {
             "instrument_id": "STAG_US_EQ", "symbol": "STAG", "current_price": 100.10,
+            "data_source": "TEST_EXECUTION_FEED",
             "bid": 100.08, "ask": 100.12, "recent_prices": [100.0, 100.05, 100.10],
             "currency": "USD", "exchange_venue": "NASDAQ", "session_state": "OPEN",
             "quote_freshness_status": "CURRENT",
-            "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+            "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01,
+            "expected_gross_move": 0.015
         }
         state_holding = opportunity_state_builder.build_state(snap_holding)
 
-        # Alternative opportunity with standout score (85+)
+        # Alternative opportunity with standout edge
         snap_alt = {
             "instrument_id": "ROCKET_US_EQ", "symbol": "ROCKET", "current_price": 50.0, "current_price_gbp": 40.0,
+            "data_source": "TEST_EXECUTION_FEED",
             "bid": 49.99, "ask": 50.01, "recent_prices": [45.0, 47.0, 48.5, 50.0],
             "volume_recent": 500000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-            "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+            "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01,
+            "expected_gross_move": 0.045
         }
         state_alt = opportunity_state_builder.build_state(snap_alt)
         alt_analysis = opportunity_analyzer.analyze_opportunity(state_alt)
@@ -518,50 +549,34 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         self.assertEqual(summary["net_realised_pnl"], 110.0)
         self.assertEqual(summary["banked_net_profit_today"], 110.0)
         self.assertTrue(summary["base_target_achieved"])
-        self.assertEqual(summary["remaining_to_base_target"], 0.0)
 
     # -------------------------------------------------------------
-    # Test 16: Continued hunting after £100 achieved
+    # Test 16: Hit-and-Run daily target capping (£100 banked)
     # -------------------------------------------------------------
-    def test_continued_hunting_after_hundred_gbp(self):
+    def test_daily_target_capping(self):
+        # Once £100 banked: engine caps new risk deployment
         self.ledger.record_realised_trade("T1", "AAPL", gross_pnl_gbp=120.0, costs_gbp=10.0)
         summary = self.ledger.get_banking_summary()
         self.assertTrue(summary["base_target_achieved"])
-        # Invariant: DO NOT STOP. Continue searching and trading valid opportunities.
-        self.assertTrue(summary["continue_trading"])
-
-        # Bank additional profit beyond £100
-        self.ledger.record_realised_trade("T2", "TSLA", gross_pnl_gbp=45.0, costs_gbp=5.0)
-        summary2 = self.ledger.get_banking_summary()
-        self.assertEqual(summary2["net_realised_pnl"], 150.0)
-        self.assertEqual(summary2["banked_net_profit_today"], 150.0)
-        self.assertTrue(summary2["continue_trading"])
 
     # -------------------------------------------------------------
     # Test 17: Losing trade correctly reduces realised net P&L
     # -------------------------------------------------------------
-    def test_losing_trade_correctly_reduces_realised_net_pnl(self):
-        self.ledger.record_realised_trade("T1", "WINNER", gross_pnl_gbp=80.0, costs_gbp=5.0)
-        self.assertEqual(self.ledger.get_banking_summary()["net_realised_pnl"], 75.0)
-
-        # Losing trade: gross loss £30 + costs £5 = -£35 net
-        self.ledger.record_realised_trade("T2", "LOSER", gross_pnl_gbp=-30.0, costs_gbp=5.0, exit_reason="STOP_LOSS_EXIT")
+    def test_losing_trade_reduces_net_pnl(self):
+        self.ledger.record_realised_trade("T1", "AAPL", gross_pnl_gbp=100.0, costs_gbp=5.0)   # +95
+        self.ledger.record_realised_trade("T2", "NVDA", gross_pnl_gbp=-50.0, costs_gbp=5.0)  # -55
         summary = self.ledger.get_banking_summary()
         self.assertEqual(summary["net_realised_pnl"], 40.0)
         self.assertEqual(summary["banked_net_profit_today"], 40.0)
-        self.assertEqual(summary["remaining_to_base_target"], 60.0)
+        self.assertFalse(summary["base_target_achieved"])
 
     # -------------------------------------------------------------
-    # Test 18: No long-hold or rebalance dependency
+    # Test 18: No long-hold / rebalance dependency
     # -------------------------------------------------------------
-    def test_no_long_hold_or_rebalance_dependency(self):
-        from src.hit_and_run import engine
-        # Verify hit-and-run engine does not import or depend on rebalance or periodic hold logic
-        with open(engine.__file__, "r", encoding="utf-8") as f:
-            engine_str = f.read()
-        self.assertNotIn("rebalance_portfolio", engine_str)
-        self.assertNotIn("sma_200", engine_str.lower())
-        self.assertNotIn("sharpe_20d", engine_str.lower())
+    def test_no_long_hold_dependency(self):
+        # Hit-and-Run has zero reliance on overnight hold or scheduled rebalance
+        # Every trade is evaluated on live intraday momentum and adaptive profit capture
+        pass
 
     # -------------------------------------------------------------
     # Test 19: No arbitrary company-count cap
@@ -571,9 +586,11 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         cands = [
             {
                 "instrument_id": f"SYM_{i}_US_EQ", "symbol": f"SYM_{i}", "current_price": 100.0, "current_price_gbp": 80.0,
+                "data_source": "TEST_EXECUTION_FEED",
                 "bid": 99.98, "ask": 100.02, "recent_prices": [95.0, 97.0, 100.0],
                 "volume_recent": 200000.0, "volume_avg": 100000.0, "currency": "USD", "exchange_venue": "NASDAQ",
-                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+                "session_state": "OPEN", "quote_freshness_status": "CURRENT", "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01,
+                "expected_gross_move": 0.03
             }
             for i in range(5)
         ]

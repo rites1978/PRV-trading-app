@@ -54,7 +54,8 @@ class TestHitAndRunScoring(unittest.TestCase):
             "volume_avg": 1000000,      # 1.5x volume
             "bid": 121.48,
             "ask": 121.52,              # 0.03% spread
-            "session_state": "REGULAR"
+            "session_state": "REGULAR",
+            "expected_gross_move": 0.03
         }
 
         candidate = self.scorer.evaluate_opportunity(market_snapshot)
@@ -69,7 +70,7 @@ class TestHitAndRunScoring(unittest.TestCase):
         else:
             self.assertEqual(candidate.downside_model_status, "DOWNSIDE_MODEL_UNAVAILABLE")
         self.assertGreater(candidate.expected_net_reward, candidate.estimated_costs)
-        self.assertGreater(candidate.opportunity_score, 70.0)
+        self.assertIsNone(candidate.opportunity_score)
         self.assertTrue(candidate.strategy_qualified)
         self.assertIn("opportunity", candidate.entry_thesis.lower())
 
@@ -94,13 +95,17 @@ class TestHitAndRunScoring(unittest.TestCase):
             "volume_avg": 5000,       # Low volume 0.2x
             "bid": 98.0,
             "ask": 102.0,             # 4.0% spread friction!
+            "min_trade_quantity": 1.0,
+            "quantity_precision": 0,
+            "tick_size": 0.01,
+            "expected_gross_move": 0.01,
             "session_state": "REGULAR"
         }
 
         candidate = self.scorer.evaluate_opportunity(market_snapshot)
 
         self.assertFalse(candidate.strategy_qualified)
-        self.assertLess(candidate.opportunity_score, 50.0)
+        self.assertIsNone(candidate.opportunity_score)
         self.assertTrue(any("friction" in r.lower() or "momentum" in r.lower() or "cost" in r.lower() or "edge" in r.lower() for r in candidate.qualification_reasons))
 
     def test_ranking_sorts_by_opportunity_score(self):
@@ -124,6 +129,7 @@ class TestHitAndRunScoring(unittest.TestCase):
             "volume_avg": 100000,
             "bid": 49.99,
             "ask": 50.01,
+            "expected_gross_move": 0.035,
             "session_state": "REGULAR"
         }
         cand_b = {
@@ -145,13 +151,16 @@ class TestHitAndRunScoring(unittest.TestCase):
             "volume_avg": 50000,
             "bid": 19.98,
             "ask": 20.02,
+            "expected_gross_move": 0.010,
             "session_state": "REGULAR"
         }
 
         ranked = self.scorer.rank_opportunities([cand_b, cand_a])
         self.assertEqual(len(ranked), 2)
         self.assertEqual(ranked[0].symbol, "STRONG")
-        self.assertGreater(ranked[0].opportunity_score, ranked[1].opportunity_score)
+        self.assertIsNone(ranked[0].opportunity_score)
+        self.assertIsNone(ranked[1].opportunity_score)
+        self.assertGreater(ranked[0].expected_net_reward, ranked[1].expected_net_reward)
 
     def test_no_fixed_rr_rejection_threshold(self):
         """Verifies that risk/reward ratio < 1.2x does NOT cause rejection if candidate has positive net edge and meets score threshold."""

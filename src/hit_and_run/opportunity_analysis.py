@@ -153,57 +153,36 @@ class HitAndRunOpportunityAnalyzer:
             else:
                 contrary_evidence.append(f"Expected net reward non-positive: {net_opp:+.2%} consumed by costs")
 
-        # 5. Opportunity Score Calculation (Strictly None if required data are incomplete)
-        # Never fabricate an opportunity score if required data are incomplete
+        # 5. Opportunity Score & Raw Conviction Evidence
+        # Contract Rule: Any fixed hand-built weighting/point system that affects candidate ranking,
+        # AI evidence, allocation, entry, exit, or rotation and has no user authority must be removed.
+        # If no authorised deterministic opportunity score exists: OPPORTUNITY_SCORE = None.
+        # Pass raw evidence/features to the AI decision layer instead.
         opportunity_score: Optional[float] = None
-        if data_quality_state == "COMPLETE" and state.spread_friction is not None and net_opp is not None and net_opp > 0:
-            # Score components (0 - 100 across observable empirical factors):
-            # 1. Momentum score: 0 - 25 pts
-            s_mom = min(25.0, max(0.0, (mom or 0.0) * 500.0))
-            # 2. Acceleration score: 0 - 20 pts
-            s_acc = min(20.0, max(0.0, (acc or 0.0) * 1000.0))
-            # 3. Volume & Activity: 0 - 20 pts
-            s_vol = min(20.0, max(0.0, ((vol_act or 1.0) - 0.5) * 15.0))
-            # 4. Spread friction efficiency: 0 - 15 pts
-            s_spread = max(0.0, 15.0 - (state.spread_friction * 800.0))
-            # 5. Reward / Downside: Strictly None if downside model unavailable (no fabricated downside)
-            if downside_est is not None and downside_est > 0:
-                rr = net_opp / max(1e-4, downside_est)
-                s_rr = min(20.0, max(0.0, (rr - 1.0) * 10.0))
-                raw_score = round(float(s_mom + s_acc + s_vol + s_spread + s_rr), 2)
-            else:
-                s_rr = None
-                # Downside model is unavailable: scale observable 80 pts to 100-pt scale
-                raw_score = round(float((s_mom + s_acc + s_vol + s_spread) * (100.0 / 80.0)), 2)
 
-            opportunity_score = max(0.0, min(100.0, raw_score))
+        conviction_evidence = {
+            "momentum": mom,
+            "acceleration": acc,
+            "volume_activity": vol_act,
+            "spread_friction": state.spread_friction,
+            "relative_strength": rs,
+            "volatility": state.volatility,
+            "distance_from_high": dist_high,
+            "distance_from_low": dist_low,
+            "expected_net_opportunity": net_opp,
+            "downside_model_status": downside_model_status,
+            "data_quality_state": data_quality_state,
+            "detected_setups": detected_setups
+        }
 
-            conviction_evidence = {
-                "momentum_score": round(s_mom, 2),
-                "acceleration_score": round(s_acc, 2),
-                "volume_score": round(s_vol, 2),
-                "spread_efficiency_score": round(s_spread, 2),
-                "reward_risk_score": round(s_rr, 2) if (downside_est is not None and s_rr > 0) else None,
-                "downside_model_status": downside_model_status,
-                "composite_score": opportunity_score,
-                "detected_setups": detected_setups
-            }
-        else:
-            opportunity_score = None
-            conviction_evidence = {
-                "detected_setups": detected_setups,
-                "data_quality_issues": data_quality_issues,
-                "score_status": "SCORE_UNAVAILABLE_DUE_TO_INCOMPLETE_DATA"
-            }
-
-        # 6. Opportunity Thesis Synthesis
-        if opportunity_score is not None:
-            downside_desc = f"{downside_est:.2%}" if downside_est is not None else downside_model_status
+        # 6. Opportunity Thesis Synthesis (using raw observable features)
+        downside_desc = f"{downside_est:.2%}" if downside_est is not None else downside_model_status
+        if data_quality_state == "COMPLETE":
+            net_desc = f"NetReward {net_opp:+.2%}" if net_opp is not None else "NetReward UNMODELLED"
             thesis = (
                 f"Hit-and-Run [{primary_setup}] setup for {state.symbol}: "
-                f"NetReward {net_opp:+.2%} vs Downside ({downside_desc}). "
-                f"Conviction: {opportunity_score:.1f}/100. "
-                f"Key drivers: {'; '.join(supporting_evidence[:3])}."
+                f"{net_desc} vs Downside ({downside_desc}). "
+                f"Drivers: {'; '.join(supporting_evidence[:3]) if supporting_evidence else 'None'}."
             )
         else:
             thesis = (
@@ -231,13 +210,13 @@ class HitAndRunOpportunityAnalyzer:
         )
 
     def analyze_batch(self, states: List[LiveOpportunityState]) -> List[OpportunityAnalysisResult]:
-        """Analyzes a collection of states and returns results sorted by conviction score descending."""
+        """Analyzes a collection of states and passes raw evidence to AI decision layer."""
         results = [self.analyze_opportunity(s) for s in states]
         results.sort(
             key=lambda r: (
-                r.opportunity_score is not None,
-                r.opportunity_score if r.opportunity_score is not None else -1.0,
-                r.expected_net_opportunity if r.expected_net_opportunity is not None else -1.0
+                r.data_quality_state == "COMPLETE",
+                r.expected_net_opportunity if r.expected_net_opportunity is not None else -1.0,
+                r.state.short_duration_momentum if r.state.short_duration_momentum is not None else -1.0
             ),
             reverse=True
         )

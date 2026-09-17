@@ -211,27 +211,59 @@ class TestMarketSessionRouter(unittest.TestCase):
             "minTradeQuantity": 0.001,
             "tickSize": 0.01
         }
-        # Even with high data_age_seconds (e.g. 900s), feed-contract CURRENT is respected
-        snap_current = {
+        from src.data.source_authority import QuoteSourceAuthority, QuoteSourceAuthorityRegistry
+
+        # 1. Bulk screener / unauthenticated source CANNOT establish CURRENT freshness, even if payload claims CURRENT
+        snap_screener = {
             "instrument_id": "AAPL_US_EQ",
+            "data_source": "YAHOO",
             "current_price": 150.0,
             "bid": 149.98,
             "ask": 150.02,
-            "data_age_seconds": 900.0,
-            "quote_freshness_status": "CURRENT"
+            "data_age_seconds": 1.0,
+            "quote_freshness_status": "CURRENT",
+            "is_current": True,
+            "is_execution_grade": True
         }
-        state_curr = opportunity_state_builder.build_state(snap_current, instrument_meta=inst_meta, utc_dt=utc_dt)
-        self.assertEqual(state_curr.quote_freshness_status, "CURRENT")
-        self.assertTrue(state_curr.is_fresh)
-        self.assertTrue(state_curr.quote_executable_now)
+        state_screener = opportunity_state_builder.build_state(snap_screener, instrument_meta=inst_meta, utc_dt=utc_dt)
+        self.assertNotEqual(state_screener.quote_freshness_status, "CURRENT")
+        self.assertFalse(state_screener.is_fresh)
+        self.assertFalse(state_screener.quote_executable_now)
 
-        # STALE quote is not executable
-        snap_stale = dict(snap_current)
-        snap_stale["quote_freshness_status"] = "STALE"
-        state_stale = opportunity_state_builder.build_state(snap_stale, instrument_meta=inst_meta, utc_dt=utc_dt)
-        self.assertEqual(state_stale.quote_freshness_status, "STALE")
-        self.assertFalse(state_stale.is_fresh)
-        self.assertFalse(state_stale.quote_executable_now)
+        # 2. Authorised execution feed can establish CURRENT freshness and execution quotes
+        QuoteSourceAuthorityRegistry.register_execution_source(
+            QuoteSourceAuthority(
+                source_id="TEST_EXECUTION_FEED",
+                role="EXECUTION_BROKER",
+                can_establish_execution_quote=True,
+                can_establish_current_freshness=True
+            )
+        )
+        try:
+            # Even with high data_age_seconds (e.g. 900s), feed-contract CURRENT is respected
+            snap_current = {
+                "instrument_id": "AAPL_US_EQ",
+                "data_source": "TEST_EXECUTION_FEED",
+                "current_price": 150.0,
+                "bid": 149.98,
+                "ask": 150.02,
+                "data_age_seconds": 900.0,
+                "quote_freshness_status": "CURRENT"
+            }
+            state_curr = opportunity_state_builder.build_state(snap_current, instrument_meta=inst_meta, utc_dt=utc_dt)
+            self.assertEqual(state_curr.quote_freshness_status, "CURRENT")
+            self.assertTrue(state_curr.is_fresh)
+            self.assertTrue(state_curr.quote_executable_now)
+
+            # STALE quote is not executable
+            snap_stale = dict(snap_current)
+            snap_stale["quote_freshness_status"] = "STALE"
+            state_stale = opportunity_state_builder.build_state(snap_stale, instrument_meta=inst_meta, utc_dt=utc_dt)
+            self.assertEqual(state_stale.quote_freshness_status, "STALE")
+            self.assertFalse(state_stale.is_fresh)
+            self.assertFalse(state_stale.quote_executable_now)
+        finally:
+            QuoteSourceAuthorityRegistry.clear_execution_sources()
 
     def test_downside_estimate_greater_than_5_pct_allowed_as_informational_evidence(self):
         """Downside estimate is informational evidence for AI, not a <= 5% trade qualification gate."""

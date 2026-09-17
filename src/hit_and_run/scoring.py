@@ -150,50 +150,25 @@ class HitAndRunOpportunityScorer:
             downside_risk = None
             downside_model_status = "DOWNSIDE_MODEL_UNAVAILABLE"
 
-        # 11. Expected Net Reward
-        # Target move based on momentum continuation + volatility impulse
-        target_gross_move = max(0.015, (volatility * 2.0) + max(0.0, momentum * 0.5))
-        if estimated_costs is not None:
-            expected_net_reward = float(max(0.0, target_gross_move - estimated_costs))
-            if downside_risk is not None and downside_risk > 0:
-                risk_reward_ratio = float(expected_net_reward / max(1e-4, downside_risk))
-                score_rr = min(20.0, max(0.0, (risk_reward_ratio - 1.0) * 10.0))
-            else:
-                risk_reward_ratio = None
-                score_rr = 0.0
+        # 11. Expected Gross Move & Net Reward
+        # Unauthorised heuristic removed: do not invent target moves like max(0.015, vol * 2 + mom * 0.5)
+        raw_gross = snapshot.get("expected_gross_move") or snapshot.get("target_gross_move")
+        if raw_gross is not None and estimated_costs is not None:
+            expected_net_reward = float(max(0.0, float(raw_gross) - estimated_costs))
+        elif snapshot.get("expected_net_reward") is not None:
+            expected_net_reward = float(snapshot.get("expected_net_reward"))
+        elif snapshot.get("expected_net_opportunity") is not None:
+            expected_net_reward = float(snapshot.get("expected_net_opportunity"))
         else:
             expected_net_reward = None
-            risk_reward_ratio = None
-            score_rr = None
+        risk_reward_ratio = None
 
-        # 13. Multi-Factor Opportunity Conviction Score (0 - 100)
-        # Factor A: Momentum (0 - 25 pts)
-        score_momentum = min(25.0, max(0.0, momentum * 500.0))
-
-        # Factor B: Acceleration (0 - 20 pts)
-        score_acceleration = min(20.0, max(0.0, acceleration * 1000.0))
-
-        # Factor C: Volume Surge & Liquidity (0 - 20 pts)
-        score_volume = min(20.0, max(0.0, (volume_activity - 0.5) * 15.0))
-
-        # Factor D: Spread & Friction Efficiency (0 - 15 pts)
-        # If spread is unknown: feature is INCOMPLETE / UNAVAILABLE.
-        # Must NOT compute an apparently favourable friction score from zero.
-        if spread_friction is not None:
-            score_friction = max(0.0, 15.0 - (spread_friction * 800.0))
-        else:
-            score_friction = None
-
-        # Composite Score: Any composite feature requiring spread must be unavailable / incomplete
-        if score_friction is not None:
-            if score_rr is not None and score_rr > 0 and downside_risk is not None:
-                composite_score = round(float(score_momentum + score_acceleration + score_volume + score_friction + score_rr), 2)
-            else:
-                # Downside model is unavailable: scale observable 80 pts (momentum, acceleration, volume, friction) to 100-pt scale
-                composite_score = round(float((score_momentum + score_acceleration + score_volume + score_friction) * (100.0 / 80.0)), 2)
-            composite_score = max(0.0, min(100.0, composite_score))
-        else:
-            composite_score = None
+        # 13. Opportunity Score (Contract Rule: No unauthorised deterministic scoring)
+        # Any fixed hand-built weighting/point system that affects candidate ranking,
+        # AI evidence, allocation, entry, exit, or rotation and has no user authority must be removed.
+        # If no authorised deterministic opportunity score exists: OPPORTUNITY_SCORE = None.
+        # Pass raw evidence/features to the AI decision layer instead.
+        composite_score = None
 
         # 14. Qualification Audit (Authoritative Rules Only)
         qualification_reasons = []
@@ -205,12 +180,10 @@ class HitAndRunOpportunityScorer:
             qualification_reasons.append(f"Session state '{session_state}' is not active regular market")
 
         # Authoritative rule: expected profitability must be NET of costs, do not force trades without edge
-        if expected_net_reward is None or expected_net_reward <= 0.0:
+        # Only evaluate net edge if expected_net_reward is modelled
+        if expected_net_reward is not None and expected_net_reward <= 0.0:
             is_qualified = False
-            if expected_net_reward is None:
-                qualification_reasons.append("Net edge cannot be established: transaction costs/spread incomplete")
-            else:
-                qualification_reasons.append(f"No genuine net edge after costs: net reward {expected_net_reward:.4%} <= 0")
+            qualification_reasons.append(f"No genuine net edge after costs: net reward {expected_net_reward:.4%} <= 0")
 
         # Strict Cost Completeness Check:
         # If tax/fee applicability cannot be established reliably: COST_MODEL_COMPLETE = False.
@@ -222,7 +195,7 @@ class HitAndRunOpportunityScorer:
         # Live spread check: unknown spread fails closed
         if spread_friction is None:
             is_qualified = False
-            qualification_reasons.append("LIVE_SPREAD_UNKNOWN: Live bid/ask spread unavailable; spread friction, score, and execution authorisation incomplete")
+            qualification_reasons.append("LIVE_SPREAD_UNKNOWN: Live bid/ask spread unavailable; spread friction and execution authorisation incomplete")
 
         # Quantity precision check: do not guess quantity precision
         if quantity_precision is None and min_trade_quantity is None:
@@ -242,14 +215,13 @@ class HitAndRunOpportunityScorer:
         )
 
         # Construct Entry Thesis
-        if is_qualified and composite_score is not None and expected_net_reward is not None:
-            downside_str = f"{downside_risk:.2%}" if downside_risk is not None else downside_model_status
-            rr_str = f"{risk_reward_ratio:.2f}x" if risk_reward_ratio is not None else "N/A"
+        downside_str = f"{downside_risk:.2%}" if downside_risk is not None else downside_model_status
+        if is_qualified:
+            net_desc = f"NetReward {expected_net_reward:+.2%}" if expected_net_reward is not None else "NetReward UNMODELLED"
             entry_thesis = (
                 f"Hit-and-Run Opportunity for {symbol}: Momentum {momentum:+.2%}, "
                 f"Accel {acceleration:+.2%}, VolRatio {volume_activity:.2f}x, "
-                f"NetReward {expected_net_reward:+.2%} vs Risk {downside_str} (R/R {rr_str}). "
-                f"Conviction Score: {composite_score}/100."
+                f"{net_desc} vs Risk ({downside_str})."
             )
         else:
             entry_thesis = f"Disqualified: {'; '.join(qualification_reasons)}"
@@ -295,12 +267,13 @@ class HitAndRunOpportunityScorer:
         )
 
     def rank_opportunities(self, snapshots: List[Dict[str, Any]]) -> List[OpportunityCandidate]:
-        """Evaluates and ranks a batch of candidates strictly by conviction score descending."""
+        """Evaluates and ranks a batch of candidates passing raw observable features to AI."""
         candidates = [self.evaluate_opportunity(s) for s in snapshots]
         candidates.sort(
             key=lambda c: (
-                c.opportunity_score is not None,
-                c.opportunity_score if c.opportunity_score is not None else -1.0
+                c.strategy_qualified,
+                c.expected_net_reward if c.expected_net_reward is not None else -1.0,
+                c.momentum if c.momentum is not None else -1.0
             ),
             reverse=True
         )

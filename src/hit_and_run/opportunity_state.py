@@ -13,6 +13,7 @@ from src.hit_and_run.models import LiveOpportunityState
 from src.hit_and_run.cost_model import hit_and_run_cost_model
 from src.data.technical_execution_capability import technical_execution_capability
 from src.data.market_session_router import market_session_router
+from src.data.source_authority import QuoteSourceAuthorityRegistry, QuoteSourceAuthority
 
 
 class LiveOpportunityStateBuilder:
@@ -192,14 +193,17 @@ class LiveOpportunityStateBuilder:
         estimated_costs = cost_eval.estimated_costs_round_trip
 
         # Expected Gross Move & Net Opportunity
-        if volatility is not None and current_price > 0:
-            effective_mom = max(0.0, momentum) if momentum is not None else 0.0
-            expected_gross_move = max(0.010, (volatility * 2.0) + (effective_mom * 0.5))
+        # Unauthorised heuristic removed: do not invent target moves like max(0.010, vol * 2 + mom * 0.5)
+        raw_gross = snapshot.get("expected_gross_move") or snapshot.get("target_gross_move")
+        if raw_gross is not None:
+            expected_gross_move = float(raw_gross)
         else:
             expected_gross_move = None
 
         if expected_gross_move is not None and estimated_costs is not None:
             expected_net_opportunity = max(0.0, expected_gross_move - estimated_costs)
+        elif snapshot.get("expected_net_opportunity") is not None:
+            expected_net_opportunity = float(snapshot.get("expected_net_opportunity"))
         else:
             expected_net_opportunity = None
 
@@ -214,30 +218,32 @@ class LiveOpportunityStateBuilder:
             except Exception:
                 data_age_seconds = None
 
-        # Quote Freshness Model:
+        # Explicit Source-Authority & Quote Freshness Model:
         # Repositories/providers define their freshness contract; no invented seconds threshold.
-        # Possible statuses: CURRENT, STALE, UNKNOWN.
-        # Yahoo role is strictly BULK_SCREEN_ONLY and can NEVER make an order executable.
-        data_source = str(snapshot.get("data_source") or snapshot.get("source") or "").upper()
-        raw_freshness = snapshot.get("quote_freshness_status")
+        # Arbitrary payload flags (quote_freshness_status = CURRENT, is_current = True, is_execution_grade = True)
+        # must NOT override source authority.
+        raw_source = snapshot.get("data_source") or snapshot.get("source")
+        source_auth = QuoteSourceAuthorityRegistry.get_source_authority(raw_source)
 
-        if data_source in ("YAHOO", "YFINANCE", "BULK_SCREEN", "BULK_SCREEN_ONLY"):
-            # Yahoo/bulk screener data is non-execution grade.
-            # It must NEVER establish quote freshness for trade execution.
-            quote_freshness_status = "UNKNOWN"
-        elif raw_freshness is not None:
-            quote_freshness_status = str(raw_freshness).upper().strip()
-        elif snapshot.get("is_stale") is True or snapshot.get("is_fresh") is False:
-            quote_freshness_status = "STALE"
-        elif snapshot.get("is_current") is True:
-            # Explicit authoritative current marker from execution-grade provider
-            quote_freshness_status = "CURRENT"
-        elif snapshot.get("is_execution_grade") is True and snapshot.get("bid") is not None and snapshot.get("ask") is not None:
-            quote_freshness_status = "CURRENT"
+        if not source_auth.can_establish_current_freshness:
+            # Source CANNOT establish CURRENT freshness.
+            if snapshot.get("is_stale") is True or snapshot.get("is_fresh") is False:
+                quote_freshness_status = "STALE"
+            else:
+                quote_freshness_status = "UNKNOWN"
         else:
-            # If no authoritative execution-grade broker/market-data source establishes freshness:
-            # Execution quote freshness MUST remain UNKNOWN.
-            quote_freshness_status = "UNKNOWN"
+            # Source authority allows establishing CURRENT freshness
+            raw_freshness = snapshot.get("quote_freshness_status")
+            if raw_freshness is not None:
+                quote_freshness_status = str(raw_freshness).upper().strip()
+            elif snapshot.get("is_stale") is True or snapshot.get("is_fresh") is False:
+                quote_freshness_status = "STALE"
+            elif snapshot.get("is_current") is True:
+                quote_freshness_status = "CURRENT"
+            elif snapshot.get("bid") is not None and snapshot.get("ask") is not None:
+                quote_freshness_status = "CURRENT"
+            else:
+                quote_freshness_status = "UNKNOWN"
 
         is_fresh = (quote_freshness_status == "CURRENT")
 
@@ -256,12 +262,14 @@ class LiveOpportunityStateBuilder:
         # An opportunity is executable right now ONLY IF:
         # 1. The exchange trading session is actively OPEN (not closed)
         # 2. QUOTE_FRESHNESS_STATUS == CURRENT
-        # 3. Market price > 0
-        # 4. Technical execution is verified
-        # 5. Live bid/ask quote is present (actionable market spread)
+        # 3. Source authority specifically permits establishing execution quotes (can_establish_execution_quote)
+        # 4. Market price > 0
+        # 5. Technical execution is verified
+        # 6. Live bid/ask quote is present (actionable market spread)
         quote_executable_now = bool(
             session_open and
             quote_freshness_status == "CURRENT" and
+            source_auth.can_establish_execution_quote and
             current_price > 0 and
             technical_execution_supported and
             bid is not None and
@@ -282,6 +290,10 @@ class LiveOpportunityStateBuilder:
             "cost_model_complete": cost_eval.cost_model_complete,
             "is_fresh": is_fresh,
             "session_open": session_open,
+            "source_id": source_auth.source_id,
+            "source_role": source_auth.role,
+            "can_establish_execution_quote": source_auth.can_establish_execution_quote,
+            "can_establish_current_freshness": source_auth.can_establish_current_freshness,
             "quote_executable_now": quote_executable_now
         }
 

@@ -107,13 +107,14 @@ class TestHitAndRunDeliverableOneIntegration(unittest.TestCase):
             "volume_avg": 120000,
             "bid": 99.95,
             "ask": 100.05,
+            "expected_gross_move": 0.03,
             "session_state": "REGULAR"
         }
 
         candidate = hit_and_run_scorer.evaluate_opportunity(snapshot)
         self.assertIsInstance(candidate, OpportunityCandidate)
         self.assertTrue(candidate.strategy_qualified)
-        self.assertGreater(candidate.opportunity_score, 60.0)
+        self.assertIsNone(candidate.opportunity_score)
 
         # --- Component D & E: Dynamic Allocation & 5% Max Loss Invariant ---
         portfolio_capital = 20000.0
