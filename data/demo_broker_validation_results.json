@@ -1,0 +1,208 @@
+{
+  "timestamp": "2026-09-17T18:55:30Z",
+  "probes": [
+    {
+      "test_id": "DEMO-LLOY-01",
+      "instrument": "LLOYl_EQ",
+      "order_type": "LIMIT_BUY",
+      "quantity": 1.0,
+      "limit_price": 90.0,
+      "response": {
+        "success": false,
+        "error": "HTTP 400: {\"type\":\"/api-errors/min-quantity-exceeded\",\"title\":\"Error while placing the order\",\"status\":400,\"detail\":\"must trade at least 1.11278028\",\"traceId\":\"fc85796931b2addcb08a16404f8d3f52\"}"
+      },
+      "classification": "EXACT_PRICE_PAYLOAD_REJECTED"
+    },
+    {
+      "test_id": "DEMO-LLOY-02",
+      "instrument": "LLOYl_EQ",
+      "order_type": "LIMIT_BUY",
+      "quantity": 0.5,
+      "limit_price": 90.0,
+      "response": {
+        "success": false,
+        "error": "HTTP 400: {\"type\":\"/api-errors/min-quantity-exceeded\",\"title\":\"Error while placing the order\",\"status\":400,\"detail\":\"must trade at least 1.11278028\",\"traceId\":\"72c0a5cf9f44d62dda03cb127a237eec\"}"
+      },
+      "classification": "EXACT_QUANTITY_PAYLOAD_REJECTED"
+    },
+    {
+      "test_id": "DEMO-LLOY-03",
+      "instrument": "LLOYl_EQ",
+      "status": "FILL_NOT_CONFIRMED",
+      "classification": "INCONCLUSIVE"
+    },
+    {
+      "test_id": "DEMO-AAPL-01",
+      "instrument": "AAPL_US_EQ",
+      "order_type": "LIMIT_BUY",
+      "quantity": 1.0,
+      "limit_price": 280.0,
+      "response": {
+        "success": true,
+        "data": {
+          "id": 55150127477,
+          "strategy": "QUANTITY",
+          "type": "LIMIT",
+          "ticker": "AAPL_US_EQ",
+          "quantity": 1.0,
+          "filledQuantity": 0,
+          "limitPrice": 280.0,
+          "status": "NEW",
+          "currency": "GBP",
+          "extendedHours": false,
+          "initiatedFrom": "API",
+          "side": "BUY",
+          "timeInForce": "GOOD_TILL_CANCEL",
+          "createdAt": "2026-09-17T21:51:58.365+03:00",
+          "instrument": {
+            "ticker": "AAPL_US_EQ",
+            "name": "Apple",
+            "isin": "US0378331005",
+            "currency": "USD"
+          }
+        }
+      },
+      "classification": "EXACT_PRICE_PAYLOAD_ACCEPTED"
+    },
+    {
+      "test_id": "DEMO-AAPL-02",
+      "instrument": "AAPL_US_EQ",
+      "order_type": "LIMIT_BUY",
+      "quantity": 0.1,
+      "limit_price": 280.0,
+      "response": {
+        "success": true,
+        "data": {
+          "id": 55150127501,
+          "strategy": "QUANTITY",
+          "type": "LIMIT",
+          "ticker": "AAPL_US_EQ",
+          "quantity": 0.1,
+          "filledQuantity": 0,
+          "limitPrice": 280.0,
+          "status": "NEW",
+          "currency": "GBP",
+          "extendedHours": false,
+          "initiatedFrom": "API",
+          "side": "BUY",
+          "timeInForce": "GOOD_TILL_CANCEL",
+          "createdAt": "2026-09-17T21:52:26.500+03:00",
+          "instrument": {
+            "ticker": "AAPL_US_EQ",
+            "name": "Apple",
+            "isin": "US0378331005",
+            "currency": "USD"
+          }
+        }
+      },
+      "classification": "EXACT_QUANTITY_PAYLOAD_ACCEPTED"
+    },
+    {
+      "test_id": "DEMO-AAPL-03",
+      "instrument": "AAPL_US_EQ",
+      "fill_price": 336.18,
+      "stop_price": 319.38,
+      "stop_response": {
+        "success": true,
+        "data": {
+          "id": 55150127516,
+          "strategy": "QUANTITY",
+          "type": "STOP",
+          "ticker": "AAPL_US_EQ",
+          "quantity": -1.0,
+          "filledQuantity": 0,
+          "stopPrice": 319.38,
+          "status": "NEW",
+          "currency": "GBP",
+          "extendedHours": false,
+          "initiatedFrom": "API",
+          "side": "SELL",
+          "timeInForce": "GOOD_TILL_CANCEL",
+          "createdAt": "2026-09-17T21:53:21.679+03:00",
+          "instrument": {
+            "ticker": "AAPL_US_EQ",
+            "name": "Apple",
+            "isin": "US0378331005",
+            "currency": "USD"
+          }
+        }
+      },
+      "stop_verified_in_open_orders": true,
+      "classification": "NATIVE_STOP_SUPPORT_EMPIRICALLY_PROVEN"
+    },
+    {
+      "test_id": "DEMO-VUSA-01",
+      "instrument": "VUSAl_EQ",
+      "order_type": "LIMIT_BUY",
+      "quantity": 1.0,
+      "limit_price": 90.0,
+      "response": {
+        "success": true,
+        "data": {
+          "id": 55150127534,
+          "strategy": "QUANTITY",
+          "type": "LIMIT",
+          "ticker": "VUSAl_EQ",
+          "quantity": 1.0,
+          "filledQuantity": 0,
+          "limitPrice": 90.0,
+          "status": "NEW",
+          "currency": "GBP",
+          "extendedHours": false,
+          "initiatedFrom": "API",
+          "side": "BUY",
+          "timeInForce": "GOOD_TILL_CANCEL",
+          "createdAt": "2026-09-17T21:54:00.990+03:00",
+          "instrument": {
+            "ticker": "VUSAl_EQ",
+            "name": "Vanguard S&P 500 (Dist)",
+            "isin": "IE00B3XXRP09",
+            "currency": "GBP"
+          }
+        }
+      },
+      "classification": "EXACT_PRICE_PAYLOAD_ACCEPTED"
+    },
+    {
+      "test_id": "DEMO-VUSA-02",
+      "instrument": "VUSAl_EQ",
+      "order_type": "LIMIT_BUY",
+      "quantity": 0.1,
+      "limit_price": 90.0,
+      "response": {
+        "success": true,
+        "data": {
+          "id": 55150127541,
+          "strategy": "QUANTITY",
+          "type": "LIMIT",
+          "ticker": "VUSAl_EQ",
+          "quantity": 0.1,
+          "filledQuantity": 0,
+          "limitPrice": 90.0,
+          "status": "NEW",
+          "currency": "GBP",
+          "extendedHours": false,
+          "initiatedFrom": "API",
+          "side": "BUY",
+          "timeInForce": "GOOD_TILL_CANCEL",
+          "createdAt": "2026-09-17T21:54:30.065+03:00",
+          "instrument": {
+            "ticker": "VUSAl_EQ",
+            "name": "Vanguard S&P 500 (Dist)",
+            "isin": "IE00B3XXRP09",
+            "currency": "GBP"
+          }
+        }
+      },
+      "classification": "EXACT_QUANTITY_PAYLOAD_ACCEPTED"
+    },
+    {
+      "test_id": "DEMO-VUSA-03",
+      "instrument": "VUSAl_EQ",
+      "status": "FILL_NOT_CONFIRMED",
+      "classification": "INCONCLUSIVE"
+    }
+  ],
+  "clean_slate_final": true,
+  "final_account_equity": 49999.2
+}
