@@ -125,12 +125,59 @@ class BrokerDiscoveryService:
         self.initialize()
         return list(self._instruments)
 
+    @staticmethod
+    def evaluate_tradability(instrument: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Authoritatively evaluates the broker tradability state of an instrument.
+        Distinguishes missing/null metadata (UNKNOWN) from explicit zero (UNTRADABLE_ZERO_QUANTITY)
+        and positive values (TRADABLE).
+        Does not silently convert missing metadata to zero.
+        """
+        if "maxOpenQuantity" not in instrument or instrument.get("maxOpenQuantity") is None:
+            return {
+                "max_open_quantity": None,
+                "max_open_quantity_status": "UNKNOWN",
+                "broker_tradability_status": "UNKNOWN",
+                "is_tradable": False
+            }
+        try:
+            val = float(instrument["maxOpenQuantity"])
+        except (ValueError, TypeError):
+            return {
+                "max_open_quantity": None,
+                "max_open_quantity_status": "UNKNOWN",
+                "broker_tradability_status": "UNKNOWN",
+                "is_tradable": False
+            }
+
+        if val > 0.0:
+            return {
+                "max_open_quantity": val,
+                "max_open_quantity_status": "KNOWN_POSITIVE",
+                "broker_tradability_status": "TRADABLE",
+                "is_tradable": True
+            }
+        elif val == 0.0:
+            return {
+                "max_open_quantity": 0.0,
+                "max_open_quantity_status": "KNOWN_ZERO",
+                "broker_tradability_status": "UNTRADABLE_ZERO_QUANTITY",
+                "is_tradable": False
+            }
+        else:
+            return {
+                "max_open_quantity": val,
+                "max_open_quantity_status": "KNOWN_NEGATIVE",
+                "broker_tradability_status": "UNTRADABLE_NEGATIVE_QUANTITY",
+                "is_tradable": False
+            }
+
     def get_tradable_instruments(self) -> List[Dict[str, Any]]:
-        """Returns active instruments exposed as tradable to this account (maxOpenQuantity > 0)."""
+        """Returns active instruments confirmed tradable to this account (maxOpenQuantity > 0)."""
         self.initialize()
         return [
             i for i in self._instruments
-            if (i.get("maxOpenQuantity") or 0) > 0
+            if self.evaluate_tradability(i)["is_tradable"] is True
         ]
 
     def get_instrument_by_ticker(self, ticker: str) -> Optional[Dict[str, Any]]:
@@ -144,17 +191,31 @@ class BrokerDiscoveryService:
     def get_discovery_telemetry(self) -> Dict[str, Any]:
         self.initialize()
         total_discovered = len(self._instruments)
-        tradable = self.get_tradable_instruments()
-        total_tradable = len(tradable)
+
+        tradable = []
+        zero_quantity = []
+        tradability_unknown = []
 
         discovered_by_type: Dict[str, int] = {}
         tradable_by_type: Dict[str, int] = {}
+        zero_qty_by_type: Dict[str, int] = {}
+        unknown_by_type: Dict[str, int] = {}
+
         for inst in self._instruments:
             t = inst.get("type", "UNKNOWN")
             discovered_by_type[t] = discovered_by_type.get(t, 0) + 1
-        for inst in tradable:
-            t = inst.get("type", "UNKNOWN")
-            tradable_by_type[t] = tradable_by_type.get(t, 0) + 1
+
+            eval_res = self.evaluate_tradability(inst)
+            status = eval_res["broker_tradability_status"]
+            if status == "TRADABLE":
+                tradable.append(inst)
+                tradable_by_type[t] = tradable_by_type.get(t, 0) + 1
+            elif status == "UNTRADABLE_ZERO_QUANTITY":
+                zero_quantity.append(inst)
+                zero_qty_by_type[t] = zero_qty_by_type.get(t, 0) + 1
+            elif status == "UNKNOWN":
+                tradability_unknown.append(inst)
+                unknown_by_type[t] = unknown_by_type.get(t, 0) + 1
 
         unsupported_families = {
             t: count for t, count in discovered_by_type.items()
@@ -163,9 +224,13 @@ class BrokerDiscoveryService:
 
         return {
             "BROKER_API_DISCOVERED": total_discovered,
-            "BROKER_API_TRADABLE": total_tradable,
+            "BROKER_API_TRADABLE": len(tradable),
+            "BROKER_API_UNTRADABLE_ZERO_QUANTITY": len(zero_quantity),
+            "BROKER_API_TRADABILITY_UNKNOWN": len(tradability_unknown),
             "DISCOVERED_BY_PRODUCT_TYPE": discovered_by_type,
             "TRADABLE_BY_PRODUCT_TYPE": tradable_by_type,
+            "UNTRADABLE_ZERO_BY_PRODUCT_TYPE": zero_qty_by_type,
+            "TRADABILITY_UNKNOWN_BY_PRODUCT_TYPE": unknown_by_type,
             "UNSUPPORTED_PRODUCT_FAMILY_IF_ANY": unsupported_families,
             "TOTAL_EXCHANGES": len(self._exchanges)
         }

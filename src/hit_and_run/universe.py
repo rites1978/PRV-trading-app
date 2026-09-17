@@ -38,6 +38,8 @@ class HitAndRunUniverseDiscovery:
         return {
             "DISCOVERED_INSTRUMENT_COUNT": discovered_count,
             "TRADABLE_INSTRUMENT_COUNT": tradable_count,
+            "UNTRADABLE_ZERO_QUANTITY_COUNT": raw_telemetry.get("BROKER_API_UNTRADABLE_ZERO_QUANTITY", 0),
+            "TRADABILITY_UNKNOWN_COUNT": raw_telemetry.get("BROKER_API_TRADABILITY_UNKNOWN", 0),
             "TECHNICAL_SUPPORTED_COUNT": len(executable),
             "PRODUCT_FAMILIES": product_families,
             "TRADABLE_PRODUCT_FAMILIES": tradable_families,

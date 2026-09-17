@@ -11,7 +11,26 @@ Evaluates whether our execution pipeline can safely and mechanically execute an 
 Never submits probe orders. If capability cannot be verified from metadata and documented API semantics,
 marks the instrument as EXECUTION_CAPABILITY_UNVERIFIED.
 """
-from typing import Dict, Any, Tuple, Optional
+from dataclasses import dataclass, asdict
+from typing import Dict, Any, Tuple, Optional, List
+
+
+@dataclass
+class CapabilityState:
+    """
+    Independent evidence state for an execution capability.
+    Retains value, status, source, evidence level, and provenance reference.
+    Unknown or unproven capability information is never guessed.
+    """
+    capability: str
+    value: Any
+    status: str          # "PROVEN", "UNPROVEN", "UNKNOWN", "COMPLETE", "INCOMPLETE"
+    source: str          # "BROKER_METADATA", "STATUTORY_RULE:US_SEC_RULE_612", "DEMO_CANARY_ORDER", etc.
+    evidence_level: str  # "DEMO_EXECUTION_PROVEN", "READ_ONLY_REAL_DATA_PROVEN", "STATUTORY_PROVEN", "PROVEN", "UNPROVEN", "UNKNOWN"
+    provenance: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 
 class TechnicalExecutionCapabilityValidator:
@@ -19,6 +38,45 @@ class TechnicalExecutionCapabilityValidator:
 
     SUPPORTED_CURRENCIES = {"GBP", "GBX", "USD", "EUR", "CAD", "CHF"}
     EXECUTABLE_PRODUCT_TYPES = {"STOCK", "ETF", "EQUITY"}
+
+    # Authoritative Empirical Stop Order Evidence Registry
+    # Records only instruments with independently evidenced protective stop orders.
+    # Evidence must have concrete broker order ID, environment, timestamp, and transcript/log provenance.
+    # Stop support for unevidenced instruments cannot be inferred from evidenced ones.
+    STOP_SUPPORT_REGISTRY: Dict[str, Dict[str, Any]] = {
+        "IGLTl_EQ": {
+            "order_id": 54650651212,
+            "side": "SELL",
+            "type": "STOP",
+            "quantity": -1.0,
+            "fill_price": 9.58,
+            "stop_price": 9.34,
+            "status": "PROVEN",
+            "source": "DEMO_CANARY_ORDER",
+            "evidence_level": "DEMO_EXECUTION_PROVEN",
+            "provenance": (
+                "Trading212 Demo Order #54650651212, step 12625 in "
+                "brain/0db33806-1903-40f6-8bc1-f35aa804c6a0/transcript_full/00000223.jsonl"
+            ),
+            "timestamp": "2026-09-08T14:37:53.398+03:00"
+        },
+        "IGLT": {
+            "order_id": 54650651212,
+            "side": "SELL",
+            "type": "STOP",
+            "quantity": -1.0,
+            "fill_price": 9.58,
+            "stop_price": 9.34,
+            "status": "PROVEN",
+            "source": "DEMO_CANARY_ORDER",
+            "evidence_level": "DEMO_EXECUTION_PROVEN",
+            "provenance": (
+                "Trading212 Demo Order #54650651212, step 12625 in "
+                "brain/0db33806-1903-40f6-8bc1-f35aa804c6a0/transcript_full/00000223.jsonl"
+            ),
+            "timestamp": "2026-09-08T14:37:53.398+03:00"
+        }
+    }
 
     @classmethod
     def resolve_feed_ticker(cls, instrument: Dict[str, Any]) -> Optional[str]:
@@ -454,8 +512,9 @@ class TechnicalExecutionCapabilityValidator:
         if not feed_ticker:
             return False, "FEED_MAPPING_UNAVAILABLE: Unable to derive canonical market feed ticker", {}
 
-        # Gate 7: GTC Protective Stop Capability
-        gtc_stop_capable = True
+        # Gate 7: Independent Capability Evaluation
+        capabilities = cls.evaluate_capabilities(instrument)
+        gtc_stop_capable = (capabilities["stop_support"].status == "PROVEN")
 
         details = {
             "ticker": t212_ticker,
@@ -468,6 +527,8 @@ class TechnicalExecutionCapabilityValidator:
             "quantity_precision": prec,
             "max_open": max_open,
             "gtc_stop_capable": gtc_stop_capable,
+            "capabilities": {k: v.to_dict() for k, v in capabilities.items()},
+            "four_capabilities_proven": all(c.status in ("PROVEN", "COMPLETE") for c in capabilities.values()),
             "working_schedule_id": working_schedule_id,
             "exchange_venue": venue_name or "UNKNOWN",
             "extended_hours": bool(instrument.get("extendedHours", False)),
@@ -481,6 +542,233 @@ class TechnicalExecutionCapabilityValidator:
         }
 
         return True, "TECHNICAL_EXECUTION_SUPPORTED", details
+
+    @classmethod
+    def evaluate_capabilities(
+        cls,
+        instrument: Optional[Dict[str, Any]]
+    ) -> Dict[str, CapabilityState]:
+        """
+        Independently evaluates the four execution capabilities required by the Acceptance Contract:
+        1. QUANTITY RULE: Valid min trade quantity and precision derived authoritatively.
+        2. TICK RULE: Valid tick size derived from explicit metadata or verified statutory venue rule.
+        3. STOP SUPPORT: Valid native broker stop order support evidenced with provenance.
+        4. COST COMPLETENESS: Round-trip transaction tax and fee coverage verified.
+
+        Each capability retains:
+        - VALUE
+        - STATUS: PROVEN | UNPROVEN | UNKNOWN | COMPLETE | INCOMPLETE
+        - SOURCE
+        - EVIDENCE LEVEL
+        - PROVENANCE / ARTIFACT REFERENCE
+
+        Statuses are strictly decoupled: one proven capability cannot promote another.
+        """
+        if not instrument or not isinstance(instrument, dict):
+            return {
+                "quantity_rule": CapabilityState("QUANTITY_RULE", None, "UNKNOWN", "UNAVAILABLE", "UNPROVEN", None),
+                "tick_rule": CapabilityState("TICK_RULE", None, "UNKNOWN", "UNAVAILABLE", "UNPROVEN", None),
+                "stop_support": CapabilityState("STOP_SUPPORT", None, "UNPROVEN", "UNAVAILABLE", "UNPROVEN", None),
+                "cost_completeness": CapabilityState("COST_COMPLETENESS", None, "UNKNOWN", "UNAVAILABLE", "UNPROVEN", None),
+            }
+
+        t212_ticker = str(instrument.get("ticker", "")).strip()
+        symbol = str(instrument.get("symbol", "") or instrument.get("shortName", "")).strip()
+        product_type = instrument.get("type", "UNKNOWN").upper()
+        currency_code = instrument.get("currencyCode", "").strip().upper()
+        venue_name = cls.resolve_exchange_venue(instrument)
+        venue_capability = cls.VERIFIED_VENUE_CAPABILITY.get(venue_name) if venue_name else None
+
+        # -------------------------------------------------------------
+        # 1. QUANTITY RULE
+        # -------------------------------------------------------------
+        raw_min_qty = instrument.get("minTradeQuantity")
+        explicit_prec = instrument.get("quantityPrecision")
+        if raw_min_qty is not None and float(raw_min_qty) > 0:
+            min_qty = float(raw_min_qty)
+            prec = cls.derive_quantity_precision(min_qty) if explicit_prec is None else int(explicit_prec)
+            qty_state = CapabilityState(
+                capability="QUANTITY_RULE",
+                value={"min_trade_quantity": min_qty, "quantity_precision": prec},
+                status="PROVEN",
+                source="BROKER_METADATA",
+                evidence_level="READ_ONLY_REAL_DATA_PROVEN",
+                provenance=f"Broker metadata: minTradeQuantity={raw_min_qty}, quantityPrecision={explicit_prec}"
+            )
+        elif explicit_prec is not None and int(explicit_prec) >= 0:
+            prec = int(explicit_prec)
+            min_qty = 10.0 ** (-prec) if prec > 0 else 1.0
+            qty_state = CapabilityState(
+                capability="QUANTITY_RULE",
+                value={"min_trade_quantity": min_qty, "quantity_precision": prec},
+                status="PROVEN",
+                source="BROKER_METADATA",
+                evidence_level="READ_ONLY_REAL_DATA_PROVEN",
+                provenance=f"Broker metadata: quantityPrecision={explicit_prec}"
+            )
+        else:
+            qty_state = CapabilityState(
+                capability="QUANTITY_RULE",
+                value=None,
+                status="UNKNOWN",
+                source="UNAVAILABLE",
+                evidence_level="UNPROVEN",
+                provenance=None
+            )
+
+        # -------------------------------------------------------------
+        # 2. TICK RULE
+        # -------------------------------------------------------------
+        explicit_tick = instrument.get("tickSize")
+        if explicit_tick is not None and float(explicit_tick) > 0:
+            tick_state = CapabilityState(
+                capability="TICK_RULE",
+                value=float(explicit_tick),
+                status="PROVEN",
+                source="BROKER_METADATA",
+                evidence_level="READ_ONLY_REAL_DATA_PROVEN",
+                provenance=f"Broker metadata: tickSize={explicit_tick}"
+            )
+        elif venue_capability and venue_capability.get("tick_size_rule") == "US_SEC_RULE_612" and currency_code == "USD" and product_type in ("STOCK", "ETF"):
+            tick_state = CapabilityState(
+                capability="TICK_RULE",
+                value="US_SEC_RULE_612",
+                status="PROVEN",
+                source="STATUTORY_RULE:US_SEC_RULE_612",
+                evidence_level="STATUTORY_PROVEN",
+                provenance="17 CFR § 242.612 statutory minimum pricing increment ($0.01 / $0.0001)"
+            )
+        else:
+            tick_state = CapabilityState(
+                capability="TICK_RULE",
+                value=None,
+                status="UNKNOWN",
+                source="UNAVAILABLE",
+                evidence_level="UNPROVEN",
+                provenance=None
+            )
+
+        # -------------------------------------------------------------
+        # 3. STOP SUPPORT
+        # -------------------------------------------------------------
+        stop_record = cls.STOP_SUPPORT_REGISTRY.get(t212_ticker) or cls.STOP_SUPPORT_REGISTRY.get(symbol)
+        if stop_record is not None:
+            stop_state = CapabilityState(
+                capability="STOP_SUPPORT",
+                value=True,
+                status=stop_record["status"],
+                source=stop_record["source"],
+                evidence_level=stop_record["evidence_level"],
+                provenance=stop_record.get("provenance")
+            )
+        else:
+            stop_state = CapabilityState(
+                capability="STOP_SUPPORT",
+                value=None,
+                status="UNPROVEN",
+                source="UNAVAILABLE",
+                evidence_level="UNPROVEN",
+                provenance=None
+            )
+
+        # -------------------------------------------------------------
+        # 4. COST COMPLETENESS
+        # -------------------------------------------------------------
+        try:
+            from src.hit_and_run.cost_model import hit_and_run_cost_model
+            # Pass live quote / spread attributes if present on instrument record
+            bid = instrument.get("bid")
+            ask = instrument.get("ask")
+            current_price = instrument.get("current_price") or instrument.get("price")
+            custom_spread = instrument.get("custom_spread_pct")
+
+            cost_eval = hit_and_run_cost_model.evaluate_instrument_costs(
+                product_type=product_type,
+                currency=currency_code,
+                isin=str(instrument.get("isin", "")).strip().upper(),
+                exchange_venue=venue_name or "UNKNOWN",
+                current_price=float(current_price) if current_price is not None else 0.0,
+                bid=float(bid) if bid is not None else None,
+                ask=float(ask) if ask is not None else None,
+                custom_spread_pct=float(custom_spread) if custom_spread is not None else None
+            )
+
+            # Check jurisdictional tax and broker fee regime completeness.
+            # Live spread friction is an ephemeral quote property evaluated at runtime order-routing.
+            jurisdictional_reasons = [
+                r for r in cost_eval.incomplete_reasons
+                if not r.startswith("LIVE_SPREAD_UNKNOWN")
+            ]
+
+            if not jurisdictional_reasons:
+                cost_state = CapabilityState(
+                    capability="COST_COMPLETENESS",
+                    value=cost_eval.estimated_costs_round_trip if cost_eval.cost_model_complete else "TAX_AND_FEE_REGIME_VERIFIED",
+                    status="COMPLETE",
+                    source="HIT_AND_RUN_COST_MODEL",
+                    evidence_level="PROVEN",
+                    provenance=f"Authoritative cost model verified for {product_type} on {venue_name} in {currency_code}"
+                )
+            else:
+                reasons_str = "; ".join(jurisdictional_reasons)
+                status = "UNKNOWN" if ("UNKNOWN" in reasons_str or "unverified" in reasons_str.lower()) else "INCOMPLETE"
+                cost_state = CapabilityState(
+                    capability="COST_COMPLETENESS",
+                    value=None,
+                    status=status,
+                    source="HIT_AND_RUN_COST_MODEL",
+                    evidence_level="UNPROVEN",
+                    provenance=reasons_str
+                )
+        except Exception as e:
+            cost_state = CapabilityState(
+                capability="COST_COMPLETENESS",
+                value=None,
+                status="UNKNOWN",
+                source="HIT_AND_RUN_COST_MODEL",
+                evidence_level="UNPROVEN",
+                provenance=f"Error evaluating cost model: {e}"
+            )
+
+        return {
+            "quantity_rule": qty_state,
+            "tick_rule": tick_state,
+            "stop_support": stop_state,
+            "cost_completeness": cost_state
+        }
+
+    @classmethod
+    def verify_execution_capabilities(
+        cls,
+        instrument: Optional[Dict[str, Any]]
+    ) -> Tuple[bool, str, Dict[str, CapabilityState]]:
+        """
+        Independently verifies the 4 execution capabilities:
+        - QUANTITY RULE (must be PROVEN)
+        - TICK RULE (must be PROVEN)
+        - STOP SUPPORT (must be PROVEN)
+        - COST COMPLETENESS (must be COMPLETE)
+
+        Returns: (is_executable: bool, reason: str, capabilities: Dict[str, CapabilityState])
+        Fails closed if any capability is unknown, unproven, or incomplete.
+        One proven capability cannot promote another capability.
+        Does NOT authorize orders (trade authorization separately requires strategy, quote, spread, session, AI allocation).
+        """
+        capabilities = cls.evaluate_capabilities(instrument)
+
+        failed_reasons = []
+        if capabilities["quantity_rule"].status != "PROVEN":
+            failed_reasons.append(f"QUANTITY_RULE_UNPROVEN: status is {capabilities['quantity_rule'].status}")
+        if capabilities["tick_rule"].status != "PROVEN":
+            failed_reasons.append(f"TICK_RULE_UNPROVEN: status is {capabilities['tick_rule'].status}")
+        if capabilities["stop_support"].status != "PROVEN":
+            failed_reasons.append(f"STOP_SUPPORT_UNPROVEN: status is {capabilities['stop_support'].status}")
+        if capabilities["cost_completeness"].status != "COMPLETE":
+            failed_reasons.append(f"COST_COMPLETENESS_INCOMPLETE: status is {capabilities['cost_completeness'].status}")
+
+        is_executable = (len(failed_reasons) == 0)
+        reason = "ALL_CAPABILITIES_PROVEN" if is_executable else "; ".join(failed_reasons)
+        return is_executable, reason, capabilities
 
 
 technical_execution_capability = TechnicalExecutionCapabilityValidator()
