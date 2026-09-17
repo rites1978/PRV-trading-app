@@ -81,7 +81,7 @@ class HitAndRunOpportunityScorer:
         relative_strength = float(momentum - benchmark_return)
 
         # 4. Liquidity
-        volume_recent = float(snapshot.get("volume_recent", 100000.0))
+        volume_recent = float(snapshot.get("volume_recent", 0.0))
         volume_avg = float(snapshot.get("volume_avg", max(1.0, volume_recent)))
         liquidity = float(volume_recent * current_price_gbp)
 
@@ -98,10 +98,10 @@ class HitAndRunOpportunityScorer:
         # 6. Volatility
         if len(recent_prices) >= 3:
             rets = pd_pct_changes(recent_prices)
-            volatility = float(np.std(rets)) if len(rets) > 1 else 0.015
+            volatility = float(np.std(rets)) if len(rets) > 1 else 0.0
         else:
             volatility = float((intraday_high - intraday_low) / max(1e-6, current_price))
-        volatility = max(0.005, volatility)
+        volatility = max(0.0, volatility)
 
         # 7. Volume Activity
         volume_activity = float(volume_recent / max(1.0, volume_avg))

@@ -393,6 +393,41 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             )
 
     # -------------------------------------------------------------
+    # Test 10B: STOP_LOSS_EXIT triggered when price touches/crosses protective stop
+    # -------------------------------------------------------------
+    def test_protective_stop_loss_exit_triggered(self):
+        holding = HoldingState(
+            holding_id="H_STOP_TEST",
+            instrument_id="NVDA_US_EQ",
+            symbol="NVDA",
+            feed_ticker="NVDA",
+            fill_price=100.0,
+            quantity=50.0,
+            allocated_capital_gbp=5000.0,
+            entry_timestamp="2026-09-16T15:00:00Z",
+            entry_thesis="Momentum breakout",
+            protective_stop_price=95.0,
+            planned_loss_pct=0.05,
+            tick_size=0.01,
+            quantity_precision=3
+        )
+
+        # Price dropped to 94.90 (below protective stop 95.0)
+        snap = {
+            "instrument_id": "NVDA_US_EQ", "symbol": "NVDA", "current_price": 94.90,
+            "bid": 94.88, "ask": 94.92,
+            "recent_prices": [100.0, 97.0, 95.5, 94.90],
+            "currency": "USD", "exchange_venue": "NASDAQ", "session_state": "OPEN",
+            "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
+        }
+        state = opportunity_state_builder.build_state(snap)
+        assessment = position_lifecycle_manager.assess_holding(holding, state)
+        self.assertEqual(assessment.action, LifecycleAction.STOP_LOSS_EXIT)
+        self.assertEqual(assessment.lifecycle_decision_status, "STOP_LOSS_TRIGGERED")
+        self.assertEqual(assessment.thesis_health, "STOP_BREACHED")
+        self.assertIn("Protective stop breached", assessment.rationale)
+
+    # -------------------------------------------------------------
     # Test 11: Profitable adaptive exit (TAKE_PROFIT on deceleration, no fixed %)
     # -------------------------------------------------------------
     def test_profitable_adaptive_take_profit_exit(self):
@@ -423,14 +458,16 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         state = opportunity_state_builder.build_state(snap)
         state.momentum_acceleration = -0.002  # Explicit downward deceleration
 
-        # Without explicit user authority or AI lifecycle model, position holds; no arbitrary heuristic exit
+        # Without explicit user authority or AI lifecycle model, no strategic action (HOLD/SELL/TAKE_PROFIT) is applied
         assessment = position_lifecycle_manager.assess_holding(holding, state)
-        self.assertEqual(assessment.action, LifecycleAction.HOLD)
-        self.assertEqual(assessment.thesis_health, "INTACT")
+        self.assertIsNone(assessment.action)
+        self.assertEqual(assessment.lifecycle_decision_status, "UNAVAILABLE")
+        self.assertEqual(assessment.thesis_health, "LIFECYCLE_DECISION_UNAVAILABLE")
 
-        # Explicit authorised lifecycle action executes correctly
+        # External decision agent authority is UNPROVEN; strategic action cannot be executed
         assessment_explicit = position_lifecycle_manager.assess_holding(holding, state, explicit_action=LifecycleAction.TAKE_PROFIT)
-        self.assertEqual(assessment_explicit.action, LifecycleAction.TAKE_PROFIT)
+        self.assertIsNone(assessment_explicit.action)
+        self.assertEqual(assessment_explicit.lifecycle_decision_status, "UNAVAILABLE")
 
     # -------------------------------------------------------------
     # Test 12: Edge-decay exit (EDGE_DECAY_EXIT)
@@ -461,14 +498,15 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
         }
         state = opportunity_state_builder.build_state(snap)
-        # Without explicit user authority or AI lifecycle model, position holds; no arbitrary heuristic exit
+        # Without explicit user authority or AI lifecycle model, no strategic fallback (HOLD/SELL)
         assessment = position_lifecycle_manager.assess_holding(holding, state)
-        self.assertEqual(assessment.action, LifecycleAction.HOLD)
-        self.assertEqual(assessment.thesis_health, "INTACT")
+        self.assertIsNone(assessment.action)
+        self.assertEqual(assessment.lifecycle_decision_status, "UNAVAILABLE")
 
-        # Explicit authorised lifecycle action executes correctly
+        # External decision agent authority is UNPROVEN; strategic action cannot be executed
         assessment_explicit = position_lifecycle_manager.assess_holding(holding, state, explicit_action=LifecycleAction.EDGE_DECAY_EXIT)
-        self.assertEqual(assessment_explicit.action, LifecycleAction.EDGE_DECAY_EXIT)
+        self.assertIsNone(assessment_explicit.action)
+        self.assertEqual(assessment_explicit.lifecycle_decision_status, "UNAVAILABLE")
 
     # -------------------------------------------------------------
     # Test 13: Momentum reversal exit (MOMENTUM_REVERSAL_EXIT)
@@ -499,14 +537,15 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
         }
         state = opportunity_state_builder.build_state(snap)
-        # Without explicit user authority or AI lifecycle model, position holds; no arbitrary heuristic exit
+        # Without explicit user authority or AI lifecycle model, no strategic action
         assessment = position_lifecycle_manager.assess_holding(holding, state)
-        self.assertEqual(assessment.action, LifecycleAction.HOLD)
-        self.assertEqual(assessment.thesis_health, "INTACT")
+        self.assertIsNone(assessment.action)
+        self.assertEqual(assessment.lifecycle_decision_status, "UNAVAILABLE")
 
-        # Explicit authorised lifecycle action executes correctly
+        # External decision agent authority is UNPROVEN; strategic action cannot be executed
         assessment_explicit = position_lifecycle_manager.assess_holding(holding, state, explicit_action=LifecycleAction.MOMENTUM_REVERSAL_EXIT)
-        self.assertEqual(assessment_explicit.action, LifecycleAction.MOMENTUM_REVERSAL_EXIT)
+        self.assertIsNone(assessment_explicit.action)
+        self.assertEqual(assessment_explicit.lifecycle_decision_status, "UNAVAILABLE")
 
     # -------------------------------------------------------------
     # Test 14: Rotation decision unavailable without authorised lifecycle model (ROTATION_DECISION_UNAVAILABLE)
@@ -557,20 +596,21 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             current_state=state_holding,
             alternative_opportunities=[alt_analysis]
         )
-        # Invariant: Contract allows ROTATE action but no deterministic trigger is authorised.
-        # Until an authorised rotation model exists: ROTATION_DECISION_UNAVAILABLE is returned, position holds.
-        self.assertEqual(assessment.action, LifecycleAction.HOLD)
+        # Invariant: Without authorised lifecycle intelligence: action=None, status=UNAVAILABLE. No fallback to HOLD.
+        self.assertIsNone(assessment.action)
+        self.assertEqual(assessment.lifecycle_decision_status, "UNAVAILABLE")
         self.assertEqual(assessment.rotation_decision_status, "ROTATION_DECISION_UNAVAILABLE")
-        self.assertIn("ROTATION_DECISION_UNAVAILABLE", assessment.rationale)
+        self.assertIn("LIFECYCLE_DECISION_STATUS=UNAVAILABLE", assessment.rationale)
 
-        # Explicit authorised rotation action executes correctly
+        # External decision agent authority is UNPROVEN; strategic action cannot be executed
         assessment_explicit = position_lifecycle_manager.assess_holding(
             holding=holding,
             current_state=state_holding,
             alternative_opportunities=[alt_analysis],
             explicit_action=LifecycleAction.ROTATE
         )
-        self.assertEqual(assessment_explicit.action, LifecycleAction.ROTATE)
+        self.assertIsNone(assessment_explicit.action)
+        self.assertEqual(assessment_explicit.lifecycle_decision_status, "UNAVAILABLE")
 
     # -------------------------------------------------------------
     # Test 15: £100 daily banking achieved

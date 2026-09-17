@@ -131,7 +131,7 @@ class LiveOpportunityStateBuilder:
         # Volatility
         if len(recent_prices) >= 3:
             rets = [(recent_prices[i] - recent_prices[i - 1]) / max(1e-6, recent_prices[i - 1]) for i in range(1, len(recent_prices))]
-            volatility = float(np.std(rets)) if len(rets) > 1 else 0.015
+            volatility = float(np.std(rets)) if len(rets) > 1 else None
         elif intraday_high > intraday_low and current_price > 0:
             volatility = float((intraday_high - intraday_low) / current_price)
         else:

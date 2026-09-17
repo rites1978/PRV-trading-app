@@ -206,7 +206,13 @@ class HitAndRunEngine:
             )
             lifecycle_assessments.append(assessment)
 
-            if simulate_exits and assessment.action != LifecycleAction.HOLD:
+            if simulate_exits and assessment.action in (
+                LifecycleAction.STOP_LOSS_EXIT,
+                LifecycleAction.TAKE_PROFIT,
+                LifecycleAction.EDGE_DECAY_EXIT,
+                LifecycleAction.MOMENTUM_REVERSAL_EXIT,
+                LifecycleAction.ROTATE,
+            ):
                 close_res = position_lifecycle_manager.execute_exit_and_bank(
                     holding=holding,
                     assessment=assessment,

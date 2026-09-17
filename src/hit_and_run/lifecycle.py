@@ -75,7 +75,8 @@ class HitAndRunPositionLifecycleManager:
         holding.current_unrealised_net_pnl_gbp = net_unrealised_pnl_gbp
 
         # -------------------------------------------------------------
-        # Action Check 1: STOP_LOSS_EXIT (5% Hard Loss Ceiling Invariant)
+        # Action Check: STOP_LOSS_EXIT (5% Hard Loss Ceiling Invariant)
+        # Authority: USER_AUTHORISED (Acceptance Contract Section 12)
         # -------------------------------------------------------------
         # Protective stop triggered if exit price touches or crosses stop
         if exit_price <= holding.protective_stop_price:
@@ -96,55 +97,36 @@ class HitAndRunPositionLifecycleManager:
                     f"Protective stop breached: current price {exit_price} <= stop {holding.protective_stop_price} "
                     f"(Planned max loss {holding.planned_loss_pct:.2%}). Mandatory protective exit."
                 ),
-                timestamp=now_iso
-            )
-
-        # -------------------------------------------------------------
-        # Invariants per Contract Section 12 & User Directive:
-        # - Contract defines lifecycle action types: HOLD, TAKE_PROFIT, EDGE_DECAY_EXIT,
-        #   MOMENTUM_REVERSAL_EXIT, ROTATE, STOP_LOSS_EXIT.
-        # - Heuristic triggers for MOMENTUM_REVERSAL_EXIT (mom < -0.008, acc < -0.005),
-        #   EDGE_DECAY_EXIT (spread_friction > 0.015, net_edge <= 0), TAKE_PROFIT
-        #   (acc < -0.001, pullback >= 0.008), and ROTATE (alt_net > holding_net...)
-        #   were UNAUTHORISED_STRATEGY_ASSUMPTIONS and have been REMOVED.
-        # - Until an authorised rotation decision mechanism exists: return ROTATION_DECISION_UNAVAILABLE.
-        # - The authorised 5% maximum planned-loss protection (STOP_LOSS_EXIT) remains unchanged.
-        # - Default action is HOLD with protective stop actively monitored.
-        # -------------------------------------------------------------
-        if explicit_action in (
-            LifecycleAction.TAKE_PROFIT,
-            LifecycleAction.EDGE_DECAY_EXIT,
-            LifecycleAction.MOMENTUM_REVERSAL_EXIT,
-            LifecycleAction.ROTATE,
-        ):
-            return LifecycleAssessment(
-                holding_id=holding.holding_id,
-                instrument_id=holding.instrument_id,
-                symbol=holding.symbol,
-                action=explicit_action,
-                current_price=exit_price,
-                current_bid=current_state.bid,
-                current_ask=current_state.ask,
-                gross_unrealised_pnl_gbp=gross_unrealised_gbp,
-                estimated_exit_costs_gbp=estimated_exit_costs_gbp,
-                net_unrealised_pnl_gbp=net_unrealised_pnl_gbp,
-                net_unrealised_pct=net_unrealised_pct,
-                thesis_health="EXPLICIT_DECISION",
-                rationale=f"Authorised explicit lifecycle decision executed: {explicit_action}.",
+                target_rotation_symbol=None,
                 rotation_decision_status=None,
+                lifecycle_decision_status="STOP_LOSS_TRIGGERED",
                 timestamp=now_iso
             )
 
+        # -------------------------------------------------------------
+        # Lifecycle Intelligence & External Decision Agent Audit:
+        # Per Contract Audit:
+        # - LIFECYCLE_DECISION_AUTHORITY = UNPROVEN
+        # - EXTERNAL_DECISION_AGENT_AUTHORITY = UNPROVEN
+        # - Fallback conversion (DECISION UNAVAILABLE -> HOLD) is strictly UNAUTHORISED.
+        # - Required representation when no authorised lifecycle decision exists:
+        #   LIFECYCLE_DECISION_STATUS = UNAVAILABLE
+        #   LIFECYCLE_ACTION = None
+        # - The already-authorised 5% protective stop remains active at the broker as a hard
+        #   risk invariant. Protective-stop ownership is NEVER described as HOLD logic.
+        # -------------------------------------------------------------
         rotation_decision_status = "ROTATION_DECISION_UNAVAILABLE" if alternative_opportunities else None
-        rationale = "Thesis intact; holding position. Protective stop actively monitored. No unauthorised exit triggers applied."
-        if alternative_opportunities:
-            rationale += " [ROTATION_DECISION_UNAVAILABLE: No authorised rotation trigger or AI lifecycle model configured; rotation not triggered.]"
+        rationale = (
+            "LIFECYCLE_DECISION_STATUS=UNAVAILABLE: No authorised lifecycle decision model or proven decision agent. "
+            "LIFECYCLE_ACTION=None; no fallback conversion (HOLD/SELL/ROTATE) applied. "
+            "Protective stop remains active at broker as hard risk invariant."
+        )
 
         return LifecycleAssessment(
             holding_id=holding.holding_id,
             instrument_id=holding.instrument_id,
             symbol=holding.symbol,
-            action=LifecycleAction.HOLD,
+            action=None,
             current_price=exit_price,
             current_bid=current_state.bid,
             current_ask=current_state.ask,
@@ -152,10 +134,11 @@ class HitAndRunPositionLifecycleManager:
             estimated_exit_costs_gbp=estimated_exit_costs_gbp,
             net_unrealised_pnl_gbp=net_unrealised_pnl_gbp,
             net_unrealised_pct=net_unrealised_pct,
-            thesis_health="INTACT",
+            thesis_health="LIFECYCLE_DECISION_UNAVAILABLE",
             rationale=rationale,
             target_rotation_symbol=None,
             rotation_decision_status=rotation_decision_status,
+            lifecycle_decision_status="UNAVAILABLE",
             timestamp=now_iso
         )
 
@@ -175,6 +158,9 @@ class HitAndRunPositionLifecycleManager:
         - Updates DailyBankingLedger
         - Released capital immediately becomes available for new allocations
         """
+        if not assessment.action or assessment.action == LifecycleAction.HOLD:
+            raise ValueError(f"Cannot execute exit for non-exit or unavailable action: {assessment.action}")
+
         exit_p = actual_exit_price if actual_exit_price is not None else assessment.current_price
         fill_p = holding.fill_price
         qty = holding.quantity

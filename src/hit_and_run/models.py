@@ -360,22 +360,24 @@ class LifecycleAssessment:
     Continuous evaluation result for an active Hit-and-Run holding (Requirement E).
     Actions: HOLD, TAKE_PROFIT, EDGE_DECAY_EXIT, MOMENTUM_REVERSAL_EXIT, ROTATE, STOP_LOSS_EXIT.
     Adaptive profit capture, no arbitrary fixed percentages.
+    When no authorised lifecycle decision exists: action=None, lifecycle_decision_status="UNAVAILABLE".
     """
     holding_id: str
     instrument_id: str
     symbol: str
-    action: str                          # One of LifecycleAction
-    current_price: float
-    current_bid: Optional[float]
-    current_ask: Optional[float]
-    gross_unrealised_pnl_gbp: float
-    estimated_exit_costs_gbp: float
-    net_unrealised_pnl_gbp: float
-    net_unrealised_pct: float
-    thesis_health: str                   # "INTACT", "EXHAUSTED", "REVERSED", "DECAYED", "STOP_BREACHED"
-    rationale: str
+    action: Optional[str] = None         # One of LifecycleAction, or None if UNAVAILABLE
+    current_price: float = 0.0
+    current_bid: Optional[float] = None
+    current_ask: Optional[float] = None
+    gross_unrealised_pnl_gbp: float = 0.0
+    estimated_exit_costs_gbp: float = 0.0
+    net_unrealised_pnl_gbp: float = 0.0
+    net_unrealised_pct: float = 0.0
+    thesis_health: str = "UNKNOWN"       # "INTACT", "EXHAUSTED", "REVERSED", "DECAYED", "STOP_BREACHED", "LIFECYCLE_DECISION_UNAVAILABLE"
+    rationale: str = ""
     target_rotation_symbol: Optional[str] = None
     rotation_decision_status: Optional[str] = None
+    lifecycle_decision_status: str = "UNAVAILABLE"
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
