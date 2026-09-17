@@ -175,7 +175,25 @@ class DemoExperimentRunner:
 
         # 2. Strategy decides entries (injected module)
         try:
-            entry_decisions: List[HitAndRunEntryDecision] = self.strategy_module.evaluate(opportunities)
+            current_fx = None
+            if hasattr(self.strategy_module, "fx_provider") and self.strategy_module.fx_provider:
+                prov = self.strategy_module.fx_provider
+                if hasattr(prov, "get_gbp_usd_rate"):
+                    current_fx = prov.get_gbp_usd_rate()
+                elif hasattr(prov, "get_rate"):
+                    current_fx = prov.get_rate("GBP", "USD")
+
+            import inspect
+            try:
+                sig = inspect.signature(self.strategy_module.evaluate)
+                accepts_fx = "fx_gbpusd" in sig.parameters or any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+            except Exception:
+                accepts_fx = True
+
+            if accepts_fx:
+                entry_decisions: List[HitAndRunEntryDecision] = self.strategy_module.evaluate(opportunities, fx_gbpusd=current_fx)
+            else:
+                entry_decisions: List[HitAndRunEntryDecision] = self.strategy_module.evaluate(opportunities)
         except Exception as e:
             err = f"STRATEGY_EVALUATION_ERROR: {str(e)}"
             logger.error(err)

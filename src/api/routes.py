@@ -1,5 +1,7 @@
 import os
 import time
+import threading
+import logging
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +16,8 @@ from src.cycles.cycle_manager import cycle_manager
 from src.cycles.comparison_engine import comparison_engine
 from src.config.settings import settings
 
+logger = logging.getLogger("api_routes")
+
 class CycleResetRequest(BaseModel):
     cycle_name: Optional[str] = None
     ai_version: Optional[str] = None
@@ -27,6 +31,25 @@ app = FastAPI(
 )
 
 from src.core.runtime_guard import autonomous_engine_autostart_allowed
+
+def start_demo_experiment_worker():
+    """Starts the authorised EXP-DEMO-001 runner in a persistent background loop."""
+    try:
+        from scripts.run_demo_experiment import DemoExperimentRunner
+        from src.hit_and_run.demo_strategy_v1 import demo_strategy_v1
+        from src.hit_and_run.demo_execution import demo_dispatcher
+
+        runner = DemoExperimentRunner(
+            experiment_id="EXP-DEMO-001",
+            strategy_version="1.0-DEMO",
+            strategy_module=demo_strategy_v1,
+            dispatcher=demo_dispatcher
+        )
+        app.state.demo_experiment_runner = runner
+        logger.info("[Startup] EXP-DEMO-001 Hit-and-Run persistent loop starting...")
+        runner.run_continuous_session(poll_interval=10.0)
+    except Exception as ex:
+        logger.critical(f"[Startup H&R Worker Error] {ex}", exc_info=True)
 
 
 @app.on_event("startup")
@@ -53,11 +76,40 @@ def on_startup():
     if not autorun:
         print(f"[Startup] AUTONOMOUS_ENGINE_NOT_STARTED: {autorun_reason}")
         return
-    try:
-        print(f"[Startup] AUTONOMOUS_ENGINE_AUTOSTART: {autorun_reason}")
-        quant_engine.start()
-    except Exception as e:
-        print(f"[Startup Engine Start Error] {e}")
+
+    trading_env = (os.getenv("TRADING_ENV") or settings.TRADING_ENV or "demo").lower()
+    hnr_autorun = os.getenv("PRV_AUTORUN_HIT_AND_RUN", "true").lower() in ("true", "1", "yes")
+    active_strat = os.getenv("PRV_ACTIVE_STRATEGY", "EXP-DEMO-001").upper()
+
+    if trading_env == "demo" and hnr_autorun and active_strat in ("EXP-DEMO-001", "HIT_AND_RUN"):
+        try:
+            print(f"[Startup] AUTONOMOUS_ENGINE_AUTOSTART: Starting EXP-DEMO-001 Hit-and-Run DEMO Runner (reason={autorun_reason})")
+            t = threading.Thread(target=start_demo_experiment_worker, name="EXP-DEMO-001-PersistentLoop", daemon=True)
+            t.start()
+            app.state.demo_experiment_thread = t
+        except Exception as e:
+            print(f"[Startup H&R Runner Start Error] {e}")
+    else:
+        try:
+            print(f"[Startup] AUTONOMOUS_ENGINE_AUTOSTART: Starting legacy quant_engine (reason={autorun_reason})")
+            quant_engine.start()
+        except Exception as e:
+            print(f"[Startup Engine Start Error] {e}")
+
+
+@app.get("/api/demo_experiment/status")
+def get_demo_experiment_status():
+    runner = getattr(app.state, "demo_experiment_runner", None)
+    thread = getattr(app.state, "demo_experiment_thread", None)
+    return {
+        "experiment_id": "EXP-DEMO-001",
+        "trading_env": (os.getenv("TRADING_ENV") or settings.TRADING_ENV or "demo").lower(),
+        "runner_active": runner is not None,
+        "thread_alive": thread.is_alive() if thread else False,
+        "holdings_count": len(runner.active_holdings) if runner else 0,
+        "trades_count": len(runner.trades_log) if runner else 0,
+        "git_sha": "3d14b6b10d5ea4cc9814273a9b4a5162df5acc4a"
+    }
 
 # Enable CORS for web and mobile clients
 app.add_middleware(

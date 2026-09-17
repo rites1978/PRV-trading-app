@@ -49,84 +49,89 @@ class DatabentoMarketDataProvider:
     def _fetch_from_sdk(self, symbol: str) -> Dict[str, Any]:
         """
         Executes real SDK timeseries call to Databento for latest quote.
-        Uses recent historical window (e.g. last 30 minutes) on DBEQ.BASIC or XNAS.ITCH.
+        Uses recent historical window on DBEQ.BASIC or XNAS.ITCH.
+        Strictly requires BBO data: trades-only response cannot be treated as an executable quote.
         """
         client = self._get_client()
         if client is None:
             raise RuntimeError("DATABENTO_CLIENT_UNINITIALISED")
 
+        fetch_time = time.time()
+        fetch_ts_iso = datetime.now(timezone.utc).isoformat()
         now = datetime.now(timezone.utc)
-        # Fetch recent BBO or trades
         start_time = now - timedelta(hours=2)
-        
-        try:
-            # First attempt BBO_1S schema for bid/ask/spread
-            store = client.timeseries.get_range(
-                dataset=self.dataset,
-                symbols=[symbol],
-                schema="bbo-1s",
-                start=start_time.isoformat(),
-                end=now.isoformat()
-            )
-            df = store.to_df()
-        except Exception as e:
-            logger.warning(f"[Databento] bbo-1s fetch failed for {symbol}: {e}. Retrying with trades schema.")
-            store = client.timeseries.get_range(
-                dataset=self.dataset,
-                symbols=[symbol],
-                schema="trades",
-                start=start_time.isoformat(),
-                end=now.isoformat()
-            )
-            df = store.to_df()
+
+        # Strictly attempt BBO_1S schema for bid/ask/spread
+        # Invariant: If bbo data is unavailable, do NOT fall back to trades as an executable quote
+        store = client.timeseries.get_range(
+            dataset=self.dataset,
+            symbols=[symbol],
+            schema="bbo-1s",
+            start=start_time.isoformat(),
+            end=now.isoformat()
+        )
+        df = store.to_df()
 
         if df.empty:
-            raise ValueError(f"No recent data returned for {symbol} on dataset {self.dataset}")
+            raise ValueError(f"No BBO data returned for {symbol} on dataset {self.dataset}; trades-only cannot be treated as an executable quote")
 
         last_row = df.iloc[-1]
         ts_index = df.index[-1]
-        
+
         if hasattr(ts_index, "isoformat"):
-            ts_iso = ts_index.isoformat()
+            market_ts_iso = ts_index.isoformat()
             ts_sec = ts_index.timestamp()
         else:
-            ts_iso = now.isoformat()
+            market_ts_iso = now.isoformat()
             ts_sec = time.time()
 
-        freshness = max(0.0, round(time.time() - ts_sec, 2))
-        
+        freshness = max(0.0, round(fetch_time - ts_sec, 2))
+
         bid = float(last_row.get("bid_px_00")) if "bid_px_00" in last_row and not pd.isna(last_row["bid_px_00"]) else None
         ask = float(last_row.get("ask_px_00")) if "ask_px_00" in last_row and not pd.isna(last_row["ask_px_00"]) else None
         spread = round(ask - bid, 4) if (bid is not None and ask is not None) else None
-        
+
         # Price: mid if bid/ask available, else trade price
-        if "price" in last_row and not pd.isna(last_row["price"]):
-            price = float(last_row["price"])
-        elif bid and ask:
+        if bid and ask:
             price = round((bid + ask) / 2.0, 4)
+        elif "price" in last_row and not pd.isna(last_row["price"]):
+            price = float(last_row["price"])
         else:
             price = float(last_row.get("close", 0.0))
+
+        if bid is None or ask is None or spread is None or spread <= 0.0:
+            raise ValueError(f"Incomplete BBO for {symbol}: bid={bid}, ask={ask}, spread={spread}")
 
         return {
             "price": price,
             "bid": bid,
             "ask": ask,
             "spread": spread,
-            "timestamp": ts_iso,
+            "quote_timestamp": market_ts_iso,
+            "fetch_timestamp": fetch_ts_iso,
             "freshness_seconds": freshness
         }
 
     def get_current_quote(self, symbol: str) -> Dict[str, Any]:
         """
         Authoritative current quote lookup.
+        Enforces complete quote gate: bid, ask, spread, quote_timestamp, fetch_timestamp, freshness.
         Never falls back to Yahoo/yfinance.
         """
+        fetch_ts_now = datetime.now(timezone.utc).isoformat()
         if not self.is_configured:
             return {
                 "success": False,
                 "status": "DATABENTO_API_KEY_MISSING",
                 "provider": "DATABENTO",
+                "dataset": self.dataset,
                 "instrument": symbol,
+                "bid": None,
+                "ask": None,
+                "spread": None,
+                "quote_timestamp": None,
+                "fetch_timestamp": fetch_ts_now,
+                "freshness_seconds": None,
                 "error": "DATABENTO_API_KEY environment variable is not configured"
             }
 
@@ -136,12 +141,16 @@ class DatabentoMarketDataProvider:
                 "success": True,
                 "status": "OK",
                 "provider": "DATABENTO",
+                "dataset": self.dataset,
                 "instrument": symbol,
                 "latest_price": sdk_res["price"],
                 "bid": sdk_res["bid"],
                 "ask": sdk_res["ask"],
                 "spread": sdk_res["spread"],
-                "timestamp": sdk_res["timestamp"],
+                "quote_timestamp": sdk_res["quote_timestamp"],
+                "market_timestamp": sdk_res["quote_timestamp"],
+                "timestamp": sdk_res["quote_timestamp"],
+                "fetch_timestamp": sdk_res["fetch_timestamp"],
                 "freshness_seconds": sdk_res["freshness_seconds"],
                 "http_status": 200
             }
@@ -149,9 +158,16 @@ class DatabentoMarketDataProvider:
             logger.error(f"[Databento Error] Quote fetch failed for {symbol}: {e}")
             return {
                 "success": False,
-                "status": "DATABENTO_FETCH_ERROR",
+                "status": "DATABENTO_BBO_UNAVAILABLE",
                 "provider": "DATABENTO",
+                "dataset": self.dataset,
                 "instrument": symbol,
+                "bid": None,
+                "ask": None,
+                "spread": None,
+                "quote_timestamp": None,
+                "fetch_timestamp": fetch_ts_now,
+                "freshness_seconds": None,
                 "error": str(e),
                 "http_status": 500
             }

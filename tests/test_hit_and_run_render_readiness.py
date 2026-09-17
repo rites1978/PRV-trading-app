@@ -3,12 +3,10 @@ PRV Capital - Hit-and-Run Render Trading Build Readiness Tests
 Governing Authority: PRV_HIT_AND_RUN_ACCEPTANCE_CONTRACT.md
 
 Validates the four concrete defects required for the Render branch switch:
-1. Databento current-data path
-2. No Yahoo current-decision fallback
-3. Persistent runner loop
-4. Continued scanning after an exit
-5. No max-daily-entry halt
-6. No hard-coded FX fallback
+1. Databento current-data path and zero Yahoo active decision calls at strategy level
+2. Enforced Complete Quote Gate (BBO required; trades-only rejected; live spread hurdle)
+3. Authoritative FX source wired into real runner and strategy singleton
+4. Render application startup autostarts EXP-DEMO-001 runner in persistent loop (not legacy quant_engine)
 """
 import unittest
 from unittest.mock import MagicMock, patch
@@ -17,6 +15,52 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from src.hit_and_run.models import HitAndRunEntryDecision
+
+
+def _create_mock_databento_provider(bid=225.45, ask=225.55, spread=0.10, is_configured=True, success=True):
+    mock_db = MagicMock()
+    mock_db.is_configured = is_configured
+    if success:
+        mock_db.get_current_quote.return_value = {
+            "success": True,
+            "status": "OK",
+            "provider": "DATABENTO",
+            "dataset": "DBEQ.BASIC",
+            "instrument": "AAPL",
+            "latest_price": 225.50,
+            "bid": bid,
+            "ask": ask,
+            "spread": spread,
+            "quote_timestamp": "2026-09-17T20:00:00Z",
+            "fetch_timestamp": "2026-09-17T20:00:01Z",
+            "freshness_seconds": 1.0,
+            "http_status": 200
+        }
+        df_bars = pd.DataFrame({
+            "Open": [220.0] * 30,
+            "High": [226.0] * 30,
+            "Low": [219.0] * 30,
+            "Close": [225.50] * 30,
+            "Volume": [50000] * 30
+        }, index=pd.date_range("2026-09-17 09:30", periods=30, freq="5min", tz="America/New_York"))
+        mock_db.fetch_live_bars.return_value = df_bars
+    else:
+        mock_db.get_current_quote.return_value = {
+            "success": False,
+            "status": "DATABENTO_BBO_UNAVAILABLE",
+            "provider": "DATABENTO",
+            "dataset": "DBEQ.BASIC",
+            "instrument": "AAPL",
+            "bid": None,
+            "ask": None,
+            "spread": None,
+            "quote_timestamp": None,
+            "fetch_timestamp": "2026-09-17T20:00:01Z",
+            "freshness_seconds": None,
+            "error": "BBO quote unavailable"
+        }
+        mock_db.fetch_live_bars.return_value = pd.DataFrame()
+    return mock_db
 
 
 class TestRenderTradingBuildReadiness(unittest.TestCase):
@@ -32,8 +76,9 @@ class TestRenderTradingBuildReadiness(unittest.TestCase):
                 "bid": 225.45,
                 "ask": 225.55,
                 "spread": 0.10,
-                "timestamp": "2026-09-17T20:00:00Z",
-                "freshness_seconds": 1.2
+                "quote_timestamp": "2026-09-17T20:00:00Z",
+                "fetch_timestamp": "2026-09-17T20:00:01Z",
+                "freshness_seconds": 1.0
             }
             quote = provider.get_current_quote("AAPL")
             self.assertTrue(quote["success"])
@@ -43,6 +88,8 @@ class TestRenderTradingBuildReadiness(unittest.TestCase):
             self.assertEqual(quote["bid"], 225.45)
             self.assertEqual(quote["ask"], 225.55)
             self.assertEqual(quote["spread"], 0.10)
+            self.assertEqual(quote["quote_timestamp"], "2026-09-17T20:00:00Z")
+            self.assertEqual(quote["fetch_timestamp"], "2026-09-17T20:00:01Z")
 
     def test_02_no_yahoo_current_decision_fallback(self):
         """When Databento is unavailable, current-decision path must fail closed and NEVER invoke Yahoo."""
@@ -54,7 +101,6 @@ class TestRenderTradingBuildReadiness(unittest.TestCase):
             quote = provider.get_current_quote("AAPL")
             self.assertFalse(quote["success"])
             self.assertEqual(quote["status"], "DATABENTO_API_KEY_MISSING")
-            # Invariant: yfinance must NEVER be called as fallback for current decision
             mock_yf.assert_not_called()
             
             price = provider.get_current_executable_price("AAPL")
@@ -99,7 +145,6 @@ class TestRenderTradingBuildReadiness(unittest.TestCase):
         
         mock_strategy = MagicMock()
         mock_strategy.MAX_CONCURRENT_POSITIONS = 1
-        # Cycle 1: holding exits. Cycle 2: new entry evaluated and approved
         mock_strategy.evaluate_exit.return_value = (True, "TAKE_PROFIT")
         
         entry_decision = HitAndRunEntryDecision(
@@ -128,7 +173,6 @@ class TestRenderTradingBuildReadiness(unittest.TestCase):
             dispatcher=mock_dispatcher,
             audit_log_dir="/tmp/test_audit"
         )
-        # Pre-seed active holding
         runner.active_holdings["AAPL_US_EQ"] = {
             "ticker": "AAPL_US_EQ",
             "fill_price": 220.0,
@@ -138,9 +182,8 @@ class TestRenderTradingBuildReadiness(unittest.TestCase):
             "entry_time": "2026-09-17T19:00:00Z"
         }
         
-        # Run cycle: should exit holding, then subsequent evaluation should allow new entries
         cycle1 = runner.run_scan_and_execute_cycle([])
-        self.assertEqual(len(runner.active_holdings), 1)  # holding was entered after exit!
+        self.assertEqual(len(runner.active_holdings), 1)
         self.assertEqual(mock_dispatcher.execute_exit.call_count, 1)
         self.assertEqual(mock_dispatcher.execute_entry.call_count, 1)
 
@@ -148,38 +191,18 @@ class TestRenderTradingBuildReadiness(unittest.TestCase):
         """MAX_DAILY_ENTRIES must be None; strategy must NOT halt after 3 entries."""
         from src.hit_and_run.demo_strategy_v1 import DemoStrategyV1
         
-        mock_market_data = MagicMock()
-        strategy = DemoStrategyV1(market_data_provider=mock_market_data)
+        mock_databento = _create_mock_databento_provider()
+        strategy = DemoStrategyV1(databento_provider=mock_databento)
         
-        # Verify MAX_DAILY_ENTRIES is None
         self.assertIsNone(strategy.MAX_DAILY_ENTRIES)
         
-        # Record 3 entries
-        strategy.record_entry()
-        strategy.record_entry()
-        strategy.record_entry()
-        self.assertEqual(strategy.daily_entries_count, 3)
-        
-        # Record 4th and 5th entries
-        strategy.record_entry()
-        strategy.record_entry()
+        for _ in range(5):
+            strategy.record_entry()
         self.assertEqual(strategy.daily_entries_count, 5)
         
-        # In-window check: must NOT block with DAILY_LIMIT_REACHED
         tz_ny = ZoneInfo("America/New_York")
         midday = datetime(2026, 9, 17, 12, 0, tzinfo=tz_ny).timestamp()
         
-        # Setup valid market data and FX
-        df = pd.DataFrame({
-            "Open": [300.0] * 30,
-            "High": [305.0] * 30,
-            "Low": [299.0] * 30,
-            "Close": [304.0] * 30,
-            "Volume": [10000] * 30
-        }, index=pd.date_range("2026-09-17 09:30", periods=30, freq="5min", tz="America/New_York"))
-        mock_market_data.fetch_history.return_value = df
-        
-        # Even with 5 entries today, evaluate_entry does not fail with DAILY_LIMIT_REACHED
         dec = strategy.evaluate_entry(now_time=midday, fx_gbpusd=1.33)
         self.assertNotIn("DAILY_LIMIT_REACHED", dec.no_entry_reason or "")
 
@@ -187,30 +210,145 @@ class TestRenderTradingBuildReadiness(unittest.TestCase):
         """demo_strategy_v1 must require authoritative FX rate; fail closed with PRODUCT_FAILURE if missing."""
         from src.hit_and_run.demo_strategy_v1 import DemoStrategyV1
         
-        strategy = DemoStrategyV1(market_data_provider=MagicMock())
+        mock_databento = _create_mock_databento_provider()
+        strategy = DemoStrategyV1(databento_provider=mock_databento, fx_provider=None)
         
-        # When FX is missing or None
         tz_ny = ZoneInfo("America/New_York")
         midday = datetime(2026, 9, 17, 12, 0, tzinfo=tz_ny).timestamp()
         
-        df = pd.DataFrame({
-            "Open": [300.0] * 30,
-            "High": [305.0] * 30,
-            "Low": [299.0] * 30,
-            "Close": [304.0] * 30,
-            "Volume": [10000] * 30
-        }, index=pd.date_range("2026-09-17 09:30", periods=30, freq="5min", tz="America/New_York"))
-        strategy.market_data.fetch_history.return_value = df
-        
-        # Call with fx_gbpusd = None and no fx_provider configured
-        strategy.fx_provider = None
         dec = strategy.evaluate_entry(now_time=midday, fx_gbpusd=None)
         self.assertEqual(dec.decision, "NO_ENTRY")
         self.assertIn("PRODUCT_FAILURE: FX_CONVERSION_RATE_UNAVAILABLE", dec.no_entry_reason)
         
-        # Call calculate_quantity directly with None: must raise ValueError or return 0.0 with product failure
         qty = strategy.calculate_quantity(current_price_usd=225.0, fx_gbpusd=None)
         self.assertEqual(qty, 0.0)
+
+    def test_07_strategy_level_no_yahoo_when_databento_unavailable(self):
+        """Strategy-level test proving DemoStrategyV1.evaluate_entry() NEVER calls Yahoo when Databento is unavailable."""
+        from src.hit_and_run.demo_strategy_v1 import DemoStrategyV1
+        
+        mock_market_data = MagicMock()
+        mock_databento = MagicMock()
+        mock_databento.is_configured = False
+        mock_databento.get_current_quote.return_value = {
+            "success": False,
+            "status": "DATABENTO_API_KEY_MISSING",
+            "provider": "DATABENTO",
+            "error": "DATABENTO_API_KEY is not configured"
+        }
+        
+        strategy = DemoStrategyV1(
+            market_data_provider=mock_market_data,
+            databento_provider=mock_databento,
+            fx_provider=None
+        )
+        
+        tz_ny = ZoneInfo("America/New_York")
+        midday = datetime(2026, 9, 17, 12, 0, tzinfo=tz_ny).timestamp()
+        
+        dec = strategy.evaluate_entry(now_time=midday, fx_gbpusd=1.33)
+        self.assertEqual(dec.decision, "NO_ENTRY")
+        self.assertIn("PRODUCT_FAILURE: DATABENTO_LIVE_DATA_UNAVAILABLE", dec.no_entry_reason)
+        
+        # Invariant: Yahoo/market_data.fetch_history was NEVER invoked for active decision
+        mock_market_data.fetch_history.assert_not_called()
+
+    def test_08_complete_quote_gate_enforcement(self):
+        """Complete Quote Gate: requires bid, ask, spread > 0, timestamps; rejects trades-only responses."""
+        from src.hit_and_run.demo_strategy_v1 import DemoStrategyV1
+        
+        # Test Case A: Databento falls back to trades only (bid, ask, spread are None)
+        mock_databento_trades_only = MagicMock()
+        mock_databento_trades_only.is_configured = True
+        mock_databento_trades_only.get_current_quote.return_value = {
+            "success": False,
+            "status": "DATABENTO_BBO_UNAVAILABLE",
+            "provider": "DATABENTO",
+            "bid": None,
+            "ask": None,
+            "spread": None,
+            "quote_timestamp": None,
+            "fetch_timestamp": "2026-09-17T20:00:00Z",
+            "freshness_seconds": None,
+            "error": "Trades-only cannot be treated as an executable quote"
+        }
+        
+        strategy_trades = DemoStrategyV1(databento_provider=mock_databento_trades_only)
+        tz_ny = ZoneInfo("America/New_York")
+        midday = datetime(2026, 9, 17, 12, 0, tzinfo=tz_ny).timestamp()
+        
+        dec_trades = strategy_trades.evaluate_entry(now_time=midday, fx_gbpusd=1.33)
+        self.assertEqual(dec_trades.decision, "NO_ENTRY")
+        self.assertIn("DATABENTO_LIVE_DATA_UNAVAILABLE", dec_trades.no_entry_reason)
+        
+        # Test Case B: Partial quote (missing ask/spread)
+        mock_databento_partial = MagicMock()
+        mock_databento_partial.is_configured = True
+        mock_databento_partial.get_current_quote.return_value = {
+            "success": True,
+            "status": "OK",
+            "provider": "DATABENTO",
+            "latest_price": 225.0,
+            "bid": 225.0,
+            "ask": None,
+            "spread": None,
+            "quote_timestamp": "2026-09-17T20:00:00Z",
+            "fetch_timestamp": "2026-09-17T20:00:01Z",
+            "freshness_seconds": 1.0
+        }
+        strategy_partial = DemoStrategyV1(databento_provider=mock_databento_partial)
+        dec_partial = strategy_partial.evaluate_entry(now_time=midday, fx_gbpusd=1.33)
+        self.assertEqual(dec_partial.decision, "NO_ENTRY")
+        self.assertIn("DATABENTO_BBO_UNAVAILABLE", dec_partial.no_entry_reason)
+
+    def test_09_authoritative_fx_wired_to_runner_and_singleton(self):
+        """Verify fx_provider is wired into singleton demo_strategy_v1 and runner passes resolved FX."""
+        from src.hit_and_run.demo_strategy_v1 import demo_strategy_v1
+        from scripts.run_demo_experiment import DemoExperimentRunner
+        
+        # Verify singleton has fx_provider wired
+        self.assertIsNotNone(demo_strategy_v1.fx_provider)
+        self.assertTrue(hasattr(demo_strategy_v1.fx_provider, "get_gbp_usd_rate") or hasattr(demo_strategy_v1.fx_provider, "get_rate"))
+        
+        # Verify runner passes resolved FX into strategy evaluate
+        mock_strategy = MagicMock()
+        mock_strategy.fx_provider = MagicMock()
+        mock_strategy.fx_provider.get_gbp_usd_rate.return_value = 1.345
+        mock_strategy.evaluate.return_value = []
+        mock_strategy.MAX_CONCURRENT_POSITIONS = 1
+        
+        mock_dispatcher = MagicMock()
+        runner = DemoExperimentRunner(
+            experiment_id="TEST-FX-WIRE-001",
+            strategy_version="1.0-DEMO",
+            strategy_module=mock_strategy,
+            dispatcher=mock_dispatcher,
+            audit_log_dir="/tmp/test_audit"
+        )
+        runner.run_scan_and_execute_cycle([])
+        
+        mock_strategy.evaluate.assert_called_once()
+        _, kwargs = mock_strategy.evaluate.call_args
+        self.assertEqual(kwargs.get("fx_gbpusd"), 1.345)
+
+    def test_10_render_startup_routes_to_exp_demo_001_runner(self):
+        """Verify on_startup routes to EXP-DEMO-001 runner on DEMO autorun and leaves legacy quant_engine unstarted."""
+        from src.api.routes import on_startup
+        from src.core.engine import quant_engine
+        
+        with patch("src.api.routes.autonomous_engine_autostart_allowed", return_value=(True, "Approved opt-in")), \
+             patch("src.api.routes.broker.start_background_sync"), \
+             patch("src.api.routes.threading.Thread") as mock_thread, \
+             patch.object(quant_engine, "start") as mock_legacy_start, \
+             patch.dict("os.environ", {"TRADING_ENV": "demo", "PRV_AUTORUN_HIT_AND_RUN": "true", "PRV_ACTIVE_STRATEGY": "EXP-DEMO-001", "PRV_TESTING": "false"}), \
+             patch("sys.modules", {}):
+            
+            on_startup()
+            
+            # Verify legacy quant_engine was NOT started
+            mock_legacy_start.assert_not_called()
+            # Verify background worker thread was launched
+            mock_thread.assert_called_once()
 
 
 if __name__ == "__main__":
