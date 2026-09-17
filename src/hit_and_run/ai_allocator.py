@@ -48,15 +48,33 @@ class AIAllocationInterface(ABC):
 
 class ConvictionConcentrationAIProvider(AIAllocationInterface):
     """
-    Evidence-driven AI allocation decision maker embodying the Authoritative User Objective:
-    - Pure hit-and-run
-    - £100 realised NET daily base-profit target; keep hunting once achieved
-    - Use up to 80% of available capital when opportunity quality justifies it
-    - Prefer fewer/larger meaningful positions rather than many tiny purchases
-    - NO fixed number of positions (AI decides 1, several, or more)
-    - Do not force a trade when no positive edge exists
-    - No arbitrary fixed £ minimum thresholds
+    AI Allocation Provider interface implementation.
+    The contract requires that an AI decides:
+    - whether to trade
+    - which instruments
+    - number of positions
+    - capital allocated to each
+    - total deployment
+    Constraint: total deployment <= 80% of available capital.
+    No deterministic fallback sizing formula (equal, rank, score, net-edge, linear, quadratic, softmax, etc.)
+    is authorised.
+    If an explicit AI decision proposal is provided (e.g. from an authorised AI model/caller),
+    it validates and returns that proposal.
+    If no explicit AI allocation decision is supplied:
+    Returns ALLOCATION_DECISION_UNAVAILABLE with zero allocations, zero orders (fail closed).
     """
+
+    def __init__(
+        self,
+        explicit_decision: Optional[AIAllocationDecision] = None,
+        proposals: Optional[Dict[str, float]] = None,
+        whether_to_trade: bool = True,
+        rationale: str = "Authorised AI allocation decision"
+    ):
+        self.explicit_decision = explicit_decision
+        self.proposals = proposals
+        self.whether_to_trade = whether_to_trade
+        self.rationale = rationale
 
     def decide_allocation(
         self,
@@ -67,6 +85,9 @@ class ConvictionConcentrationAIProvider(AIAllocationInterface):
         analyzed_opportunities: List[OpportunityAnalysisResult],
         banked_profit_today_gbp: float = 0.0
     ) -> AIAllocationDecision:
+        if self.explicit_decision is not None:
+            return self.explicit_decision
+
         if available_capital_gbp <= 0.0 or portfolio_capital_gbp <= 0.0:
             return AIAllocationDecision(
                 whether_to_trade=False,
@@ -78,124 +99,35 @@ class ConvictionConcentrationAIProvider(AIAllocationInterface):
                 status="NO_CAPITAL_AVAILABLE"
             )
 
-        # 80% deployment ceiling
-        max_deployable_ceiling = available_capital_gbp * 0.80
-
-        # Calculate already committed capital in holdings and open orders
-        held_value = sum(float(h.get("allocated_capital_gbp", h.get("current_value_gbp", 0.0))) for h in current_holdings)
-        order_value = sum(float(o.get("reserved_value_gbp", 0.0)) for o in outstanding_orders)
-        committed_total = held_value + order_value
-        max_portfolio_deployment = portfolio_capital_gbp * 0.80
-        portfolio_headroom = max(0.0, max_portfolio_deployment - committed_total)
-
-        max_allocatable_budget = min(max_deployable_ceiling, portfolio_headroom)
-        if max_allocatable_budget <= 0.0:
+        if self.proposals is not None:
+            total_dep = round(sum(self.proposals.values()), 2)
+            dep_pct = round(total_dep / max(1.0, available_capital_gbp), 4)
             return AIAllocationDecision(
-                whether_to_trade=False,
-                selected_allocations={},
-                total_deployment_gbp=0.0,
-                total_deployment_pct=0.0,
-                rationale=f"CAPITAL_CEILING_REACHED: Committed £{committed_total:.2f} meets or exceeds 80% ceiling (£{max_portfolio_deployment:.2f}).",
-                concentration_summary="PORTFOLIO_DEPLOYMENT_MAXED",
-                status="CAPITAL_CEILING_REACHED"
+                whether_to_trade=self.whether_to_trade,
+                selected_allocations=dict(self.proposals),
+                total_deployment_gbp=total_dep,
+                total_deployment_pct=dep_pct,
+                rationale=self.rationale,
+                concentration_summary=f"EXPLICIT_AI_ALLOCATION ({len(self.proposals)} positions)",
+                status="ALLOCATED" if self.whether_to_trade and self.proposals else "ZERO_TRADES"
             )
 
-        # Filter to opportunities with verified complete data, active session, and genuine positive net edge
-        held_ids = {
-            str(h.get("instrument_id") or h.get("symbol", "")).upper() for h in current_holdings
-        } | {
-            str(o.get("instrument_id") or o.get("symbol", "")).upper() for o in outstanding_orders
-        }
-
-        viable = [
-            op for op in analyzed_opportunities
-            if op.data_quality_state == "COMPLETE"
-            and op.state.technical_execution_supported is True
-            and getattr(op.state, "session_open", False) is True
-            and getattr(op.state, "quote_executable_now", False) is True
-            and op.state.spread_friction is not None
-            and op.expected_net_opportunity is not None
-            and op.expected_net_opportunity > 0.0
-            and op.instrument_id.upper() not in held_ids
-            and op.symbol.upper() not in held_ids
-        ]
-
-        if not viable:
-            # Audit why viable is empty per Deliverable 2A Section A:
-            # NO_VALID_EDGE is permitted ONLY when relevant universe was successfully evaluated,
-            # execution capability resolved, required live market data available, costs complete,
-            # and no executable positive edge remained. If infrastructure prevented evaluation: PRODUCTION_FAILURE.
-            if not analyzed_opportunities:
-                status = "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE"
-                rationale = "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE - Zero candidate opportunity states were available for evaluation."
-            elif any(not op.state.technical_execution_supported for op in analyzed_opportunities):
-                status = "PRODUCTION_FAILURE: EXECUTION_CAPABILITY_COVERAGE_INCOMPLETE"
-                rationale = "PRODUCTION_FAILURE: EXECUTION_CAPABILITY_COVERAGE_INCOMPLETE - Evaluated candidates lacked verified broker technical execution capability."
-            elif any(op.data_quality_state != "COMPLETE" or not getattr(op.state, "quote_executable_now", False) for op in analyzed_opportunities):
-                status = "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE"
-                rationale = "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE - Live executable quotes or spread friction were unavailable across candidates."
-            else:
-                status = "NO_VALID_EDGE"
-                rationale = "NO_VALID_EDGE: Relevant universe was evaluated with complete execution data, but no candidate presented positive net expected reward after costs."
-
-            return AIAllocationDecision(
-                whether_to_trade=False,
-                selected_allocations={},
-                total_deployment_gbp=0.0,
-                total_deployment_pct=0.0,
-                rationale=rationale,
-                concentration_summary="ZERO_TRADES",
-                status=status
-            )
-
-        # AI Reasoning on Concentration:
-        # Preference: fewer/larger meaningful positions when evidence supports concentration.
-        # If one candidate has standout conviction (clear net reward lead over #2):
-        # AI selects 1 concentrated position deploying 60-80% of budget.
-        # If multiple candidates have close high-tier conviction:
-        # AI selects several positions (2 or 3) weighted by net edge quality.
-        top = viable[0]
-        runner_up = viable[1] if len(viable) > 1 else None
-
-        selected: Dict[str, float] = {}
-        rationale_lines = []
-
-        # Case 1: Standout high conviction -> 1 concentrated position
-        top_lead = (top.expected_net_opportunity - (runner_up.expected_net_opportunity or 0.0)) if runner_up else 1.0
-        if len(viable) == 1 or top_lead >= 0.01:
-            alloc_gbp = round(max_allocatable_budget * 0.90, 2)  # Deploy 90% of the 80% budget (<= 80% ceiling)
-            selected[top.instrument_id] = alloc_gbp
-            summary = f"SINGLE_CONCENTRATED_POSITION ({top.symbol})"
-            rationale_lines.append(
-                f"Selected 1 concentrated position in {top.symbol} (NetReward {top.expected_net_opportunity:+.2%}) "
-                f"deploying £{alloc_gbp:.2f}."
-            )
-        # Case 2: Multiple strong opportunities -> AI selects several positions
-        else:
-            # Select up to top 2-3 distinct strong opportunities
-            selected_candidates = viable[:min(3, len(viable))]
-            total_net = sum((c.expected_net_opportunity or 0.0) for c in selected_candidates)
-            summary = f"CONCENTRATED_MULTI_POSITION ({len(selected_candidates)} positions)"
-
-            for c in selected_candidates:
-                weight = ((c.expected_net_opportunity or 0.0) / total_net) if total_net > 0 else (1.0 / len(selected_candidates))
-                c_alloc = round(max_allocatable_budget * weight * 0.95, 2)
-                selected[c.instrument_id] = c_alloc
-                rationale_lines.append(
-                    f"Allocated £{c_alloc:.2f} ({weight:.1%}) to {c.symbol} (NetReward {c.expected_net_opportunity:+.2%})."
-                )
-
-        total_dep = sum(selected.values())
-        dep_pct = round(total_dep / available_capital_gbp, 4)
-
+        # No explicit AI decision proposal provided:
+        # Contract Section 9: If AI allocation is unavailable:
+        # ALLOCATION_DECISION_UNAVAILABLE => zero new allocations, zero new orders, fail closed.
+        # Deterministic sizing formulas (net-edge, equal, rank, linear, quadratic, softmax) are strictly prohibited.
         return AIAllocationDecision(
-            whether_to_trade=True,
-            selected_allocations=selected,
-            total_deployment_gbp=round(total_dep, 2),
-            total_deployment_pct=dep_pct,
-            rationale="; ".join(rationale_lines),
-            concentration_summary=summary,
-            status="ALLOCATED"
+            whether_to_trade=False,
+            selected_allocations={},
+            total_deployment_gbp=0.0,
+            total_deployment_pct=0.0,
+            rationale=(
+                "ALLOCATION_DECISION_UNAVAILABLE: No explicit AI allocation decision supplied. "
+                "Deterministic sizing formulas are unauthorised without explicit user authority. "
+                "Failing closed with zero new allocations."
+            ),
+            concentration_summary="ALLOCATION_DECISION_UNAVAILABLE",
+            status="ALLOCATION_DECISION_UNAVAILABLE"
         )
 
 
@@ -252,19 +184,22 @@ class HitAndRunAllocationManager:
         if ai_decision.total_deployment_gbp > max_allowed_gbp:
             logger.warning(
                 f"AllocationManager: AI proposed deployment £{ai_decision.total_deployment_gbp:.2f} "
-                f"exceeds 80% ceiling (£{max_allowed_gbp:.2f}). Scaling down."
+                f"exceeds 80% ceiling (£{max_allowed_gbp:.2f}). Proposal rejected as non-compliant."
             )
-            scale = max_allowed_gbp / max(1.0, ai_decision.total_deployment_gbp)
-            scaled_allocs = {k: round(v * scale, 2) for k, v in ai_decision.selected_allocations.items()}
-            ai_decision = AIAllocationDecision(
-                whether_to_trade=ai_decision.whether_to_trade,
-                selected_allocations=scaled_allocs,
-                total_deployment_gbp=round(sum(scaled_allocs.values()), 2),
-                total_deployment_pct=round(sum(scaled_allocs.values()) / available_capital_gbp, 4),
-                rationale=ai_decision.rationale + f" [Scaled down to strictly respect 80% ceiling of £{max_allowed_gbp:.2f}]",
-                concentration_summary=ai_decision.concentration_summary,
-                status=ai_decision.status
+            non_compliant_decision = AIAllocationDecision(
+                whether_to_trade=False,
+                selected_allocations={},
+                total_deployment_gbp=0.0,
+                total_deployment_pct=0.0,
+                rationale=(
+                    f"NON_COMPLIANT_ALLOCATION_PROPOSAL: EXCEEDS_80PCT_CEILING. "
+                    f"Proposed deployment £{ai_decision.total_deployment_gbp:.2f} exceeds 80% ceiling "
+                    f"(£{max_allowed_gbp:.2f}). Automatic scaling is unauthorized. Proposal rejected with zero orders."
+                ),
+                concentration_summary="REJECTED_NON_COMPLIANT",
+                status="NON_COMPLIANT_ALLOCATION_PROPOSAL: EXCEEDS_80PCT_CEILING"
             )
+            return non_compliant_decision, []
 
         if not ai_decision.whether_to_trade or not ai_decision.selected_allocations:
             return ai_decision, []

@@ -36,7 +36,8 @@ class HitAndRunPositionLifecycleManager:
         holding: HoldingState,
         current_state: LiveOpportunityState,
         alternative_opportunities: Optional[List[OpportunityAnalysisResult]] = None,
-        banked_profit_today_gbp: float = 0.0
+        banked_profit_today_gbp: float = 0.0,
+        explicit_action: Optional[str] = None
     ) -> LifecycleAssessment:
         """
         Continuously compares:
@@ -99,28 +100,28 @@ class HitAndRunPositionLifecycleManager:
             )
 
         # -------------------------------------------------------------
-        # Action Check 2: MOMENTUM_REVERSAL_EXIT
+        # Invariants per Contract Section 12 & User Directive:
+        # - Contract defines lifecycle action types: HOLD, TAKE_PROFIT, EDGE_DECAY_EXIT,
+        #   MOMENTUM_REVERSAL_EXIT, ROTATE, STOP_LOSS_EXIT.
+        # - Heuristic triggers for MOMENTUM_REVERSAL_EXIT (mom < -0.008, acc < -0.005),
+        #   EDGE_DECAY_EXIT (spread_friction > 0.015, net_edge <= 0), TAKE_PROFIT
+        #   (acc < -0.001, pullback >= 0.008), and ROTATE (alt_net > holding_net...)
+        #   were UNAUTHORISED_STRATEGY_ASSUMPTIONS and have been REMOVED.
+        # - Until an authorised rotation decision mechanism exists: return ROTATION_DECISION_UNAVAILABLE.
+        # - The authorised 5% maximum planned-loss protection (STOP_LOSS_EXIT) remains unchanged.
+        # - Default action is HOLD with protective stop actively monitored.
         # -------------------------------------------------------------
-        # Momentum turned adverse or sharp acceleration downward
-        mom = current_state.short_duration_momentum
-        acc = current_state.momentum_acceleration
-
-        is_reversal = False
-        reversal_reason = ""
-
-        if mom is not None and mom < -0.008:
-            is_reversal = True
-            reversal_reason = f"Momentum reversed into adverse trajectory ({mom:+.2%})"
-        elif acc is not None and acc < -0.005 and exit_price < fill_price:
-            is_reversal = True
-            reversal_reason = f"Severe momentum deceleration ({acc:+.3%}) while position is underwater"
-
-        if is_reversal:
+        if explicit_action in (
+            LifecycleAction.TAKE_PROFIT,
+            LifecycleAction.EDGE_DECAY_EXIT,
+            LifecycleAction.MOMENTUM_REVERSAL_EXIT,
+            LifecycleAction.ROTATE,
+        ):
             return LifecycleAssessment(
                 holding_id=holding.holding_id,
                 instrument_id=holding.instrument_id,
                 symbol=holding.symbol,
-                action=LifecycleAction.MOMENTUM_REVERSAL_EXIT,
+                action=explicit_action,
                 current_price=exit_price,
                 current_bid=current_state.bid,
                 current_ask=current_state.ask,
@@ -128,136 +129,17 @@ class HitAndRunPositionLifecycleManager:
                 estimated_exit_costs_gbp=estimated_exit_costs_gbp,
                 net_unrealised_pnl_gbp=net_unrealised_pnl_gbp,
                 net_unrealised_pct=net_unrealised_pct,
-                thesis_health="REVERSED",
-                rationale=f"Thesis invalidated by market evidence: {reversal_reason}. Capital preservation exit.",
+                thesis_health="EXPLICIT_DECISION",
+                rationale=f"Authorised explicit lifecycle decision executed: {explicit_action}.",
+                rotation_decision_status=None,
                 timestamp=now_iso
             )
 
-        # -------------------------------------------------------------
-        # Action Check 3: EDGE_DECAY_EXIT
-        # -------------------------------------------------------------
-        # Spread widened severely, cost model incomplete, or expected net edge vanished
-        is_edge_decay = False
-        decay_reason = ""
-
-        if current_state.spread_friction is not None and current_state.spread_friction > 0.015:
-            is_edge_decay = True
-            decay_reason = f"Spread friction widened excessively to {current_state.spread_friction * 10000:.1f} bps"
-        elif not current_state.cost_model_complete:
-            is_edge_decay = True
-            decay_reason = f"Cost model completeness compromised: {'; '.join(current_state.cost_model_reasons)}"
-        elif current_state.expected_net_opportunity is not None and current_state.expected_net_opportunity <= 0:
-            is_edge_decay = True
-            decay_reason = "Forward expected net opportunity consumed by market friction"
-
-        if is_edge_decay:
-            return LifecycleAssessment(
-                holding_id=holding.holding_id,
-                instrument_id=holding.instrument_id,
-                symbol=holding.symbol,
-                action=LifecycleAction.EDGE_DECAY_EXIT,
-                current_price=exit_price,
-                current_bid=current_state.bid,
-                current_ask=current_state.ask,
-                gross_unrealised_pnl_gbp=gross_unrealised_gbp,
-                estimated_exit_costs_gbp=estimated_exit_costs_gbp,
-                net_unrealised_pnl_gbp=net_unrealised_pnl_gbp,
-                net_unrealised_pct=net_unrealised_pct,
-                thesis_health="DECAYED",
-                rationale=f"Edge decay detected: {decay_reason}. Releasing capital.",
-                timestamp=now_iso
-            )
-
-        # -------------------------------------------------------------
-        # Action Check 4: TAKE_PROFIT (Adaptive, from current evidence)
-        # -------------------------------------------------------------
-        # Invariant: NO fixed take-profit percentage.
-        # Triggers when net realised profit is positive AND market evidence exhibits:
-        # 1. Deceleration curling downward after positive expansion (acc < -0.001)
-        # 2. Significant pullback from peak watermark after strong impulse
-        # 3. Target gross move achieved while volume activity fades
-        pullback_from_peak = (holding.highest_price_seen - exit_price) / max(1e-4, holding.highest_price_seen)
-        is_exhausted = False
-        tp_reason = ""
-
-        if net_unrealised_pnl_gbp > 0:
-            # Evidence A: Deceleration curling downward after impulse
-            if acc is not None and acc < -0.001 and mom is not None and mom > 0:
-                is_exhausted = True
-                tp_reason = f"Momentum curling over (acceleration {acc:+.3%}) with banked net £{net_unrealised_pnl_gbp:.2f}"
-            # Evidence B: Pullback from recent peak watermark
-            elif pullback_from_peak >= 0.008 and (holding.highest_price_seen - fill_price) > 0:
-                is_exhausted = True
-                tp_reason = f"Pullback of {pullback_from_peak:.2%} from high watermark (£{holding.highest_price_seen}) with net gain £{net_unrealised_pnl_gbp:.2f}"
-            # Evidence C: Expected gross move reached
-            elif current_state.expected_gross_move is not None:
-                move_so_far = (exit_price - fill_price) / fill_price
-                if move_so_far >= current_state.expected_gross_move:
-                    is_exhausted = True
-                    tp_reason = f"Target move {current_state.expected_gross_move:.2%} achieved (actual {move_so_far:+.2%})"
-
-        if is_exhausted:
-            return LifecycleAssessment(
-                holding_id=holding.holding_id,
-                instrument_id=holding.instrument_id,
-                symbol=holding.symbol,
-                action=LifecycleAction.TAKE_PROFIT,
-                current_price=exit_price,
-                current_bid=current_state.bid,
-                current_ask=current_state.ask,
-                gross_unrealised_pnl_gbp=gross_unrealised_gbp,
-                estimated_exit_costs_gbp=estimated_exit_costs_gbp,
-                net_unrealised_pnl_gbp=net_unrealised_pnl_gbp,
-                net_unrealised_pct=net_unrealised_pct,
-                thesis_health="EXHAUSTED",
-                rationale=f"Adaptive profit capture triggered: {tp_reason}. Realising net gain.",
-                timestamp=now_iso
-            )
-
-        # -------------------------------------------------------------
-        # Action Check 5: ROTATE (Capital Efficiency vs Stronger Opportunities)
-        # -------------------------------------------------------------
-        # If current holding is stagnant or low conviction, and a significantly superior opportunity exists
+        rotation_decision_status = "ROTATION_DECISION_UNAVAILABLE" if alternative_opportunities else None
+        rationale = "Thesis intact; holding position. Protective stop actively monitored. No unauthorised exit triggers applied."
         if alternative_opportunities:
-            # Find strongest non-held alternative with complete data
-            strong_alts = [
-                op for op in alternative_opportunities
-                if op.instrument_id != holding.instrument_id
-                and op.symbol != holding.symbol
-                and op.data_quality_state == "COMPLETE"
-                and (op.expected_net_opportunity or 0.0) > 0.015
-            ]
-            if strong_alts:
-                best_alt = strong_alts[0]
-                # If current position is sluggish (e.g. flat P&L and low momentum) while alternative has active net edge
-                alt_net = best_alt.expected_net_opportunity or 0.0
-                holding_net = getattr(current_state, "expected_net_opportunity", None) or 0.015
-                if alt_net > holding_net and abs(net_unrealised_pct) < 0.008 and (mom is None or abs(mom) < 0.005):
-                    return LifecycleAssessment(
-                        holding_id=holding.holding_id,
-                        instrument_id=holding.instrument_id,
-                        symbol=holding.symbol,
-                        action=LifecycleAction.ROTATE,
-                        current_price=exit_price,
-                        current_bid=current_state.bid,
-                        current_ask=current_state.ask,
-                        gross_unrealised_pnl_gbp=gross_unrealised_gbp,
-                        estimated_exit_costs_gbp=estimated_exit_costs_gbp,
-                        net_unrealised_pnl_gbp=net_unrealised_pnl_gbp,
-                        net_unrealised_pct=net_unrealised_pct,
-                        thesis_health="STAGNANT_OPPORTUNITY_SUPERIOR",
-                        rationale=(
-                            f"Rotating stagnant capital ({holding.symbol} net {net_unrealised_pct:+.2%}) "
-                            f"into higher conviction opportunity {best_alt.symbol} ("
-                            f"NetReward {alt_net:+.2%})."
-                        ),
-                        target_rotation_symbol=best_alt.symbol,
-                        timestamp=now_iso
-                    )
+            rationale += " [ROTATION_DECISION_UNAVAILABLE: No authorised rotation trigger or AI lifecycle model configured; rotation not triggered.]"
 
-        # -------------------------------------------------------------
-        # Default: HOLD (Thesis Intact)
-        # -------------------------------------------------------------
         return LifecycleAssessment(
             holding_id=holding.holding_id,
             instrument_id=holding.instrument_id,
@@ -271,7 +153,9 @@ class HitAndRunPositionLifecycleManager:
             net_unrealised_pnl_gbp=net_unrealised_pnl_gbp,
             net_unrealised_pct=net_unrealised_pct,
             thesis_health="INTACT",
-            rationale="Thesis intact; favourable momentum and positive net edge continue. Holding position.",
+            rationale=rationale,
+            target_rotation_symbol=None,
+            rotation_decision_status=rotation_decision_status,
             timestamp=now_iso
         )
 

@@ -105,6 +105,8 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         self.assertIsNone(analysis.downside_estimate)
         self.assertEqual(analysis.downside_model_status, "DOWNSIDE_MODEL_UNAVAILABLE")
 
+        # Explicit AI allocation proposal supplied
+        self.ai_provider.proposals = {"NVDA_US_EQ": 7500.0}
         ai_dec, entries = self.alloc_mgr.evaluate_entries(
             available_capital_gbp=10000.0,
             portfolio_capital_gbp=10000.0,
@@ -174,6 +176,8 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         states = [opportunity_state_builder.build_state(c) for c in cands]
         analyses = opportunity_analyzer.analyze_batch(states)
 
+        # Explicit AI proposal chooses 1 concentrated holding
+        self.ai_provider.proposals = {"SUPER_US_EQ": 7200.0}
         ai_dec = self.ai_provider.decide_allocation(
             available_capital_gbp=10000.0,
             portfolio_capital_gbp=10000.0,
@@ -206,6 +210,8 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         states = [opportunity_state_builder.build_state(c) for c in cands]
         analyses = opportunity_analyzer.analyze_batch(states)
 
+        # Explicit AI decision selects 3 positions
+        self.ai_provider.proposals = {"SYM_0_US_EQ": 2500.0, "SYM_1_US_EQ": 2500.0, "SYM_2_US_EQ": 2500.0}
         ai_dec = self.ai_provider.decide_allocation(
             available_capital_gbp=10000.0,
             portfolio_capital_gbp=10000.0,
@@ -219,10 +225,10 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         self.assertLessEqual(ai_dec.total_deployment_gbp, 8000.0)
 
     # -------------------------------------------------------------
-    # Test 5: Total allocation never exceeds 80% of available capital
+    # Test 5: AI allocation proposal exceeding 80% ceiling is rejected as non-compliant (NO scale-down)
     # -------------------------------------------------------------
     def test_total_allocation_never_exceeds_80_percent(self):
-        # Custom rogue AI provider that attempts to allocate 100%
+        # Custom rogue AI provider that attempts to allocate 99%
         class RogueAIProvider(AIAllocationInterface):
             def decide_allocation(self, available_capital_gbp, portfolio_capital_gbp, *args, **kwargs):
                 return AIAllocationDecision(
@@ -254,10 +260,11 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             outstanding_orders=[],
             analyzed_opportunities=[analysis]
         )
-        self.assertLessEqual(ai_dec.total_deployment_gbp, 8000.0)
-        self.assertLessEqual(ai_dec.total_deployment_pct, 0.80)
-        self.assertEqual(len(entries), 1)
-        self.assertLessEqual(entries[0].intended_capital_gbp, 8000.0)
+        # Invariant: Automatic scaling down is UNAUTHORISED.
+        # Proposal exceeding 80% ceiling is classified NON_COMPLIANT, allocations NOT transformed, ZERO orders submitted.
+        self.assertFalse(ai_dec.whether_to_trade)
+        self.assertEqual(len(entries), 0)
+        self.assertIn("EXCEEDS_80PCT_CEILING", ai_dec.status)
 
     # -------------------------------------------------------------
     # Test 6: No-AI decision fails closed (ALLOCATION_DECISION_UNAVAILABLE)
@@ -294,6 +301,7 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         self.assertIsNone(analysis.opportunity_score)
 
         # Allocation manager refuses entry
+        self.ai_provider.proposals = {"NVDA_US_EQ": 5000.0}
         ai_dec, entries = self.alloc_mgr.evaluate_entries(
             available_capital_gbp=10000.0,
             portfolio_capital_gbp=10000.0,
@@ -301,8 +309,9 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             outstanding_orders=[],
             analyzed_opportunities=[analysis]
         )
-        self.assertFalse(ai_dec.whether_to_trade)
-        self.assertEqual(ai_dec.status, "PRODUCTION_FAILURE: MARKET_DATA_COVERAGE_INCOMPLETE")
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].decision, "NO_ENTRY")
+        self.assertIn("LIVE_SPREAD_UNKNOWN", entries[0].no_entry_reason)
 
     # -------------------------------------------------------------
     # Test 8: Missing tick size fails closed (TICK_SIZE_UNKNOWN)
@@ -414,10 +423,14 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         state = opportunity_state_builder.build_state(snap)
         state.momentum_acceleration = -0.002  # Explicit downward deceleration
 
+        # Without explicit user authority or AI lifecycle model, position holds; no arbitrary heuristic exit
         assessment = position_lifecycle_manager.assess_holding(holding, state)
-        self.assertEqual(assessment.action, LifecycleAction.TAKE_PROFIT)
-        self.assertIn("EXHAUSTED", assessment.thesis_health)
-        self.assertGreater(assessment.net_unrealised_pnl_gbp, 0.0)
+        self.assertEqual(assessment.action, LifecycleAction.HOLD)
+        self.assertEqual(assessment.thesis_health, "INTACT")
+
+        # Explicit authorised lifecycle action executes correctly
+        assessment_explicit = position_lifecycle_manager.assess_holding(holding, state, explicit_action=LifecycleAction.TAKE_PROFIT)
+        self.assertEqual(assessment_explicit.action, LifecycleAction.TAKE_PROFIT)
 
     # -------------------------------------------------------------
     # Test 12: Edge-decay exit (EDGE_DECAY_EXIT)
@@ -448,9 +461,14 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
         }
         state = opportunity_state_builder.build_state(snap)
+        # Without explicit user authority or AI lifecycle model, position holds; no arbitrary heuristic exit
         assessment = position_lifecycle_manager.assess_holding(holding, state)
-        self.assertEqual(assessment.action, LifecycleAction.EDGE_DECAY_EXIT)
-        self.assertIn("DECAYED", assessment.thesis_health)
+        self.assertEqual(assessment.action, LifecycleAction.HOLD)
+        self.assertEqual(assessment.thesis_health, "INTACT")
+
+        # Explicit authorised lifecycle action executes correctly
+        assessment_explicit = position_lifecycle_manager.assess_holding(holding, state, explicit_action=LifecycleAction.EDGE_DECAY_EXIT)
+        self.assertEqual(assessment_explicit.action, LifecycleAction.EDGE_DECAY_EXIT)
 
     # -------------------------------------------------------------
     # Test 13: Momentum reversal exit (MOMENTUM_REVERSAL_EXIT)
@@ -481,12 +499,17 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             "min_trade_quantity": 0.001, "quantity_precision": 3, "tick_size": 0.01
         }
         state = opportunity_state_builder.build_state(snap)
+        # Without explicit user authority or AI lifecycle model, position holds; no arbitrary heuristic exit
         assessment = position_lifecycle_manager.assess_holding(holding, state)
-        self.assertEqual(assessment.action, LifecycleAction.MOMENTUM_REVERSAL_EXIT)
-        self.assertIn("REVERSED", assessment.thesis_health)
+        self.assertEqual(assessment.action, LifecycleAction.HOLD)
+        self.assertEqual(assessment.thesis_health, "INTACT")
+
+        # Explicit authorised lifecycle action executes correctly
+        assessment_explicit = position_lifecycle_manager.assess_holding(holding, state, explicit_action=LifecycleAction.MOMENTUM_REVERSAL_EXIT)
+        self.assertEqual(assessment_explicit.action, LifecycleAction.MOMENTUM_REVERSAL_EXIT)
 
     # -------------------------------------------------------------
-    # Test 14: Rotation into stronger opportunity (ROTATE)
+    # Test 14: Rotation decision unavailable without authorised lifecycle model (ROTATION_DECISION_UNAVAILABLE)
     # -------------------------------------------------------------
     def test_rotation_into_stronger_opportunity(self):
         # Current holding is stagnant (+0.1%)
@@ -534,8 +557,20 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
             current_state=state_holding,
             alternative_opportunities=[alt_analysis]
         )
-        self.assertEqual(assessment.action, LifecycleAction.ROTATE)
-        self.assertEqual(assessment.target_rotation_symbol, "ROCKET")
+        # Invariant: Contract allows ROTATE action but no deterministic trigger is authorised.
+        # Until an authorised rotation model exists: ROTATION_DECISION_UNAVAILABLE is returned, position holds.
+        self.assertEqual(assessment.action, LifecycleAction.HOLD)
+        self.assertEqual(assessment.rotation_decision_status, "ROTATION_DECISION_UNAVAILABLE")
+        self.assertIn("ROTATION_DECISION_UNAVAILABLE", assessment.rationale)
+
+        # Explicit authorised rotation action executes correctly
+        assessment_explicit = position_lifecycle_manager.assess_holding(
+            holding=holding,
+            current_state=state_holding,
+            alternative_opportunities=[alt_analysis],
+            explicit_action=LifecycleAction.ROTATE
+        )
+        self.assertEqual(assessment_explicit.action, LifecycleAction.ROTATE)
 
     # -------------------------------------------------------------
     # Test 15: £100 daily banking achieved
@@ -621,6 +656,63 @@ class TestHitAndRunLifecycleEngine(unittest.TestCase):
         )
         self.assertEqual(len(entries), 4)
         self.assertTrue(all(e.decision == "ENTER" for e in entries))
+
+    # -------------------------------------------------------------
+    # Test 20: ALLOCATION_DECISION_UNAVAILABLE when no explicit AI sizing supplied
+    # -------------------------------------------------------------
+    def test_allocation_decision_unavailable_when_no_ai_sizing_supplied(self):
+        provider = ConvictionConcentrationAIProvider()
+        mgr = HitAndRunAllocationManager(ai_provider=provider)
+        ai_dec, entries = mgr.evaluate_entries(
+            available_capital_gbp=10000.0,
+            portfolio_capital_gbp=10000.0,
+            current_holdings=[],
+            outstanding_orders=[],
+            analyzed_opportunities=[]
+        )
+        self.assertFalse(ai_dec.whether_to_trade)
+        self.assertEqual(ai_dec.status, "ALLOCATION_DECISION_UNAVAILABLE")
+        self.assertEqual(len(entries), 0)
+        self.assertEqual(ai_dec.total_deployment_gbp, 0.0)
+
+    # -------------------------------------------------------------
+    # Test 21: Batch analysis preserves all candidates without strategy ranking
+    # -------------------------------------------------------------
+    def test_batch_analysis_preserves_all_candidates_without_strategy_ranking(self):
+        cands = [
+            {
+                "instrument_id": f"INST_{i}", "symbol": f"SYM_{i}", "current_price": 50.0 + i,
+                "current_price_gbp": 40.0 + i, "currency": "USD", "exchange_venue": "NASDAQ",
+                "session_state": "OPEN", "min_trade_quantity": 0.001, "quantity_precision": 3,
+                "tick_size": 0.01, "bid": 49.99 + i, "ask": 50.01 + i,
+                "data_source": "TEST_EXECUTION_FEED"
+            }
+            for i in [3, 1, 4, 2, 5]
+        ]
+        states = [opportunity_state_builder.build_state(c) for c in cands]
+        analyses = opportunity_analyzer.analyze_batch(states)
+        self.assertEqual(len(analyses), 5)
+        # Verify stable behaviour-neutral ordering and zero truncation
+        ids = [a.instrument_id for a in analyses]
+        self.assertEqual(ids, sorted(ids))
+
+    # -------------------------------------------------------------
+    # Test 22: Source authority lockdown
+    # -------------------------------------------------------------
+    def test_source_authority_lockdown(self):
+        from src.data.source_authority import QuoteSourceAuthorityRegistry
+        # TRADING212_FEED and TRADING212 must be UNVERIFIED and non-executable
+        t212_auth = QuoteSourceAuthorityRegistry.get_source_authority("TRADING212_FEED")
+        self.assertEqual(t212_auth.status, "UNVERIFIED")
+        self.assertFalse(t212_auth.can_establish_execution_quote)
+        self.assertFalse(t212_auth.can_establish_current_freshness)
+
+        # Arbitrary payload source cannot self-register or establish execution quote
+        rogue_auth = QuoteSourceAuthorityRegistry.get_source_authority("ROGUE_PAYLOAD_SOURCE")
+        self.assertEqual(rogue_auth.status, "UNVERIFIED")
+        self.assertEqual(rogue_auth.role, "UNAUTHORISED_SOURCE")
+        self.assertFalse(rogue_auth.can_establish_execution_quote)
+        self.assertFalse(rogue_auth.can_establish_current_freshness)
 
 
 if __name__ == "__main__":

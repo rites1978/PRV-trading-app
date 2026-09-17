@@ -118,19 +118,12 @@ class HitAndRunScanPipeline:
         screen_failure_count = len(screen_snapshots) - screen_success_count
 
         # -------------------------------------------------------------
-        # Stage 4: SHORTLIST (Prioritize by market activity, no arbitrary cutoffs)
+        # Stage 4: SHORTLIST (Behaviour-neutral pass-through, zero truncation)
         # -------------------------------------------------------------
         t3 = time.time()
-        def _activity_key(item: Dict[str, Any]) -> float:
-            snap = screen_snapshots.get(item["ticker"], {})
-            if not snap.get("success"):
-                return -1.0
-            indicators = snap.get("indicators", {})
-            vol_ratio = float(indicators.get("vol_ratio", 1.0))
-            price = float(snap.get("current_price", 0.0))
-            return vol_ratio * price
-
-        shortlisted_items = sorted(screen_items, key=_activity_key, reverse=True)
+        # Invariant: No strategy-based ranking or activity weighting may affect candidate visibility.
+        # Preserve all items in stable, behavior-neutral ticker order without truncation.
+        shortlisted_items = sorted(screen_items, key=lambda x: str(x.get("ticker", "")))
         shortlist_duration = time.time() - t3
 
         # -------------------------------------------------------------

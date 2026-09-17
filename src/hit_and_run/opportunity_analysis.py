@@ -204,6 +204,8 @@ class HitAndRunOpportunityAnalyzer:
             expected_net_opportunity=net_opp,
             downside_estimate=downside_est,
             downside_model_status=downside_model_status,
+            expected_gross_move=state.expected_gross_move,
+            expected_move_model_status=getattr(state, "expected_move_model_status", "EXPECTED_MOVE_MODEL_UNAVAILABLE"),
             data_quality_state=data_quality_state,
             conviction_evidence=conviction_evidence,
             opportunity_score=opportunity_score
@@ -212,14 +214,9 @@ class HitAndRunOpportunityAnalyzer:
     def analyze_batch(self, states: List[LiveOpportunityState]) -> List[OpportunityAnalysisResult]:
         """Analyzes a collection of states and passes raw evidence to AI decision layer."""
         results = [self.analyze_opportunity(s) for s in states]
-        results.sort(
-            key=lambda r: (
-                r.data_quality_state == "COMPLETE",
-                r.expected_net_opportunity if r.expected_net_opportunity is not None else -1.0,
-                r.state.short_duration_momentum if r.state.short_duration_momentum is not None else -1.0
-            ),
-            reverse=True
-        )
+        # Invariant: No strategy-based ranking or pre-selection may affect candidate visibility to AI.
+        # Preserve all items in stable, behavior-neutral instrument_id order without truncation.
+        results.sort(key=lambda r: (getattr(r, "instrument_id", "") or ""))
         return results
 
 

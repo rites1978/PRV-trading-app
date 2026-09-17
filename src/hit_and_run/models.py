@@ -192,6 +192,7 @@ class LiveOpportunityState:
     estimated_costs: Optional[float] = None
     expected_gross_move: Optional[float] = None
     expected_net_opportunity: Optional[float] = None
+    expected_move_model_status: str = "EXPECTED_MOVE_MODEL_UNAVAILABLE"
     cost_model_complete: bool = True
     cost_model_reasons: List[str] = field(default_factory=list)
 
@@ -247,6 +248,8 @@ class OpportunityAnalysisResult:
     conviction_evidence: Dict[str, Any]
     downside_estimate: Optional[float] = None      # Informational evidence for AI reasoning (None if model unavailable)
     downside_model_status: str = "DOWNSIDE_MODEL_UNAVAILABLE"
+    expected_gross_move: Optional[float] = None
+    expected_move_model_status: str = "EXPECTED_MOVE_MODEL_UNAVAILABLE"
     opportunity_score: Optional[float] = None  # None if required data are incomplete
 
     def to_dict(self) -> Dict[str, Any]:
@@ -372,6 +375,7 @@ class LifecycleAssessment:
     thesis_health: str                   # "INTACT", "EXHAUSTED", "REVERSED", "DECAYED", "STOP_BREACHED"
     rationale: str
     target_rotation_symbol: Optional[str] = None
+    rotation_decision_status: Optional[str] = None
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:

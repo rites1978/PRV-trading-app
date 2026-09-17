@@ -267,16 +267,11 @@ class HitAndRunOpportunityScorer:
         )
 
     def rank_opportunities(self, snapshots: List[Dict[str, Any]]) -> List[OpportunityCandidate]:
-        """Evaluates and ranks a batch of candidates passing raw observable features to AI."""
+        """Evaluates a batch of candidates passing raw observable features to AI."""
         candidates = [self.evaluate_opportunity(s) for s in snapshots]
-        candidates.sort(
-            key=lambda c: (
-                c.strategy_qualified,
-                c.expected_net_reward if c.expected_net_reward is not None else -1.0,
-                c.momentum if c.momentum is not None else -1.0
-            ),
-            reverse=True
-        )
+        # Invariant: No strategy-based ranking or pre-selection may affect candidate visibility.
+        # Preserve all items in stable, behavior-neutral symbol/instrument order without truncation.
+        candidates.sort(key=lambda c: (getattr(c, "symbol", "") or getattr(c, "instrument_id", "") or ""))
         return candidates
 
 

@@ -20,6 +20,7 @@ class QuoteSourceAuthority:
     role: str
     can_establish_execution_quote: bool
     can_establish_current_freshness: bool
+    status: str = "UNVERIFIED"
 
 
 class QuoteSourceAuthorityRegistry:
@@ -28,29 +29,47 @@ class QuoteSourceAuthorityRegistry:
     """
 
     _KNOWN_SOURCES: Dict[str, QuoteSourceAuthority] = {
+        "TRADING212_FEED": QuoteSourceAuthority(
+            source_id="TRADING212_FEED",
+            role="BROKER_FEED",
+            can_establish_execution_quote=False,
+            can_establish_current_freshness=False,
+            status="UNVERIFIED"
+        ),
+        "TRADING212": QuoteSourceAuthority(
+            source_id="TRADING212",
+            role="BROKER_FEED",
+            can_establish_execution_quote=False,
+            can_establish_current_freshness=False,
+            status="UNVERIFIED"
+        ),
         "YAHOO": QuoteSourceAuthority(
             source_id="YAHOO",
             role="BULK_SCREEN_ONLY",
             can_establish_execution_quote=False,
-            can_establish_current_freshness=False
+            can_establish_current_freshness=False,
+            status="UNVERIFIED"
         ),
         "YFINANCE": QuoteSourceAuthority(
             source_id="YFINANCE",
             role="BULK_SCREEN_ONLY",
             can_establish_execution_quote=False,
-            can_establish_current_freshness=False
+            can_establish_current_freshness=False,
+            status="UNVERIFIED"
         ),
         "BULK_SCREEN": QuoteSourceAuthority(
             source_id="BULK_SCREEN",
             role="BULK_SCREEN_ONLY",
             can_establish_execution_quote=False,
-            can_establish_current_freshness=False
+            can_establish_current_freshness=False,
+            status="UNVERIFIED"
         ),
         "BULK_SCREEN_ONLY": QuoteSourceAuthority(
             source_id="BULK_SCREEN_ONLY",
             role="BULK_SCREEN_ONLY",
             can_establish_execution_quote=False,
-            can_establish_current_freshness=False
+            can_establish_current_freshness=False,
+            status="UNVERIFIED"
         ),
     }
 
@@ -68,7 +87,8 @@ class QuoteSourceAuthorityRegistry:
                 source_id="UNKNOWN",
                 role="UNAUTHORISED_SOURCE",
                 can_establish_execution_quote=False,
-                can_establish_current_freshness=False
+                can_establish_current_freshness=False,
+                status="UNVERIFIED"
             )
         sid = str(source_id).strip().upper()
         if sid in cls._EXECUTION_SOURCES:
@@ -79,7 +99,8 @@ class QuoteSourceAuthorityRegistry:
             source_id=sid,
             role="UNAUTHORISED_SOURCE",
             can_establish_execution_quote=False,
-            can_establish_current_freshness=False
+            can_establish_current_freshness=False,
+            status="UNVERIFIED"
         )
 
     @classmethod

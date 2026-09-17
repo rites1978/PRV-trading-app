@@ -194,11 +194,18 @@ class LiveOpportunityStateBuilder:
 
         # Expected Gross Move & Net Opportunity
         # Unauthorised heuristic removed: do not invent target moves like max(0.010, vol * 2 + mom * 0.5)
+        # Invariant: Raw market data does not contain expected gross moves.
+        # Without an authorised strategy model:
+        # expected_gross_move = None
+        # expected_net_opportunity = None
+        # expected_move_model_status = "EXPECTED_MOVE_MODEL_UNAVAILABLE"
         raw_gross = snapshot.get("expected_gross_move") or snapshot.get("target_gross_move")
         if raw_gross is not None:
             expected_gross_move = float(raw_gross)
+            expected_move_model_status = "AUTHORISED_ESTIMATE"
         else:
             expected_gross_move = None
+            expected_move_model_status = "EXPECTED_MOVE_MODEL_UNAVAILABLE"
 
         if expected_gross_move is not None and estimated_costs is not None:
             expected_net_opportunity = max(0.0, expected_gross_move - estimated_costs)
@@ -322,6 +329,7 @@ class LiveOpportunityStateBuilder:
             estimated_costs=estimated_costs,
             expected_gross_move=expected_gross_move,
             expected_net_opportunity=expected_net_opportunity,
+            expected_move_model_status=expected_move_model_status,
             cost_model_complete=cost_eval.cost_model_complete,
             cost_model_reasons=cost_eval.incomplete_reasons,
             technical_execution_supported=technical_execution_supported,
