@@ -426,11 +426,16 @@ class ProductionTelemetry:
     final_approval_count: Any            # int or "UNKNOWN"
     orders_submitted_count: Any          # int or "UNKNOWN"
 
-    # Process & Evaluation Decoupling (Section 1 & 3)
+    # Process & Evaluation Decoupling (Section 1, 3, 5)
     scan_process_completed: bool = True
     market_evaluation_complete: bool = False
     no_valid_edge_prerequisites_proven: bool = False
     scan_universe_type: str = "FULL_UNIVERSE" # "FULL_UNIVERSE" or "TEST_SUBSET"
+    test_subset: bool = False
+    scan_process_status: str = "COMPLETED"
+    market_evaluation_status: str = "INCOMPLETE"
+    trade_outcome: str = "NONE"
+    production_failure_reason: Optional[str] = None
 
     # Prerequisite Statuses (Section 1)
     universe_discovery_status: str = "UNKNOWN"
@@ -461,14 +466,20 @@ class ProductionTelemetry:
     qualified_count: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d["SCAN_PROCESS_STATUS"] = self.scan_process_status
+        d["MARKET_EVALUATION_STATUS"] = self.market_evaluation_status
+        d["TRADE_OUTCOME"] = self.trade_outcome
+        d["PRODUCTION_FAILURE_REASON"] = self.production_failure_reason
+        d["TEST_SUBSET"] = self.test_subset
+        return d
 
 
 @dataclass
 class DashboardScanStatus:
     """
     Independent dashboard status view preventing healthy infrastructure from being
-    mistaken for successful trading capability (Section 10).
+    mistaken for successful trading capability (Section 8 & 10).
     """
     engine_health: str                   # "HEALTHY", "DEGRADED", "UNHEALTHY"
     scan_process_status: str             # "COMPLETED", "IN_PROGRESS", "FAILED"
@@ -478,6 +489,16 @@ class DashboardScanStatus:
     production_failure_reason: Optional[str] = None
     no_valid_edge_prerequisites_proven: bool = False
     scan_universe_type: str = "FULL_UNIVERSE"
+    test_subset: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d["ENGINE_HEALTH"] = self.engine_health
+        d["SCAN_PROCESS_STATUS"] = self.scan_process_status
+        d["MARKET_EVALUATION_STATUS"] = self.market_evaluation_status
+        d["TRADE_OUTCOME"] = self.trade_outcome
+        d["PRODUCTION_STATUS"] = self.production_status
+        d["PRODUCTION_FAILURE_REASON"] = self.production_failure_reason
+        d["NO_VALID_EDGE_PREREQUISITES_PROVEN"] = self.no_valid_edge_prerequisites_proven
+        d["TEST_SUBSET"] = self.test_subset
+        return d

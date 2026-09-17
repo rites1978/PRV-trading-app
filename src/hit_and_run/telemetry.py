@@ -201,7 +201,7 @@ class ProductionFailureClassifier:
         elif session_status != "RESOLVED":
             failures.append("PRODUCTION_FAILURE: SESSION_METADATA_UNRESOLVED")
 
-        # D. Market Data Status (Section 2B)
+        # D. Market Data Status (Section 2B & 3)
         if market_data_status is None:
             if open_session_count not in ("UNKNOWN", 0):
                 has_quotes = (
@@ -210,15 +210,15 @@ class ProductionFailureClassifier:
                 )
                 if not has_quotes or market_data_success_count == 0:
                     market_data_status = "MISSING"
-                    failures.append("PRODUCTION_FAILURE: EXECUTION_GRADE_MARKET_DATA_MISSING")
+                    failures.append("PRODUCTION_FAILURE: EXECUTION_GRADE_MARKET_DATA_SOURCE_MISSING")
                 else:
                     market_data_status = "CURRENT_AND_EXECUTION_GRADE"
             else:
                 market_data_status = "CURRENT_AND_EXECUTION_GRADE"
         elif market_data_status != "CURRENT_AND_EXECUTION_GRADE":
-            failures.append("PRODUCTION_FAILURE: EXECUTION_GRADE_MARKET_DATA_MISSING")
+            failures.append("PRODUCTION_FAILURE: EXECUTION_GRADE_MARKET_DATA_SOURCE_MISSING")
 
-        # E. Quote Status & Bid-Ask Status (Section 2D)
+        # E. Quote Status & Bid-Ask Status (Section 2D & 3)
         if quote_status is None:
             if open_session_count not in ("UNKNOWN", 0) and current_execution_grade_quote_count in ("UNKNOWN", 0):
                 quote_status = "INCOMPLETE"
@@ -235,7 +235,7 @@ class ProductionFailureClassifier:
         elif bid_ask_status != "KNOWN":
             failures.append("PRODUCTION_FAILURE: QUOTE_DATA_INCOMPLETE (Bid/Ask unknown)")
 
-        # F. Cost Status (Section 2E)
+        # F. Cost Status (Section 2E & 3)
         if cost_status is None:
             if open_session_count not in ("UNKNOWN", 0) and cost_complete_count in ("UNKNOWN", 0):
                 cost_status = "UNKNOWN"
@@ -245,17 +245,17 @@ class ProductionFailureClassifier:
         elif cost_status != "COMPLETE":
             failures.append("PRODUCTION_FAILURE: COST_MODEL_UNKNOWN")
 
-        # G. Technical Execution Capability (Section 2C)
+        # G. Technical Execution Capability (Section 2C & 3)
         if technical_execution_status is None:
             if technically_executable_count in ("UNKNOWN", 0):
                 technical_execution_status = "INCOMPLETE"
-                failures.append("PRODUCTION_FAILURE: EXECUTION_CAPABILITY_INCOMPLETE")
+                failures.append("PRODUCTION_FAILURE: EXECUTION_CAPABILITY_COVERAGE_INCOMPLETE")
             else:
                 technical_execution_status = "PROVEN"
         elif technical_execution_status != "PROVEN":
-            failures.append("PRODUCTION_FAILURE: EXECUTION_CAPABILITY_INCOMPLETE")
+            failures.append("PRODUCTION_FAILURE: EXECUTION_CAPABILITY_COVERAGE_INCOMPLETE")
 
-        # H. Expected Move Decision Model (Section 2F)
+        # H. Expected Move Decision Model (Section 2F & 3)
         if expected_move_decision_status is None:
             if diag.get("expected_move_model_available") is False or diag.get("expected_move_model_status") == "EXPECTED_MOVE_MODEL_UNAVAILABLE":
                 expected_move_decision_status = "UNAVAILABLE"
@@ -325,6 +325,9 @@ class ProductionFailureClassifier:
             classification = ProductionClassification.BROKER_EXECUTION_FAILURE
             market_evaluation_complete = False
             no_valid_edge_prerequisites_proven = False
+            broker_failures = [f for f in failures if f.startswith("BROKER_EXECUTION_FAILURE")]
+            if broker_failures:
+                primary_failure_reason = broker_failures[0]
 
         # Case 2: Orders submitted in this cycle
         elif orders_submitted_count not in ("UNKNOWN", 0) and orders_submitted_count > 0:
@@ -384,6 +387,41 @@ class ProductionFailureClassifier:
 
         base_achieved = banked_net_profit_today_gbp >= 100.0
 
+        # Determine independent scan outcome fields (Section 1)
+        scan_process_status = "COMPLETED" if scan_process_completed else "FAILED"
+        market_evaluation_status = "COMPLETE" if market_evaluation_complete else "INCOMPLETE"
+
+        if classification == ProductionClassification.TRADE_EXECUTED or (isinstance(orders_submitted_count, int) and orders_submitted_count > 0):
+            trade_outcome = "TRADE_EXECUTED"
+        elif classification == ProductionClassification.NO_VALID_EDGE:
+            trade_outcome = "NO_VALID_EDGE"
+        elif active_holdings_count > 0:
+            trade_outcome = "HOLDING_ACTIVE"
+        else:
+            trade_outcome = "NONE"
+
+        # Extract clean canonical production failure reason
+        production_failure_reason = None
+        if len(failures) > 0 and classification not in (
+            ProductionClassification.TRADE_EXECUTED,
+            ProductionClassification.STRATEGY_OUTCOME,
+            ProductionClassification.TRADING_LOSS
+        ):
+            if classification == ProductionClassification.BROKER_EXECUTION_FAILURE:
+                raw_f = next((f for f in failures if f.startswith("BROKER_EXECUTION_FAILURE")), failures[0])
+            else:
+                raw_f = failures[0]
+            if raw_f.startswith("PRODUCTION_FAILURE: "):
+                production_failure_reason = raw_f.replace("PRODUCTION_FAILURE: ", "").strip()
+            elif raw_f.startswith("BROKER_EXECUTION_FAILURE"):
+                production_failure_reason = "BROKER_EXECUTION_FAILURE"
+            else:
+                production_failure_reason = raw_f
+            if "(" in production_failure_reason:
+                production_failure_reason = production_failure_reason.split("(")[0].strip()
+
+        test_subset = (scan_universe_type == "TEST_SUBSET")
+
         return ProductionTelemetry(
             timestamp=now_iso,
             classification=classification,
@@ -406,6 +444,11 @@ class ProductionFailureClassifier:
             market_evaluation_complete=market_evaluation_complete,
             no_valid_edge_prerequisites_proven=no_valid_edge_prerequisites_proven,
             scan_universe_type=scan_universe_type,
+            test_subset=test_subset,
+            scan_process_status=scan_process_status,
+            market_evaluation_status=market_evaluation_status,
+            trade_outcome=trade_outcome,
+            production_failure_reason=production_failure_reason,
             universe_discovery_status=universe_discovery_status,
             broker_tradability_status=broker_tradability_status,
             session_status=session_status,
@@ -434,26 +477,19 @@ class ProductionFailureClassifier:
     def get_dashboard_status(cls, telemetry: ProductionTelemetry) -> DashboardScanStatus:
         """
         Derives independent dashboard status fields to prevent healthy infrastructure
-        from being mistaken for successful trading capability (Section 10).
+        from being mistaken for successful trading capability (Section 8 & 10).
         """
         # Engine Health: Daemon heartbeat
         engine_health = "HEALTHY" if telemetry.scan_process_completed else "UNHEALTHY"
 
         # Scan Process Status: Did the process run?
-        scan_process_status = "COMPLETED" if telemetry.scan_process_completed else "FAILED"
+        scan_process_status = telemetry.scan_process_status
 
         # Market Evaluation Status: Was the relevant market evaluated?
-        market_evaluation_status = "COMPLETE" if telemetry.market_evaluation_complete else "INCOMPLETE"
+        market_evaluation_status = telemetry.market_evaluation_status
 
         # Trade Outcome
-        if telemetry.classification == ProductionClassification.TRADE_EXECUTED or (
-            isinstance(telemetry.orders_submitted_count, int) and telemetry.orders_submitted_count > 0
-        ):
-            trade_outcome = "TRADE_EXECUTED"
-        elif telemetry.classification == ProductionClassification.NO_VALID_EDGE:
-            trade_outcome = "NO_VALID_EDGE"
-        else:
-            trade_outcome = "NONE"
+        trade_outcome = telemetry.trade_outcome
 
         # Production Status
         if telemetry.classification in (
@@ -466,7 +502,7 @@ class ProductionFailureClassifier:
             failure_reason = None
         else:
             production_status = "FAILURE"
-            failure_reason = telemetry.primary_failure_reason or (telemetry.failures_found[0] if telemetry.failures_found else "UNRESOLVED_FAILURE")
+            failure_reason = telemetry.production_failure_reason or telemetry.primary_failure_reason or (telemetry.failures_found[0] if telemetry.failures_found else "UNRESOLVED_FAILURE")
 
         return DashboardScanStatus(
             engine_health=engine_health,
@@ -476,7 +512,8 @@ class ProductionFailureClassifier:
             production_status=production_status,
             production_failure_reason=failure_reason,
             no_valid_edge_prerequisites_proven=telemetry.no_valid_edge_prerequisites_proven,
-            scan_universe_type=telemetry.scan_universe_type
+            scan_universe_type=telemetry.scan_universe_type,
+            test_subset=telemetry.test_subset
         )
 
 
