@@ -150,7 +150,30 @@ class DemoExperimentRunner:
                 "reason": "Strategy rules not yet user-authorised"
             }
 
-        # Strategy decides entries (injected module)
+        # 1. Check active holdings for strategy exits (TP, Momentum Reversal, Edge Decay, Session End)
+        if hasattr(self.strategy_module, "evaluate_exit"):
+            for ticker, holding in list(self.active_holdings.items()):
+                should_exit, exit_reason = self.strategy_module.evaluate_exit(holding)
+                if should_exit:
+                    logger.info(f"[Runner] Exit signal for {ticker}: reason={exit_reason}")
+                    exit_res = self.dispatcher.execute_exit(
+                        ticker=ticker,
+                        quantity=holding["quantity"],
+                        reason=exit_reason
+                    )
+                    self.trades_log.append({
+                        "type": "EXIT",
+                        "ticker": ticker,
+                        "reason": exit_reason,
+                        "result": exit_res,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                    if exit_res.get("success"):
+                        if hasattr(self.strategy_module, "record_exit"):
+                            self.strategy_module.record_exit()
+                        del self.active_holdings[ticker]
+
+        # 2. Strategy decides entries (injected module)
         try:
             entry_decisions: List[HitAndRunEntryDecision] = self.strategy_module.evaluate(opportunities)
         except Exception as e:
@@ -160,25 +183,34 @@ class DemoExperimentRunner:
             return {"cycle_status": "STRATEGY_ERROR", "entries_submitted": 0, "error": err}
 
         executed_entries = 0
-        for dec in entry_decisions:
-            if dec.decision == "ENTER":
-                exec_res = self.dispatcher.execute_entry(dec)
-                self.trades_log.append({
-                    "type": "ENTRY",
-                    "decision": dec.to_dict(),
-                    "result": exec_res,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                })
-                if exec_res.get("success"):
-                    executed_entries += 1
-                    self.active_holdings[dec.instrument_id] = {
-                        "ticker": dec.instrument_id,
-                        "fill_price": exec_res["fill_price"],
-                        "quantity": exec_res["filled_quantity"],
-                        "stop_order_id": exec_res["stop_order_id"],
-                        "stop_price": exec_res["stop_price"],
-                        "entry_time": exec_res["timestamp"]
-                    }
+        raw_max = getattr(self.strategy_module, "MAX_CONCURRENT_POSITIONS", 1)
+        try:
+            max_concurrent = int(raw_max)
+        except (ValueError, TypeError):
+            max_concurrent = 1
+
+        if len(self.active_holdings) < max_concurrent:
+            for dec in entry_decisions:
+                if dec.decision == "ENTER":
+                    exec_res = self.dispatcher.execute_entry(dec)
+                    self.trades_log.append({
+                        "type": "ENTRY",
+                        "decision": dec.to_dict(),
+                        "result": exec_res,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                    if exec_res.get("success"):
+                        executed_entries += 1
+                        if hasattr(self.strategy_module, "record_entry"):
+                            self.strategy_module.record_entry()
+                        self.active_holdings[dec.instrument_id] = {
+                            "ticker": dec.instrument_id,
+                            "fill_price": exec_res["fill_price"],
+                            "quantity": exec_res["filled_quantity"],
+                            "stop_order_id": exec_res["stop_order_id"],
+                            "stop_price": exec_res["stop_price"],
+                            "entry_time": exec_res["timestamp"]
+                        }
 
         return {
             "cycle_status": "CYCLE_COMPLETED",
@@ -259,11 +291,15 @@ class DemoExperimentRunner:
 
 
 if __name__ == "__main__":
+    from src.hit_and_run.demo_strategy_v1 import demo_strategy_v1
     runner = DemoExperimentRunner(
-        experiment_id=f"DEMO_EXP_{datetime.now(timezone.utc).strftime('%Y%m%d')}",
-        strategy_version="AWAITING_USER_AUTHORISATION"
+        experiment_id="EXP-DEMO-001",
+        strategy_version="1.0-DEMO",
+        strategy_module=demo_strategy_v1
     )
     startup = runner.pre_session_startup()
-    print("PRE-SESSION STARTUP COMPLETE:", startup)
+    print("PRE-SESSION STARTUP COMPLETE:", json.dumps(startup, indent=2))
+    cycle = runner.run_scan_and_execute_cycle([])
+    print("CYCLE COMPLETE:", json.dumps(cycle, indent=2))
     review = runner.end_of_day_cleanup_and_review()
-    print("END-OF-DAY REVIEW COMPLETE:", review)
+    print("END-OF-DAY REVIEW COMPLETE:", json.dumps(review, indent=2))

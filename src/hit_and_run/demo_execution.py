@@ -137,17 +137,22 @@ class DemoExecutionDispatcher:
         )
 
         # Step 3: Compute Contract-Compliant Protective Stop Price
+        # Step 3: Compute Contract-Compliant Protective Stop Price
+        planned_loss = getattr(decision, "planned_loss_pct", None)
+        if planned_loss is not None and planned_loss > 0:
+            loss_pct = min(0.05, max(0.001, float(planned_loss)))
+            raw_stop = authoritative_fill_price * (1.0 - loss_pct)
+            # Protective two-decimal ceiling: STOP_PRICE = math.ceil(RAW_STOP * 100) / 100
+            stop_price = math.ceil(raw_stop * 100.0) / 100.0
+        else:
+            tick = decision.tick_size if decision.tick_size and decision.tick_size > 0 else 0.01
+            stop_price = self.risk.calculate_protective_stop(
+                fill_price=authoritative_fill_price,
+                tick_size=tick
+            )
         raw_stop_floor = authoritative_fill_price * 0.95
-        tick = decision.tick_size if decision.tick_size and decision.tick_size > 0 else 0.01
-
-        # Protective rounding: Round UP (ceiling) to valid broker tick so loss <= 5.0%
-        # submitted_stop_price >= raw_stop_floor
-        stop_price = self.risk.calculate_protective_stop(
-            fill_price=authoritative_fill_price,
-            tick_size=tick
-        )
         if stop_price < raw_stop_floor:
-            stop_price = round(raw_stop_floor + tick, 4)
+            stop_price = math.ceil(raw_stop_floor * 100.0) / 100.0
 
         # Step 4: Submit Native Protective Stop Order
         logger.info(f"[DEMO Dispatcher] Submitting protective stop for {ticker}: stopPrice={stop_price}")
@@ -188,6 +193,7 @@ class DemoExecutionDispatcher:
             return {
                 "success": False,
                 "status": "STOP_FAILED_EMERGENCY_FLATTENED",
+                "product_failure": "PROTECTIVE_STOP_NOT_CONFIRMED",
                 "ticker": ticker,
                 "entry_order_id": entry_order_id,
                 "fill_price": authoritative_fill_price,
