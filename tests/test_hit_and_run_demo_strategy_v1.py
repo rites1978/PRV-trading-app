@@ -122,7 +122,7 @@ class TestDemoStrategyV1(unittest.TestCase):
         self.assertGreater(stop_price, raw_stop)
 
     def test_06_daily_entry_limit_and_cooldown(self):
-        """Enforces max 3 entries per day and 30-minute re-entry cooldown."""
+        """MAX_DAILY_ENTRIES is None (no halt after 3 entries) and enforces 30-minute re-entry cooldown."""
         tz_ny = ZoneInfo("America/New_York")
         in_window_time = datetime(2026, 9, 17, 11, 0, tzinfo=tz_ny).timestamp()
 
@@ -130,18 +130,14 @@ class TestDemoStrategyV1(unittest.TestCase):
         df_breakout = self._generate_synthetic_5m_data(n_bars=30, base_price=300.0, trend=2.0)
         self.mock_market_data.fetch_history.return_value = df_breakout
 
-        # Check entry 1, 2, 3
-        self.strategy.record_entry()
-        self.assertEqual(self.strategy.daily_entries_count, 1)
-        self.strategy.record_entry()
-        self.assertEqual(self.strategy.daily_entries_count, 2)
-        self.strategy.record_entry()
-        self.assertEqual(self.strategy.daily_entries_count, 3)
+        # Check entry 1, 2, 3, 4, 5: Must NOT block on daily count
+        for i in range(5):
+            self.strategy.record_entry()
+        self.assertEqual(self.strategy.daily_entries_count, 5)
 
-        # 4th entry blocked
-        dec = self.strategy.evaluate_entry(now_time=in_window_time)
-        self.assertEqual(dec.decision, "NO_ENTRY")
-        self.assertIn("DAILY_LIMIT_REACHED", dec.no_entry_reason)
+        # 6th entry evaluated: not blocked by daily limit
+        dec = self.strategy.evaluate_entry(now_time=in_window_time, fx_gbpusd=1.33)
+        self.assertNotIn("DAILY_LIMIT_REACHED", dec.no_entry_reason or "")
 
         # Reset daily state
         self.strategy.reset_daily_state()
@@ -149,14 +145,14 @@ class TestDemoStrategyV1(unittest.TestCase):
 
         # Test cooldown: exit occurred 10 minutes ago (600s < 1800s)
         self.strategy.record_exit(timestamp=in_window_time - 600)
-        dec_cool = self.strategy.evaluate_entry(now_time=in_window_time)
+        dec_cool = self.strategy.evaluate_entry(now_time=in_window_time, fx_gbpusd=1.33)
         self.assertEqual(dec_cool.decision, "NO_ENTRY")
         self.assertIn("REENTRY_COOLDOWN_ACTIVE", dec_cool.no_entry_reason)
 
         # Cooldown expired (2000s > 1800s)
         self.strategy.record_exit(timestamp=in_window_time - 2000)
         # Now cooldown is cleared
-        self.assertNotIn("REENTRY_COOLDOWN_ACTIVE", self.strategy.evaluate_entry(now_time=in_window_time).no_entry_reason or "")
+        self.assertNotIn("REENTRY_COOLDOWN_ACTIVE", self.strategy.evaluate_entry(now_time=in_window_time, fx_gbpusd=1.33).no_entry_reason or "")
 
     def test_07_take_profit_exit_rule(self):
         """Take-profit triggers when price >= fill * 1.03 (+3.0%)."""

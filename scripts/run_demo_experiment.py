@@ -274,9 +274,9 @@ class DemoExperimentRunner:
             "ZERO_TRADE_REASON": "AWAITING_USER_STRATEGY_AUTHORISATION" if total_trades == 0 else None,
             "PRODUCT_FAILURES": list(self.product_failures),
             "BROKER_FAILURES": [],
-            "CLEANUP_SUCCESS": reconcile["is_clean_slate"],
-            "FINAL_OPEN_POSITIONS": reconcile["positions_count"],
-            "FINAL_OPEN_ORDERS": reconcile["orders_count"],
+            "CLEANUP_SUCCESS": bool(reconcile.get("is_clean_slate", False)),
+            "FINAL_OPEN_POSITIONS": int(reconcile.get("positions_count", 0)),
+            "FINAL_OPEN_ORDERS": int(reconcile.get("orders_count", 0)),
             "WHAT_WORKED": "Clean pre-session validation, strict DEMO environment gating, automated flatten cleanup.",
             "WHAT_DID_NOT_WORK": "Awaiting user strategy authorization before executing market entries."
         }
@@ -289,6 +289,59 @@ class DemoExperimentRunner:
 
         return report
 
+    def is_session_ended(self) -> bool:
+        """Check if trading session has passed 15:45 ET."""
+        from zoneinfo import ZoneInfo
+        tz_ny = ZoneInfo("America/New_York")
+        now_et = datetime.now(tz_ny)
+        return (now_et.hour > 15) or (now_et.hour == 15 and now_et.minute >= 45)
+
+    def run_continuous_session(
+        self,
+        max_iterations: Optional[int] = None,
+        poll_interval: float = 10.0,
+        stop_event: Optional[Any] = None
+    ) -> Dict[str, Any]:
+        """
+        Runs the persistent trading loop throughout the authorised session.
+        startup -> continuous scan/evaluate loop -> execute entries -> monitor holdings -> evaluate exits -> continue scanning after exits -> session-end reconciliation.
+        """
+        logger.info(f"[Runner] Starting persistent session loop for {self.experiment_id}")
+        self.pre_session_startup()
+
+        cycles_count = 0
+        try:
+            while True:
+                if stop_event and stop_event.is_set():
+                    logger.info("[Runner] Stop event signaled. Exiting continuous loop.")
+                    break
+
+                if self.is_session_ended():
+                    logger.info("[Runner] Session end reached (>= 15:45 ET). Proceeding to EOD cleanup.")
+                    break
+
+                cycle_res = self.run_scan_and_execute_cycle([])
+                cycles_count += 1
+                logger.info(
+                    f"[Runner] Cycle {cycles_count} completed: status={cycle_res.get('cycle_status')}, "
+                    f"entries_submitted={cycle_res.get('entries_submitted')}, active_holdings={len(self.active_holdings)}"
+                )
+
+                if max_iterations is not None and cycles_count >= max_iterations:
+                    logger.info(f"[Runner] Max iterations ({max_iterations}) reached.")
+                    break
+
+                time.sleep(poll_interval)
+        except KeyboardInterrupt:
+            logger.info("[Runner] Interrupted by user/SIGINT.")
+        except Exception as e:
+            logger.critical(f"[Runner Crash] Unhandled exception in persistent loop: {e}", exc_info=True)
+            self.product_failures.append(f"PERSISTENT_LOOP_CRASH: {str(e)}")
+
+        review = self.end_of_day_cleanup_and_review()
+        review["cycles_completed"] = cycles_count
+        return review
+
 
 if __name__ == "__main__":
     from src.hit_and_run.demo_strategy_v1 import demo_strategy_v1
@@ -297,9 +350,5 @@ if __name__ == "__main__":
         strategy_version="1.0-DEMO",
         strategy_module=demo_strategy_v1
     )
-    startup = runner.pre_session_startup()
-    print("PRE-SESSION STARTUP COMPLETE:", json.dumps(startup, indent=2))
-    cycle = runner.run_scan_and_execute_cycle([])
-    print("CYCLE COMPLETE:", json.dumps(cycle, indent=2))
-    review = runner.end_of_day_cleanup_and_review()
-    print("END-OF-DAY REVIEW COMPLETE:", json.dumps(review, indent=2))
+    review = runner.run_continuous_session(poll_interval=10.0)
+    print("SESSION COMPLETE. REVIEW REPORT:", json.dumps(review, indent=2))

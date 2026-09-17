@@ -51,6 +51,7 @@ import pandas as pd
 
 from src.hit_and_run.models import HitAndRunEntryDecision
 from src.data.market_data import MarketDataProvider
+from src.data.databento_provider import DatabentoMarketDataProvider, databento_market_data_provider
 
 logger = logging.getLogger("demo_strategy_v1")
 
@@ -77,15 +78,22 @@ class DemoStrategyV1:
     # Allocation & Risk
     CAPITAL_PER_POSITION_GBP: float = 50.0
     MAX_CONCURRENT_POSITIONS: int = 1
-    MAX_DAILY_ENTRIES: int = 3
+    MAX_DAILY_ENTRIES: Optional[int] = None
     PLANNED_LOSS_PCT: float = 0.02
     TAKE_PROFIT_PCT: float = 0.03
     EDGE_DECAY_BARS: int = 12  # 12 x 5m = 60 minutes
     REENTRY_COOLDOWN_SECONDS: float = 1800.0  # 30 minutes
     FRICTION_BPS_PROXY: float = 0.0010  # 10 bps
 
-    def __init__(self, market_data_provider: Optional[MarketDataProvider] = None):
+    def __init__(
+        self,
+        market_data_provider: Optional[MarketDataProvider] = None,
+        databento_provider: Optional[DatabentoMarketDataProvider] = None,
+        fx_provider: Optional[Any] = None
+    ):
         self.market_data = market_data_provider or MarketDataProvider()
+        self.databento_provider = databento_provider or databento_market_data_provider
+        self.fx_provider = fx_provider
         self.daily_entries_count: int = 0
         self.last_exit_timestamp: float = 0.0
         self.current_holding: Optional[Dict[str, Any]] = None
@@ -140,12 +148,13 @@ class DemoStrategyV1:
 
         return data
 
-    def calculate_quantity(self, current_price_usd: float, fx_gbpusd: float = 1.33) -> float:
+    def calculate_quantity(self, current_price_usd: float, fx_gbpusd: Optional[float] = None) -> float:
         """
         Calculate share quantity for £50 nominal allocation.
         Exact quantity format: 2 decimal places floor (empirically proven accepted by Trading212 DEMO).
+        MANDATE: No hardcoded FX assumptions. Authoritative FX rate must be provided.
         """
-        if current_price_usd <= 0.0 or fx_gbpusd <= 0.0:
+        if current_price_usd <= 0.0 or fx_gbpusd is None or fx_gbpusd <= 0.0:
             return 0.0
         price_gbp = current_price_usd / fx_gbpusd
         raw_qty = self.CAPITAL_PER_POSITION_GBP / price_gbp
@@ -153,7 +162,11 @@ class DemoStrategyV1:
         qty = math.floor(raw_qty * 100.0) / 100.0
         return max(0.0, qty)
 
-    def evaluate_entry(self, now_time: Optional[float] = None) -> HitAndRunEntryDecision:
+    def evaluate_entry(
+        self,
+        now_time: Optional[float] = None,
+        fx_gbpusd: Optional[float] = None
+    ) -> HitAndRunEntryDecision:
         """
         Evaluate entry conditions for AAPL_US_EQ.
         Returns HitAndRunEntryDecision with ENTER or NO_ENTRY.
@@ -162,8 +175,8 @@ class DemoStrategyV1:
         tz_ny = ZoneInfo(self.EXCHANGE_TIMEZONE)
         dt_ny = datetime.fromtimestamp(curr_time, tz=tz_ny)
 
-        # 1. Check daily entry limit
-        if self.daily_entries_count >= self.MAX_DAILY_ENTRIES:
+        # 1. Check daily entry limit (if configured - None for DEMO experiment)
+        if self.MAX_DAILY_ENTRIES is not None and self.daily_entries_count >= self.MAX_DAILY_ENTRIES:
             return HitAndRunEntryDecision(
                 decision="NO_ENTRY",
                 instrument_id=self.TARGET_INSTRUMENT,
@@ -193,7 +206,24 @@ class DemoStrategyV1:
                 no_entry_reason=f"OUTSIDE_ENTRY_WINDOW: current ET time {dt_ny.strftime('%H:%M:%S')} not in 09:45-15:00"
             )
 
-        # 4. Fetch market data series (5m bars)
+        # 4. Resolve authoritative FX rate (no guessing, no hardcoded defaults)
+        active_fx = fx_gbpusd
+        if active_fx is None and self.fx_provider is not None:
+            if hasattr(self.fx_provider, "get_rate"):
+                active_fx = self.fx_provider.get_rate("GBP", "USD")
+            elif hasattr(self.fx_provider, "get_gbpusd_rate"):
+                active_fx = self.fx_provider.get_gbpusd_rate()
+
+        if active_fx is None or active_fx <= 0.0:
+            return HitAndRunEntryDecision(
+                decision="NO_ENTRY",
+                instrument_id=self.TARGET_INSTRUMENT,
+                symbol=self.FEED_TICKER,
+                feed_ticker=self.FEED_TICKER,
+                no_entry_reason="PRODUCT_FAILURE: FX_CONVERSION_RATE_UNAVAILABLE: Authoritative GBP/USD rate missing"
+            )
+
+        # 5. Fetch market data series (5m bars)
         df_raw = self.market_data.fetch_history(self.FEED_TICKER, period="5d", interval=self.BAR_INTERVAL)
         if df_raw.empty or len(df_raw) < 25:
             return HitAndRunEntryDecision(
@@ -213,7 +243,20 @@ class DemoStrategyV1:
         sma_20 = float(last_row["SMA_20"])
         atr_val = float(last_row["ATR"])
 
-        # 5. Evaluate Expected Move vs Friction Proxy
+        # Databento live quote check for current decision price (no Yahoo fallback for active decision)
+        if self.databento_provider and self.databento_provider.is_configured:
+            quote = self.databento_provider.get_current_quote(self.FEED_TICKER)
+            if not quote.get("success"):
+                return HitAndRunEntryDecision(
+                    decision="NO_ENTRY",
+                    instrument_id=self.TARGET_INSTRUMENT,
+                    symbol=self.FEED_TICKER,
+                    feed_ticker=self.FEED_TICKER,
+                    no_entry_reason=f"PRODUCT_FAILURE: DATABENTO_LIVE_DATA_UNAVAILABLE: {quote.get('error')}"
+                )
+            close_px = float(quote["latest_price"])
+
+        # 6. Evaluate Expected Move vs Friction Proxy
         expected_move = 1.5 * atr_val
         friction_proxy = self.FRICTION_BPS_PROXY * close_px
         friction_hurdle = 2.0 * friction_proxy
@@ -228,7 +271,7 @@ class DemoStrategyV1:
                 no_entry_reason=f"EXPECTED_MOVE_BELOW_FRICTION: move={expected_move:.3f} <= hurdle={friction_hurdle:.3f}"
             )
 
-        # 6. Evaluate Signal Conditions
+        # 7. Evaluate Signal Conditions
         cond_bb = close_px >= bb_upper
         cond_rsi = 55.0 <= rsi_val <= 75.0
         cond_sma = close_px > sma_20
@@ -250,8 +293,8 @@ class DemoStrategyV1:
                 no_entry_reason=f"SIGNAL_CONDITIONS_NOT_MET: {'; '.join(reasons)}"
             )
 
-        # 7. Sizing: Calculate exact share quantity for £50 nominal
-        qty = self.calculate_quantity(close_px)
+        # 8. Sizing: Calculate exact share quantity for £50 nominal using authoritative FX
+        qty = self.calculate_quantity(close_px, fx_gbpusd=active_fx)
         if qty <= 0.0:
             return HitAndRunEntryDecision(
                 decision="NO_ENTRY",
@@ -349,9 +392,20 @@ class DemoStrategyV1:
         """Called when an exit fills, recording cooldown."""
         self.last_exit_timestamp = timestamp or time.time()
 
-    def evaluate(self, opportunities: Optional[List[Any]] = None) -> List[HitAndRunEntryDecision]:
+    def evaluate(
+        self,
+        opportunities: Optional[List[Any]] = None,
+        fx_gbpusd: Optional[float] = None
+    ) -> List[HitAndRunEntryDecision]:
         """Runner-compatible evaluate interface."""
-        dec = self.evaluate_entry()
+        fx = fx_gbpusd
+        if fx is None and opportunities and len(opportunities) > 0:
+            first_opp = opportunities[0]
+            if isinstance(first_opp, dict) and "fx_gbpusd" in first_opp:
+                fx = first_opp["fx_gbpusd"]
+            elif hasattr(first_opp, "fx_gbpusd"):
+                fx = getattr(first_opp, "fx_gbpusd")
+        dec = self.evaluate_entry(fx_gbpusd=fx)
         return [dec]
 
 
