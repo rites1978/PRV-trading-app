@@ -25,9 +25,15 @@ class CapabilityState:
     capability: str
     value: Any
     status: str          # "PROVEN", "UNPROVEN", "UNKNOWN", "COMPLETE", "INCOMPLETE"
-    source: str          # "BROKER_METADATA", "STATUTORY_RULE:US_SEC_RULE_612", "DEMO_CANARY_ORDER", etc.
-    evidence_level: str  # "DEMO_EXECUTION_PROVEN", "READ_ONLY_REAL_DATA_PROVEN", "STATUTORY_PROVEN", "PROVEN", "UNPROVEN", "UNKNOWN"
+    source: str          # exact broker payload artifact or regulatory source or "UNAVAILABLE"
+    evidence_level: str  # "EMPIRICAL_DEMO_PROVEN", "READ_ONLY_REAL_DATA_PROVEN", "STATUTORY_PROVEN", "PROVEN", "UNPROVEN", "UNKNOWN", "SYNTHETIC_FIXTURE_NOT_PROVEN"
     provenance: Optional[str] = None
+    regulatory_tick_status: Optional[str] = None
+    regulatory_tick_value: Any = None
+    regulatory_tick_source: Optional[str] = None
+    broker_tick_rule_status: Optional[str] = None
+    broker_tick_rule_value: Any = None
+    broker_tick_rule_source: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -38,6 +44,9 @@ class TechnicalExecutionCapabilityValidator:
 
     SUPPORTED_CURRENCIES = {"GBP", "GBX", "USD", "EUR", "CAD", "CHF"}
     EXECUTABLE_PRODUCT_TYPES = {"STOCK", "ETF", "EQUITY"}
+
+    # Component-level evidence classification per Acceptance Contract
+    COMPONENT_EVIDENCE_LEVEL: str = "TESTED"
 
     # Authoritative Empirical Stop Order Evidence Registry
     # Records only instruments with independently evidenced protective stop orders.
@@ -52,8 +61,9 @@ class TechnicalExecutionCapabilityValidator:
             "fill_price": 9.58,
             "stop_price": 9.34,
             "status": "PROVEN",
+            "evidence": "EMPIRICAL_DEMO_STOP_ORDER",
             "source": "DEMO_CANARY_ORDER",
-            "evidence_level": "DEMO_EXECUTION_PROVEN",
+            "evidence_level": "EMPIRICAL_DEMO_PROVEN",
             "provenance": (
                 "Trading212 Demo Order #54650651212, step 12625 in "
                 "brain/0db33806-1903-40f6-8bc1-f35aa804c6a0/transcript_full/00000223.jsonl"
@@ -68,8 +78,9 @@ class TechnicalExecutionCapabilityValidator:
             "fill_price": 9.58,
             "stop_price": 9.34,
             "status": "PROVEN",
+            "evidence": "EMPIRICAL_DEMO_STOP_ORDER",
             "source": "DEMO_CANARY_ORDER",
-            "evidence_level": "DEMO_EXECUTION_PROVEN",
+            "evidence_level": "EMPIRICAL_DEMO_PROVEN",
             "provenance": (
                 "Trading212 Demo Order #54650651212, step 12625 in "
                 "brain/0db33806-1903-40f6-8bc1-f35aa804c6a0/transcript_full/00000223.jsonl"
@@ -582,71 +593,138 @@ class TechnicalExecutionCapabilityValidator:
         # -------------------------------------------------------------
         # 1. QUANTITY RULE
         # -------------------------------------------------------------
+        # Governing Authority: PRV_HIT_AND_RUN_ACCEPTANCE_CONTRACT.md
+        # Trading212 metadata endpoints (/equity/metadata/instruments) return 10 keys:
+        # ['addedOn', 'currencyCode', 'extendedHours', 'isin', 'maxOpenQuantity',
+        #  'name', 'shortName', 'ticker', 'type', 'workingScheduleId']
+        # The broker payload does NOT contain `minTradeQuantity` or `quantityPrecision`.
+        # Rule:
+        # IF real broker payload contains authoritative quantity field -> PROVEN with exact payload artifact provenance
+        # ELSE -> UNKNOWN with payload-absence provenance
+        # A synthetic test fixture MUST NOT establish READ_ONLY_REAL_DATA_PROVEN;
+        # synthetic fixtures can only establish TESTED / SYNTHETIC_FIXTURE_NOT_PROVEN.
         raw_min_qty = instrument.get("minTradeQuantity")
         explicit_prec = instrument.get("quantityPrecision")
-        if raw_min_qty is not None and float(raw_min_qty) > 0:
-            min_qty = float(raw_min_qty)
+        is_synthetic = bool(
+            instrument.get("is_synthetic", False)
+            or str(t212_ticker).startswith("SYNTH_")
+        )
+        has_real_broker_provenance = bool(
+            instrument.get("real_broker_payload_provenance")
+            or (instrument.get("payload_source") and not is_synthetic)
+        )
+
+        if (
+            has_real_broker_provenance
+            and instrument.get("real_payload_contains_min_qty", False)
+            and (raw_min_qty is not None or explicit_prec is not None)
+        ):
+            min_qty = float(raw_min_qty) if raw_min_qty is not None else (10.0 ** (-int(explicit_prec)) if int(explicit_prec) > 0 else 1.0)
             prec = cls.derive_quantity_precision(min_qty) if explicit_prec is None else int(explicit_prec)
             qty_state = CapabilityState(
                 capability="QUANTITY_RULE",
                 value={"min_trade_quantity": min_qty, "quantity_precision": prec},
                 status="PROVEN",
-                source="BROKER_METADATA",
+                source=str(instrument.get("payload_source") or instrument.get("real_broker_payload_provenance")),
                 evidence_level="READ_ONLY_REAL_DATA_PROVEN",
-                provenance=f"Broker metadata: minTradeQuantity={raw_min_qty}, quantityPrecision={explicit_prec}"
+                provenance=f"Authoritative broker payload artifact: {instrument.get('payload_source') or instrument.get('real_broker_payload_provenance')}"
             )
-        elif explicit_prec is not None and int(explicit_prec) >= 0:
-            prec = int(explicit_prec)
-            min_qty = 10.0 ** (-prec) if prec > 0 else 1.0
+        elif is_synthetic and instrument.get("allow_synthetic_proven", False) and (raw_min_qty is not None or explicit_prec is not None):
+            min_qty = float(raw_min_qty) if raw_min_qty is not None else (10.0 ** (-int(explicit_prec)) if int(explicit_prec) > 0 else 1.0)
+            prec = cls.derive_quantity_precision(min_qty) if explicit_prec is None else int(explicit_prec)
             qty_state = CapabilityState(
                 capability="QUANTITY_RULE",
                 value={"min_trade_quantity": min_qty, "quantity_precision": prec},
                 status="PROVEN",
-                source="BROKER_METADATA",
-                evidence_level="READ_ONLY_REAL_DATA_PROVEN",
-                provenance=f"Broker metadata: quantityPrecision={explicit_prec}"
+                source="SYNTHETIC_TEST_FIXTURE",
+                evidence_level="SYNTHETIC_FIXTURE_NOT_PROVEN",
+                provenance="Synthetic test fixture (NOT real broker data)"
             )
         else:
             qty_state = CapabilityState(
                 capability="QUANTITY_RULE",
                 value=None,
                 status="UNKNOWN",
-                source="UNAVAILABLE",
-                evidence_level="UNPROVEN",
-                provenance=None
+                source="UNAVAILABLE:ABSENT_FROM_TRADING212_METADATA",
+                evidence_level="SYNTHETIC_FIXTURE_NOT_PROVEN" if is_synthetic else "UNPROVEN",
+                provenance=(
+                    "SYNTHETIC_FIXTURE_UNPROVEN" if is_synthetic
+                    else "ABSENT_FROM_REAL_BROKER_PAYLOAD: data/trading212_instruments_snapshot_20260917.json (Trading212 metadata does not provide minTradeQuantity or quantityPrecision)"
+                )
             )
 
         # -------------------------------------------------------------
-        # 2. TICK RULE
+        # 2. TICK RULE (Separating Regulatory Tick from Broker Tick Rule)
         # -------------------------------------------------------------
-        explicit_tick = instrument.get("tickSize")
-        if explicit_tick is not None and float(explicit_tick) > 0:
-            tick_state = CapabilityState(
-                capability="TICK_RULE",
-                value=float(explicit_tick),
-                status="PROVEN",
-                source="BROKER_METADATA",
-                evidence_level="READ_ONLY_REAL_DATA_PROVEN",
-                provenance=f"Broker metadata: tickSize={explicit_tick}"
-            )
-        elif venue_capability and venue_capability.get("tick_size_rule") == "US_SEC_RULE_612" and currency_code == "USD" and product_type in ("STOCK", "ETF"):
-            tick_state = CapabilityState(
-                capability="TICK_RULE",
-                value="US_SEC_RULE_612",
-                status="PROVEN",
-                source="STATUTORY_RULE:US_SEC_RULE_612",
-                evidence_level="STATUTORY_PROVEN",
-                provenance="17 CFR § 242.612 statutory minimum pricing increment ($0.01 / $0.0001)"
-            )
+        # Statutory / Regulatory Tick Standard:
+        # US SEC Regulation NMS Rule 612 (17 CFR § 242.612) establishes statutory minimum increments:
+        # - $0.01 for orders priced >= $1.00
+        # - $0.0001 for orders priced < $1.00
+        # This establishes regulatory minimum increment, but does NOT establish Trading212 broker-accepted tick rule.
+        # For non-US venues (e.g. LSE / Euronext / Xetra), MiFID II RTS 11 requires ESMA/FCA ADNT liquidity bands.
+        is_us_equity = (currency_code == "USD" and (product_type in ("STOCK", "ETF") or venue_name in ("NYSE", "NASDAQ")))
+        current_price_raw = instrument.get("current_price") or instrument.get("price") or 1.0
+        try:
+            current_price = float(current_price_raw)
+        except (ValueError, TypeError):
+            current_price = 1.0
+
+        if is_us_equity:
+            reg_tick_status = "REGULATORY_MINIMUM_INCREMENT_KNOWN"
+            reg_tick_value = 0.01 if current_price >= 1.0 else 0.0001
+            reg_tick_source = "STATUTORY_RULE:17_CFR_242_612"
         else:
-            tick_state = CapabilityState(
-                capability="TICK_RULE",
-                value=None,
-                status="UNKNOWN",
-                source="UNAVAILABLE",
-                evidence_level="UNPROVEN",
-                provenance=None
+            reg_tick_status = "UNKNOWN"
+            reg_tick_value = None
+            reg_tick_source = "UNAVAILABLE:MIFID_II_RTS_11_LIQUIDITY_BAND_REQUIRED"
+
+        # Broker Tick Rule Evaluation:
+        # Trading212 metadata endpoints (/equity/metadata/instruments) do NOT provide `tickSize`.
+        # Broker-accepted tick rule remains UNKNOWN unless proven by an authoritative real broker payload artifact.
+        raw_tick_size = instrument.get("tickSize")
+        if (
+            has_real_broker_provenance
+            and instrument.get("real_payload_contains_tick_size", False)
+            and raw_tick_size is not None
+            and float(raw_tick_size) > 0
+        ):
+            broker_tick_status = "PROVEN"
+            broker_tick_value = float(raw_tick_size)
+            broker_tick_source = str(instrument.get("payload_source") or instrument.get("real_broker_payload_provenance"))
+            tick_evidence_level = "READ_ONLY_REAL_DATA_PROVEN"
+            tick_provenance = f"Authoritative broker payload artifact: {broker_tick_source}"
+        elif is_synthetic and instrument.get("allow_synthetic_proven", False) and raw_tick_size is not None and float(raw_tick_size) > 0:
+            broker_tick_status = "PROVEN"
+            broker_tick_value = float(raw_tick_size)
+            broker_tick_source = "SYNTHETIC_TEST_FIXTURE"
+            tick_evidence_level = "SYNTHETIC_FIXTURE_NOT_PROVEN"
+            tick_provenance = "Synthetic test fixture (NOT real broker data)"
+        else:
+            broker_tick_status = "UNKNOWN"
+            broker_tick_value = None
+            broker_tick_source = "UNAVAILABLE:ABSENT_FROM_TRADING212_METADATA"
+            tick_evidence_level = "SYNTHETIC_FIXTURE_NOT_PROVEN" if is_synthetic else "UNPROVEN"
+            tick_provenance = (
+                "SYNTHETIC_FIXTURE_UNPROVEN" if is_synthetic
+                else "ABSENT_FROM_REAL_BROKER_PAYLOAD: data/trading212_instruments_snapshot_20260917.json (Trading212 metadata does not provide tickSize)"
             )
+
+        # The four-capability execution gate evaluates BROKER_TICK_RULE_STATUS, not regulatory tick.
+        # If broker tick rule is UNKNOWN, status is UNKNOWN and execution fails closed.
+        tick_state = CapabilityState(
+            capability="TICK_RULE",
+            value=broker_tick_value,
+            status=broker_tick_status,
+            source=broker_tick_source,
+            evidence_level=tick_evidence_level,
+            provenance=tick_provenance,
+            regulatory_tick_status=reg_tick_status,
+            regulatory_tick_value=reg_tick_value,
+            regulatory_tick_source=reg_tick_source,
+            broker_tick_rule_status=broker_tick_status,
+            broker_tick_rule_value=broker_tick_value,
+            broker_tick_rule_source=broker_tick_source
+        )
 
         # -------------------------------------------------------------
         # 3. STOP SUPPORT

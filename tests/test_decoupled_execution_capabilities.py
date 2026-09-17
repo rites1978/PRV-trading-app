@@ -111,7 +111,7 @@ class TestDecoupledExecutionCapabilities(unittest.TestCase):
         qty_cap = caps["quantity_rule"]
         self.assertEqual(qty_cap.status, "UNKNOWN")
         self.assertIsNone(qty_cap.value)
-        self.assertEqual(qty_cap.evidence_level, "UNPROVEN")
+        self.assertEqual(qty_cap.evidence_level, "SYNTHETIC_FIXTURE_NOT_PROVEN")
 
         is_exec, reason, _ = technical_execution_capability.verify_execution_capabilities(synthetic_no_qty)
         self.assertFalse(is_exec, "Missing quantity rule must fail closed")
@@ -132,7 +132,7 @@ class TestDecoupledExecutionCapabilities(unittest.TestCase):
         tick_cap = caps["tick_rule"]
         self.assertEqual(tick_cap.status, "UNKNOWN")
         self.assertIsNone(tick_cap.value)
-        self.assertEqual(tick_cap.evidence_level, "UNPROVEN")
+        self.assertEqual(tick_cap.evidence_level, "SYNTHETIC_FIXTURE_NOT_PROVEN")
 
         is_exec, reason, _ = technical_execution_capability.verify_execution_capabilities(synthetic_no_tick)
         self.assertFalse(is_exec, "Unknown tick size must fail closed")
@@ -189,7 +189,7 @@ class TestDecoupledExecutionCapabilities(unittest.TestCase):
         """Prove capability statuses remain completely decoupled for the same instrument."""
         # REAL EVIDENCED INSTRUMENT: IGLTl_EQ
         # Has proven stop support (order #54650651212) and complete cost model,
-        # but tick size on LSE is UNKNOWN without explicit metadata or ADNT liquidity band.
+        # but quantity rule and broker tick size on Trading212 are UNKNOWN (absent from broker metadata).
         iglt_instrument: Dict[str, Any] = {
             "ticker": "IGLTl_EQ",
             "symbol": "IGLT",
@@ -197,19 +197,18 @@ class TestDecoupledExecutionCapabilities(unittest.TestCase):
             "currencyCode": "GBP",
             "exchange_venue": "London Stock Exchange",
             "isin": "IE00B1FZSB30",
-            "minTradeQuantity": 1.0,
-            "quantityPrecision": 0
-            # Explicitly omitting tickSize: LSE MiFID II RTS 11 requires liquidity band
         }
         caps = technical_execution_capability.evaluate_capabilities(iglt_instrument)
-        self.assertEqual(caps["quantity_rule"].status, "PROVEN")
+        self.assertEqual(caps["quantity_rule"].status, "UNKNOWN")
         self.assertEqual(caps["stop_support"].status, "PROVEN")
+        self.assertEqual(caps["stop_support"].evidence_level, "EMPIRICAL_DEMO_PROVEN")
         self.assertEqual(caps["cost_completeness"].status, "COMPLETE")
         self.assertEqual(caps["tick_rule"].status, "UNKNOWN")
 
-        # Verifier must fail closed because tick_rule is UNKNOWN, despite stop_support being PROVEN
+        # Verifier must fail closed because quantity_rule and tick_rule are UNKNOWN, despite stop_support being PROVEN
         is_exec, reason, _ = technical_execution_capability.verify_execution_capabilities(iglt_instrument)
         self.assertFalse(is_exec)
+        self.assertIn("QUANTITY_RULE_UNPROVEN", reason)
         self.assertIn("TICK_RULE_UNPROVEN", reason)
 
     def test_no_capability_proven_without_provenance(self):
@@ -220,15 +219,13 @@ class TestDecoupledExecutionCapabilities(unittest.TestCase):
             "type": "ETF",
             "currencyCode": "GBP",
             "isin": "IE00B1FZSB30",
-            "minTradeQuantity": 1.0,
-            "tickSize": 0.01
         }
         caps = technical_execution_capability.evaluate_capabilities(iglt_instrument)
         stop_cap = caps["stop_support"]
         self.assertEqual(stop_cap.status, "PROVEN")
         self.assertIsNotNone(stop_cap.provenance)
         self.assertIn("54650651212", stop_cap.provenance)
-        self.assertEqual(stop_cap.evidence_level, "DEMO_EXECUTION_PROVEN")
+        self.assertEqual(stop_cap.evidence_level, "EMPIRICAL_DEMO_PROVEN")
 
         # Check US statutory tick provenance
         us_inst = {
@@ -236,19 +233,23 @@ class TestDecoupledExecutionCapabilities(unittest.TestCase):
             "type": "STOCK",
             "currencyCode": "USD",
             "exchange_venue": "NASDAQ",
-            "minTradeQuantity": 0.001
+            "price": 420.0
         }
         us_caps = technical_execution_capability.evaluate_capabilities(us_inst)
         tick_cap = us_caps["tick_rule"]
-        self.assertEqual(tick_cap.status, "PROVEN")
-        self.assertIsNotNone(tick_cap.provenance)
-        self.assertIn("17 CFR § 242.612", tick_cap.provenance)
+        # Regulatory tick is known under statutory Rule 612
+        self.assertEqual(tick_cap.regulatory_tick_status, "REGULATORY_MINIMUM_INCREMENT_KNOWN")
+        self.assertEqual(tick_cap.regulatory_tick_value, 0.01)
+        self.assertEqual(tick_cap.regulatory_tick_source, "STATUTORY_RULE:17_CFR_242_612")
+        # BUT broker tick rule is UNKNOWN (absent from Trading212 metadata)
+        self.assertEqual(tick_cap.broker_tick_rule_status, "UNKNOWN")
+        self.assertEqual(tick_cap.status, "UNKNOWN")
 
     def test_one_proven_capability_cannot_promote_another_capability(self):
         """Prove that having one or three capabilities PROVEN does not promote unproven capabilities."""
-        # SYNTHETIC FIXTURE: UK instrument with 3 proven capabilities (qty, tick, cost) but unproven stop support
+        # SYNTHETIC FIXTURE: Instrument with 3 simulated proven capabilities (qty, tick, cost) but unproven stop support
         synthetic_inst: Dict[str, Any] = {
-            "ticker": "BARCl_EQ",
+            "ticker": "SYNTH_BARC_EQ",
             "symbol": "BARC",
             "type": "STOCK",
             "currencyCode": "GBX",
@@ -256,11 +257,15 @@ class TestDecoupledExecutionCapabilities(unittest.TestCase):
             "isin": "GB0031348658",
             "minTradeQuantity": 1.0,
             "quantityPrecision": 0,
-            "tickSize": 0.1
+            "tickSize": 0.1,
+            "is_synthetic": True,
+            "allow_synthetic_proven": True
         }
         caps = technical_execution_capability.evaluate_capabilities(synthetic_inst)
         self.assertEqual(caps["quantity_rule"].status, "PROVEN")
+        self.assertEqual(caps["quantity_rule"].evidence_level, "SYNTHETIC_FIXTURE_NOT_PROVEN")
         self.assertEqual(caps["tick_rule"].status, "PROVEN")
+        self.assertEqual(caps["tick_rule"].evidence_level, "SYNTHETIC_FIXTURE_NOT_PROVEN")
         self.assertEqual(caps["cost_completeness"].status, "COMPLETE")
         # Invariant: Proven quantity, tick, and cost DO NOT promote stop support
         self.assertEqual(caps["stop_support"].status, "UNPROVEN")
@@ -269,6 +274,87 @@ class TestDecoupledExecutionCapabilities(unittest.TestCase):
         is_exec, reason, _ = technical_execution_capability.verify_execution_capabilities(synthetic_inst)
         self.assertFalse(is_exec)
         self.assertIn("STOP_SUPPORT_UNPROVEN", reason)
+
+    def test_real_trading212_snapshot_lacks_quantity_and_tick_fields(self):
+        """Prove real Trading212 metadata snapshot contains 10 keys and strictly lacks qty/tick fields."""
+        import json
+        with open("data/trading212_instruments_snapshot_20260917.json") as f:
+            snapshot = json.load(f)
+
+        self.assertEqual(len(snapshot), 17563)
+        distinct_keys = set()
+        for item in snapshot:
+            distinct_keys.update(item.keys())
+
+        expected_keys = {
+            "addedOn", "currencyCode", "extendedHours", "isin", "maxOpenQuantity",
+            "name", "shortName", "ticker", "type", "workingScheduleId"
+        }
+        self.assertEqual(distinct_keys, expected_keys)
+        self.assertNotIn("minTradeQuantity", distinct_keys)
+        self.assertNotIn("quantityPrecision", distinct_keys)
+        self.assertNotIn("tickSize", distinct_keys)
+
+    def test_synthetic_fixture_cannot_establish_read_only_real_data_proven(self):
+        """Prove a synthetic test fixture cannot establish READ_ONLY_REAL_DATA_PROVEN."""
+        synthetic_fixture: Dict[str, Any] = {
+            "ticker": "SYNTH_TEST_EQ",
+            "type": "STOCK",
+            "currencyCode": "USD",
+            "minTradeQuantity": 0.001,
+            "quantityPrecision": 3,
+            "tickSize": 0.01,
+            "is_synthetic": True,
+            "allow_synthetic_proven": True
+        }
+        caps = technical_execution_capability.evaluate_capabilities(synthetic_fixture)
+        self.assertNotEqual(caps["quantity_rule"].evidence_level, "READ_ONLY_REAL_DATA_PROVEN")
+        self.assertEqual(caps["quantity_rule"].evidence_level, "SYNTHETIC_FIXTURE_NOT_PROVEN")
+        self.assertNotEqual(caps["tick_rule"].evidence_level, "READ_ONLY_REAL_DATA_PROVEN")
+        self.assertEqual(caps["tick_rule"].evidence_level, "SYNTHETIC_FIXTURE_NOT_PROVEN")
+
+    def test_regulatory_tick_separated_from_broker_tick(self):
+        """Prove US Rule 612 sets regulatory increment known while broker tick rule remains UNKNOWN."""
+        us_equity: Dict[str, Any] = {
+            "ticker": "AAPL_US_EQ",
+            "type": "STOCK",
+            "currencyCode": "USD",
+            "exchange_venue": "NASDAQ",
+            "price": 150.0
+        }
+        caps = technical_execution_capability.evaluate_capabilities(us_equity)
+        tick_state = caps["tick_rule"]
+
+        # 1. Regulatory tick is known under 17 CFR § 242.612
+        self.assertEqual(tick_state.regulatory_tick_status, "REGULATORY_MINIMUM_INCREMENT_KNOWN")
+        self.assertEqual(tick_state.regulatory_tick_value, 0.01)
+        self.assertEqual(tick_state.regulatory_tick_source, "STATUTORY_RULE:17_CFR_242_612")
+
+        # 2. Broker tick rule is UNKNOWN (absent from Trading212 metadata)
+        self.assertEqual(tick_state.broker_tick_rule_status, "UNKNOWN")
+        self.assertIsNone(tick_state.broker_tick_rule_value)
+        self.assertEqual(tick_state.broker_tick_rule_source, "UNAVAILABLE:ABSENT_FROM_TRADING212_METADATA")
+
+        # 3. Gate evaluates broker tick rule, so overall tick_rule status is UNKNOWN
+        self.assertEqual(tick_state.status, "UNKNOWN")
+
+        # 4. Verifier fails closed on broker tick rule
+        is_exec, reason, _ = technical_execution_capability.verify_execution_capabilities(us_equity)
+        self.assertFalse(is_exec)
+        self.assertIn("TICK_RULE_UNPROVEN", reason)
+
+    def test_iglt_stop_evidence_level_empirical_demo_proven(self):
+        """Prove IGLT stop order is EMPIRICAL_DEMO_PROVEN and component level is TESTED."""
+        self.assertEqual(technical_execution_capability.COMPONENT_EVIDENCE_LEVEL, "TESTED")
+        reg_entry = technical_execution_capability.STOP_SUPPORT_REGISTRY["IGLTl_EQ"]
+        self.assertEqual(reg_entry["status"], "PROVEN")
+        self.assertEqual(reg_entry["evidence"], "EMPIRICAL_DEMO_STOP_ORDER")
+        self.assertEqual(reg_entry["evidence_level"], "EMPIRICAL_DEMO_PROVEN")
+        self.assertEqual(reg_entry["order_id"], 54650651212)
+
+        caps = technical_execution_capability.evaluate_capabilities({"ticker": "IGLTl_EQ"})
+        self.assertEqual(caps["stop_support"].status, "PROVEN")
+        self.assertEqual(caps["stop_support"].evidence_level, "EMPIRICAL_DEMO_PROVEN")
 
     # =========================================================================
     # 4. ARCHITECTURAL ISOLATION: ZERO BROKER WRITES & NO STRATEGY (Section 3)
