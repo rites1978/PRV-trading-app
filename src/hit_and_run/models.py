@@ -63,6 +63,8 @@ class OpportunityCandidate:
     # Market context
     market_session: str = "REGULAR"
     extended_hours_eligible: bool = False
+    extended_hours_status: str = "UNKNOWN"
+    extended_hours: Optional[bool] = None
     overnight_eligibility: str = "UNKNOWN"
     execution_session: str = "REGULAR"
     next_session_transition: Optional[Dict[str, Any]] = None
@@ -216,6 +218,8 @@ class LiveOpportunityState:
     is_fresh: bool = True
     session_open: bool = False
     extended_hours_eligible: bool = False
+    extended_hours_status: str = "UNKNOWN"
+    extended_hours: Optional[bool] = None
     overnight_eligibility: str = "UNKNOWN"    # TRUE, FALSE, UNKNOWN
     execution_session: str = "UNKNOWN"
     next_session_transition: Optional[Dict[str, Any]] = None

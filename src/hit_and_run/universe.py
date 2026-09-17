@@ -41,6 +41,11 @@ class HitAndRunUniverseDiscovery:
             "UNTRADABLE_ZERO_QUANTITY_COUNT": raw_telemetry.get("BROKER_API_UNTRADABLE_ZERO_QUANTITY", 0),
             "TRADABILITY_UNKNOWN_COUNT": raw_telemetry.get("BROKER_API_TRADABILITY_UNKNOWN", 0),
             "TECHNICAL_SUPPORTED_COUNT": len(executable),
+            "EXTENDED_HOURS_TRUE": raw_telemetry.get("EXTENDED_HOURS_TRUE", 0),
+            "EXTENDED_HOURS_FALSE": raw_telemetry.get("EXTENDED_HOURS_FALSE", 0),
+            "EXTENDED_HOURS_NULL": raw_telemetry.get("EXTENDED_HOURS_NULL", 0),
+            "EXTENDED_HOURS_MISSING": raw_telemetry.get("EXTENDED_HOURS_MISSING", 0),
+            "EXTENDED_HOURS_UNKNOWN": raw_telemetry.get("EXTENDED_HOURS_UNKNOWN", 0),
             "PRODUCT_FAMILIES": product_families,
             "TRADABLE_PRODUCT_FAMILIES": tradable_families,
             "UNSUPPORTED_PRODUCT_FAMILIES": unsupported,
@@ -61,6 +66,7 @@ class HitAndRunUniverseDiscovery:
         for inst in tradable_instruments:
             is_supported, reason, details = technical_execution_capability.validate(inst)
             if is_supported:
+                ext_eval = broker_discovery.evaluate_extended_hours(inst)
                 executable_list.append({
                     "instrument_id": details["ticker"],
                     "symbol": inst.get("shortName") or inst.get("ticker"),
@@ -73,7 +79,9 @@ class HitAndRunUniverseDiscovery:
                     "quote_divisor": details["quote_divisor"],
                     "min_trade_quantity": details["min_qty"],
                     "max_open_quantity": details["max_open"],
-                    "working_schedule_id": details.get("working_schedule_id")
+                    "working_schedule_id": details.get("working_schedule_id"),
+                    "extended_hours": ext_eval["extended_hours"],
+                    "extended_hours_status": ext_eval["extended_hours_status"]
                 })
 
         self._executable_universe_cache = executable_list

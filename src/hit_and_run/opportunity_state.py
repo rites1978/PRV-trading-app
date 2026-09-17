@@ -13,6 +13,7 @@ from src.hit_and_run.models import LiveOpportunityState
 from src.hit_and_run.cost_model import hit_and_run_cost_model
 from src.data.technical_execution_capability import technical_execution_capability
 from src.data.market_session_router import market_session_router
+from src.data.broker_discovery import broker_discovery
 from src.data.source_authority import QuoteSourceAuthorityRegistry, QuoteSourceAuthority
 
 
@@ -43,10 +44,14 @@ class LiveOpportunityStateBuilder:
         is_uk_pence = snapshot.get("is_uk_pence", currency.upper() == "GBX")
         quote_divisor = float(snapshot.get("quote_divisor", 100.0 if is_uk_pence else 1.0))
         isin = str(snapshot.get("isin", "")).strip().upper()
+        feed_provider = snapshot.get("feed_provider", "TRADING212")
 
-        # Exchange Venue Resolution
+        # Technical Venue Resolution (Authoritative)
         exchange_venue = str(
-            snapshot.get("exchange_venue") or snapshot.get("exchange") or snapshot.get("venue") or ""
+            snapshot.get("exchange_venue") or
+            snapshot.get("exchange") or
+            snapshot.get("workingScheduleId") or
+            ""
         ).strip()
         if not exchange_venue and instrument_meta:
             exchange_venue = technical_execution_capability.resolve_exchange_venue(instrument_meta) or ""
@@ -56,6 +61,8 @@ class LiveOpportunityStateBuilder:
         # Session State & Session Open Resolution
         session_open = False
         extended_hours_eligible = False
+        extended_hours_status = "UNKNOWN"
+        extended_hours = None
         overnight_eligibility = "UNKNOWN"
         execution_session = "UNKNOWN"
         next_session_transition = None
@@ -65,6 +72,8 @@ class LiveOpportunityStateBuilder:
             s_details = market_session_router.get_instrument_session_details(sched_obj, utc_dt=utc_dt)
             session_open = bool(s_details["session_open_now"])
             extended_hours_eligible = bool(s_details["extended_hours_eligible"])
+            extended_hours_status = str(s_details.get("extended_hours_status", "UNKNOWN"))
+            extended_hours = s_details.get("extended_hours")
             overnight_eligibility = str(s_details.get("overnight_eligibility", "UNKNOWN"))
             execution_session = str(s_details["execution_session"])
             next_session_transition = s_details["next_session_transition"]
@@ -79,7 +88,10 @@ class LiveOpportunityStateBuilder:
                 session_state = "REGULAR"
                 session_open = True
                 execution_session = "REGULAR"
-            extended_hours_eligible = bool(snapshot.get("extendedHours", False))
+            ext_eval = broker_discovery.evaluate_extended_hours(snapshot)
+            extended_hours = ext_eval["extended_hours"]
+            extended_hours_status = ext_eval["extended_hours_status"]
+            extended_hours_eligible = ext_eval["is_extended_hours_eligible"]
             overnight_eligibility = "UNKNOWN"
 
         # Prices & Quote Units
@@ -364,6 +376,8 @@ class LiveOpportunityStateBuilder:
             is_fresh=is_fresh,
             session_open=session_open,
             extended_hours_eligible=extended_hours_eligible,
+            extended_hours_status=extended_hours_status,
+            extended_hours=extended_hours,
             overnight_eligibility=overnight_eligibility,
             execution_session=execution_session,
             next_session_transition=next_session_transition,

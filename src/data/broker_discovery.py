@@ -172,6 +172,62 @@ class BrokerDiscoveryService:
                 "is_tradable": False
             }
 
+    @staticmethod
+    def evaluate_extended_hours(instrument: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Authoritatively evaluates the extendedHours metadata state of an instrument.
+        Distinguishes:
+        - True (KNOWN_TRUE, eligible for pre-market/after-hours)
+        - False (KNOWN_FALSE, standard hours only)
+        - None / missing / non-bool (UNKNOWN, fail-closed)
+        Strictly prohibits silent boolean coercion (e.g. None -> False or "true" -> True).
+        """
+        if "extendedHours" not in instrument:
+            return {
+                "extended_hours": None,
+                "extended_hours_status": "UNKNOWN",
+                "is_extended_hours_eligible": False,
+                "raw_value": None,
+                "source": "UNAVAILABLE:FIELD_MISSING"
+            }
+
+        raw_val = instrument.get("extendedHours")
+        if raw_val is None:
+            return {
+                "extended_hours": None,
+                "extended_hours_status": "UNKNOWN",
+                "is_extended_hours_eligible": False,
+                "raw_value": None,
+                "source": "UNAVAILABLE:FIELD_NULL"
+            }
+
+        if not isinstance(raw_val, bool):
+            # Prohibit type coercion: non-bool values (strings, ints) are malformed
+            return {
+                "extended_hours": None,
+                "extended_hours_status": "UNKNOWN",
+                "is_extended_hours_eligible": False,
+                "raw_value": raw_val,
+                "source": f"INVALID_TYPE:{type(raw_val).__name__}"
+            }
+
+        if raw_val is True:
+            return {
+                "extended_hours": True,
+                "extended_hours_status": "KNOWN_TRUE",
+                "is_extended_hours_eligible": True,
+                "raw_value": True,
+                "source": "BROKER_METADATA"
+            }
+        else:
+            return {
+                "extended_hours": False,
+                "extended_hours_status": "KNOWN_FALSE",
+                "is_extended_hours_eligible": False,
+                "raw_value": False,
+                "source": "BROKER_METADATA"
+            }
+
     def get_tradable_instruments(self) -> List[Dict[str, Any]]:
         """Returns active instruments confirmed tradable to this account (maxOpenQuantity > 0)."""
         self.initialize()
@@ -201,6 +257,12 @@ class BrokerDiscoveryService:
         zero_qty_by_type: Dict[str, int] = {}
         unknown_by_type: Dict[str, int] = {}
 
+        ext_true_count = 0
+        ext_false_count = 0
+        ext_null_count = 0
+        ext_missing_count = 0
+        ext_unknown_count = 0
+
         for inst in self._instruments:
             t = inst.get("type", "UNKNOWN")
             discovered_by_type[t] = discovered_by_type.get(t, 0) + 1
@@ -217,6 +279,19 @@ class BrokerDiscoveryService:
                 tradability_unknown.append(inst)
                 unknown_by_type[t] = unknown_by_type.get(t, 0) + 1
 
+            ext_eval = self.evaluate_extended_hours(inst)
+            ext_status = ext_eval["extended_hours_status"]
+            if ext_status == "KNOWN_TRUE":
+                ext_true_count += 1
+            elif ext_status == "KNOWN_FALSE":
+                ext_false_count += 1
+            else:
+                ext_unknown_count += 1
+                if ext_eval["source"] == "UNAVAILABLE:FIELD_NULL":
+                    ext_null_count += 1
+                elif ext_eval["source"] == "UNAVAILABLE:FIELD_MISSING":
+                    ext_missing_count += 1
+
         unsupported_families = {
             t: count for t, count in discovered_by_type.items()
             if t not in ("STOCK", "ETF")
@@ -227,6 +302,11 @@ class BrokerDiscoveryService:
             "BROKER_API_TRADABLE": len(tradable),
             "BROKER_API_UNTRADABLE_ZERO_QUANTITY": len(zero_quantity),
             "BROKER_API_TRADABILITY_UNKNOWN": len(tradability_unknown),
+            "EXTENDED_HOURS_TRUE": ext_true_count,
+            "EXTENDED_HOURS_FALSE": ext_false_count,
+            "EXTENDED_HOURS_NULL": ext_null_count,
+            "EXTENDED_HOURS_MISSING": ext_missing_count,
+            "EXTENDED_HOURS_UNKNOWN": ext_unknown_count,
             "DISCOVERED_BY_PRODUCT_TYPE": discovered_by_type,
             "TRADABLE_BY_PRODUCT_TYPE": tradable_by_type,
             "UNTRADABLE_ZERO_BY_PRODUCT_TYPE": zero_qty_by_type,
