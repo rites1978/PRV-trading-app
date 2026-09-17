@@ -78,6 +78,8 @@ class DemoExperimentRunner:
         self.trades_log: List[Dict[str, Any]] = []
         self.active_holdings: Dict[str, Dict[str, Any]] = {}
         self.product_failures: List[str] = []
+        self.canary_armed: bool = os.getenv("PRV_DEMO_CANARY_ARMED", "true").lower() in ("true", "1", "yes")
+        self.canary_executed_dates: set = set()
 
     def _get_git_sha(self) -> str:
         try:
@@ -371,6 +373,84 @@ class DemoExperimentRunner:
         review["cycles_completed"] = cycles_count
         return review
 
+    def execute_demo_execution_canary(
+        self,
+        ticker: str = "AAPL_US_EQ",
+        symbol: str = "AAPL",
+        feed_ticker: str = "AAPL",
+        quantity: float = 0.19
+    ) -> Dict[str, Any]:
+        """
+        User-authorised DEMO_EXECUTION_CANARY for Trading212 PRACTICE account.
+        Visibly exercises the broker execution lifecycle:
+        BUY -> FILL -> PROTECTIVE STOP -> STOP VERIFICATION -> EXIT -> FLAT RECONCILIATION.
+        Clearly labelled: DEMO_EXECUTION_CANARY (NOT strategy performance evidence).
+        """
+        logger.info(f"[Canary] Starting DEMO_EXECUTION_CANARY for {ticker} (qty={quantity})")
+        env = getattr(self.dispatcher.broker, "env", "") or getattr(settings, "TRADING_ENV", "")
+        if str(env).lower() != "demo":
+            raise RuntimeError("CRITICAL_SAFETY_HALT: DEMO_EXECUTION_CANARY requested in non-DEMO environment.")
+
+        # 1. Construct entry decision
+        canary_decision = HitAndRunEntryDecision(
+            decision="ENTER",
+            instrument_id=ticker,
+            symbol=symbol,
+            feed_ticker=feed_ticker,
+            intended_capital_gbp=50.0,
+            intended_quantity=quantity,
+            required_protective_level=1.0,
+            thesis="DEMO_EXECUTION_CANARY: Explicit user authority to verify practice broker execution path."
+        )
+        canary_decision.planned_loss_pct = 0.02
+
+        # 2. Submit BUY order, poll for fill, place protective stop, verify stop order
+        entry_res = self.dispatcher.execute_entry(canary_decision)
+        if not entry_res.get("success"):
+            logger.error(f"[Canary] Entry submission failed: {entry_res}")
+            canary_log = {
+                "type": "DEMO_EXECUTION_CANARY",
+                "label": "DEMO_EXECUTION_CANARY",
+                "status": "ENTRY_FAILED",
+                "entry_result": entry_res,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            self.trades_log.append(canary_log)
+            return canary_log
+
+        fill_price = entry_res.get("fill_price")
+        filled_qty = entry_res.get("filled_quantity", quantity)
+        stop_id = entry_res.get("stop_order_id")
+        stop_price = entry_res.get("stop_price")
+        logger.info(f"[Canary] Entry filled @ {fill_price}, protective stop confirmed #{stop_id} @ {stop_price}")
+
+        # 3. Short dwell to confirm stop book visibility
+        time.sleep(2.0)
+
+        # 4. Execute EXIT: cancel protective stop, submit market sell, confirm fill
+        exit_res = self.dispatcher.execute_exit(
+            ticker=ticker,
+            quantity=filled_qty,
+            reason="DEMO_EXECUTION_CANARY_FLATTEN"
+        )
+        logger.info(f"[Canary] Exit executed: {exit_res}")
+
+        # 5. Flat reconciliation
+        reconcile = self.dispatcher.reconcile_broker_state()
+        canary_log = {
+            "type": "DEMO_EXECUTION_CANARY",
+            "label": "DEMO_EXECUTION_CANARY",
+            "status": "COMPLETED" if (exit_res.get("success") and reconcile.get("is_clean_slate")) else "PARTIAL",
+            "entry_result": entry_res,
+            "exit_result": exit_res,
+            "reconciliation": reconcile,
+            "is_clean_slate": reconcile.get("is_clean_slate", False),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        self.trades_log.append(canary_log)
+        logger.info(f"[Canary] DEMO_EXECUTION_CANARY completed. Clean slate: {reconcile.get('is_clean_slate')}")
+        return canary_log
+
     def run_multi_session_worker(
         self,
         poll_interval: float = 10.0,
@@ -422,7 +502,17 @@ class DemoExperimentRunner:
                         time.sleep(poll_interval)
                         continue
 
-                # 2. Run scan and execute cycle
+                # 2. Run DEMO canary if armed and not yet run for today
+                if self.canary_armed and today not in self.canary_executed_dates:
+                    try:
+                        logger.info(f"[Multi-Session Worker] Executing authorised DEMO_EXECUTION_CANARY for {today}...")
+                        canary_res = self.execute_demo_execution_canary()
+                        self.canary_executed_dates.add(today)
+                        logger.info(f"[Multi-Session Worker] DEMO Canary status: {canary_res.get('status')}")
+                    except Exception as ce:
+                        logger.error(f"[Multi-Session Worker] DEMO Canary execution error: {ce}", exc_info=True)
+
+                # 3. Run scan and execute cycle
                 try:
                     cycle_res = self.run_scan_and_execute_cycle([])
                     logger.info(

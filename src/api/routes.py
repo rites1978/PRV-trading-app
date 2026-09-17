@@ -115,6 +115,7 @@ def _resolve_runtime_git_sha() -> str:
 def get_demo_experiment_status():
     runner = getattr(app.state, "demo_experiment_runner", None)
     thread = getattr(app.state, "demo_experiment_thread", None)
+    canary_trades = [t for t in (runner.trades_log if runner else []) if t.get("type") == "DEMO_EXECUTION_CANARY"]
     return {
         "experiment_id": "EXP-DEMO-001",
         "trading_env": (os.getenv("TRADING_ENV") or settings.TRADING_ENV or "demo").lower(),
@@ -122,8 +123,19 @@ def get_demo_experiment_status():
         "thread_alive": thread.is_alive() if thread else False,
         "holdings_count": len(runner.active_holdings) if runner else 0,
         "trades_count": len(runner.trades_log) if runner else 0,
+        "canary_armed": getattr(runner, "canary_armed", True) if runner else True,
+        "canary_executed": len(canary_trades) > 0,
         "git_sha": _resolve_runtime_git_sha()
     }
+
+
+@app.post("/api/demo_experiment/trigger_canary")
+def trigger_demo_canary():
+    """Manually triggers the authorised DEMO_EXECUTION_CANARY on the active runner."""
+    runner = getattr(app.state, "demo_experiment_runner", None)
+    if not runner:
+        return {"success": False, "error": "demo_experiment_runner not initialized"}
+    return runner.execute_demo_execution_canary()
 
 # Enable CORS for web and mobile clients
 app.add_middleware(

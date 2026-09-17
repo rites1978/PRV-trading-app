@@ -498,6 +498,52 @@ class TestRenderTradingBuildReadiness(unittest.TestCase):
         status = get_demo_experiment_status()
         self.assertNotEqual(status["git_sha"], "3d14b6b10d5ea4cc9814273a9b4a5162df5acc4a")
         self.assertTrue(len(status["git_sha"]) >= 7)
+        self.assertTrue(status["canary_armed"])
+        self.assertFalse(status["canary_executed"])
+
+    def test_17_demo_execution_canary_lifecycle(self):
+        """Verify authorised DEMO_EXECUTION_CANARY executes BUY -> FILL -> STOP -> EXIT -> RECONCILE."""
+        from scripts.run_demo_experiment import DemoExperimentRunner
+
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.broker = MagicMock()
+        mock_dispatcher.broker.env = "demo"
+        mock_dispatcher.execute_entry.return_value = {
+            "success": True,
+            "fill_price": 225.50,
+            "filled_quantity": 0.19,
+            "stop_order_id": "STOP_CANARY_1",
+            "stop_price": 220.99,
+            "timestamp": "2026-09-18T10:00:00Z"
+        }
+        mock_dispatcher.execute_exit.return_value = {
+            "success": True,
+            "fill_price": 225.40,
+            "filled_quantity": 0.19,
+            "timestamp": "2026-09-18T10:00:05Z"
+        }
+        mock_dispatcher.reconcile_broker_state.return_value = {
+            "is_clean_slate": True,
+            "positions_count": 0,
+            "orders_count": 0
+        }
+
+        runner = DemoExperimentRunner(
+            experiment_id="EXP-DEMO-001",
+            strategy_version="1.0-DEMO",
+            dispatcher=mock_dispatcher,
+            audit_log_dir="/tmp/test_audit"
+        )
+
+        canary_res = runner.execute_demo_execution_canary(ticker="AAPL_US_EQ", quantity=0.19)
+        self.assertEqual(canary_res["type"], "DEMO_EXECUTION_CANARY")
+        self.assertEqual(canary_res["label"], "DEMO_EXECUTION_CANARY")
+        self.assertEqual(canary_res["status"], "COMPLETED")
+        self.assertTrue(canary_res["is_clean_slate"])
+        self.assertEqual(mock_dispatcher.execute_entry.call_count, 1)
+        self.assertEqual(mock_dispatcher.execute_exit.call_count, 1)
+        self.assertEqual(mock_dispatcher.reconcile_broker_state.call_count, 1)
+        self.assertEqual(len(runner.trades_log), 1)
 
 
 if __name__ == "__main__":
