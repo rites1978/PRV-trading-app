@@ -21,6 +21,7 @@ NON-RESPONSIBILITIES:
 - Does NOT decide take-profit or lifecycle strategy.
 No LIVE broker path exists in this module.
 """
+import math
 import time
 import logging
 from typing import Dict, Any, List, Optional, Tuple
@@ -291,3 +292,4 @@ class DemoExecutionDispatcher:
 
 
 demo_execution_dispatcher = DemoExecutionDispatcher()
+demo_dispatcher = demo_execution_dispatcher

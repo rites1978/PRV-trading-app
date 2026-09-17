@@ -37,7 +37,7 @@ def start_demo_experiment_worker():
     try:
         from scripts.run_demo_experiment import DemoExperimentRunner
         from src.hit_and_run.demo_strategy_v1 import demo_strategy_v1
-        from src.hit_and_run.demo_execution import demo_dispatcher
+        from src.hit_and_run.demo_execution import demo_execution_dispatcher as demo_dispatcher
 
         runner = DemoExperimentRunner(
             experiment_id="EXP-DEMO-001",
@@ -46,8 +46,8 @@ def start_demo_experiment_worker():
             dispatcher=demo_dispatcher
         )
         app.state.demo_experiment_runner = runner
-        logger.info("[Startup] EXP-DEMO-001 Hit-and-Run persistent loop starting...")
-        runner.run_continuous_session(poll_interval=10.0)
+        logger.info("[Startup] EXP-DEMO-001 Hit-and-Run persistent multi-session loop starting...")
+        runner.run_multi_session_worker(poll_interval=10.0)
     except Exception as ex:
         logger.critical(f"[Startup H&R Worker Error] {ex}", exc_info=True)
 
@@ -97,6 +97,20 @@ def on_startup():
             print(f"[Startup Engine Start Error] {e}")
 
 
+def _resolve_runtime_git_sha() -> str:
+    render_commit = os.getenv("RENDER_GIT_COMMIT")
+    if render_commit and render_commit.strip():
+        return render_commit.strip()
+    try:
+        import subprocess
+        out = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+        if out:
+            return out
+    except Exception:
+        pass
+    return os.getenv("GIT_COMMIT_SHA", "UNKNOWN")
+
+
 @app.get("/api/demo_experiment/status")
 def get_demo_experiment_status():
     runner = getattr(app.state, "demo_experiment_runner", None)
@@ -108,7 +122,7 @@ def get_demo_experiment_status():
         "thread_alive": thread.is_alive() if thread else False,
         "holdings_count": len(runner.active_holdings) if runner else 0,
         "trades_count": len(runner.trades_log) if runner else 0,
-        "git_sha": "3d14b6b10d5ea4cc9814273a9b4a5162df5acc4a"
+        "git_sha": _resolve_runtime_git_sha()
     }
 
 # Enable CORS for web and mobile clients

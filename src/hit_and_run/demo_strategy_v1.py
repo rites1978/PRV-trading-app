@@ -50,7 +50,6 @@ from typing import Dict, Any, List, Optional, Tuple
 import pandas as pd
 
 from src.hit_and_run.models import HitAndRunEntryDecision
-from src.data.market_data import MarketDataProvider
 from src.data.databento_provider import DatabentoMarketDataProvider, databento_market_data_provider
 
 logger = logging.getLogger("demo_strategy_v1")
@@ -84,15 +83,14 @@ class DemoStrategyV1:
     EDGE_DECAY_BARS: int = 12  # 12 x 5m = 60 minutes
     REENTRY_COOLDOWN_SECONDS: float = 1800.0  # 30 minutes
     FRICTION_BPS_PROXY: float = 0.0010  # 10 bps
-    MAX_QUOTE_STALENESS_SECONDS: float = 60.0
 
     def __init__(
         self,
-        market_data_provider: Optional[MarketDataProvider] = None,
+        market_data_provider: Optional[Any] = None,
         databento_provider: Optional[DatabentoMarketDataProvider] = None,
         fx_provider: Optional[Any] = None
     ):
-        self.market_data = market_data_provider or MarketDataProvider()
+        self.market_data = market_data_provider
         self.databento_provider = databento_provider or databento_market_data_provider
         self.fx_provider = fx_provider
         self.daily_entries_count: int = 0
@@ -227,7 +225,7 @@ class DemoStrategyV1:
                 no_entry_reason=f"PRODUCT_FAILURE: DATABENTO_LIVE_DATA_UNAVAILABLE: {quote.get('error') or quote.get('status')}"
             )
 
-        # Enforce Complete Executable Quote Gate
+        # Enforce Complete Executable Quote Gate (BBO strictly required)
         bid = quote.get("bid")
         ask = quote.get("ask")
         spread = quote.get("spread")
@@ -235,22 +233,16 @@ class DemoStrategyV1:
         fetch_ts = quote.get("fetch_timestamp")
         freshness = quote.get("freshness_seconds")
 
-        if bid is None or ask is None or spread is None or spread <= 0.0 or not quote_ts or not fetch_ts:
+        if bid is None or ask is None or spread is None or spread <= 0.0 or not quote_ts or not fetch_ts or freshness is None:
             return HitAndRunEntryDecision(
                 decision="NO_ENTRY",
                 instrument_id=self.TARGET_INSTRUMENT,
                 symbol=self.FEED_TICKER,
                 feed_ticker=self.FEED_TICKER,
-                no_entry_reason="PRODUCT_FAILURE: DATABENTO_BBO_UNAVAILABLE: Complete executable quote (bid, ask, positive spread, quote_timestamp, and fetch_timestamp) required"
-            )
-
-        if freshness is not None and freshness > self.MAX_QUOTE_STALENESS_SECONDS:
-            return HitAndRunEntryDecision(
-                decision="NO_ENTRY",
-                instrument_id=self.TARGET_INSTRUMENT,
-                symbol=self.FEED_TICKER,
-                feed_ticker=self.FEED_TICKER,
-                no_entry_reason=f"PRODUCT_FAILURE: DATABENTO_QUOTE_STALE: freshness {freshness:.1f}s exceeds {self.MAX_QUOTE_STALENESS_SECONDS}s"
+                no_entry_reason=(
+                    "PRODUCT_FAILURE: DATABENTO_BBO_UNAVAILABLE: Complete executable quote "
+                    "(bid, ask, positive spread, quote_timestamp, fetch_timestamp, and known freshness) required"
+                )
             )
 
         # 5. Fetch Databento 5m bars directly for indicator computation (NO Yahoo fallback for active decisions)
@@ -273,9 +265,10 @@ class DemoStrategyV1:
         sma_20 = float(last_row["SMA_20"])
         atr_val = float(last_row["ATR"])
 
-        # 6. Evaluate Expected Move vs Friction (Hurdle based on actual live Databento spread)
+        # 6. Evaluate Expected Move vs Friction (Authorised formula from PRV_HIT_AND_RUN_ACCEPTANCE_CONTRACT.md)
+        friction_proxy = self.FRICTION_BPS_PROXY * close_px
         expected_move = 1.5 * atr_val
-        friction_hurdle = 2.0 * spread
+        friction_hurdle = 2.0 * friction_proxy
 
         if expected_move <= friction_hurdle:
             return HitAndRunEntryDecision(
@@ -284,18 +277,21 @@ class DemoStrategyV1:
                 symbol=self.FEED_TICKER,
                 feed_ticker=self.FEED_TICKER,
                 current_price=close_px,
-                no_entry_reason=f"EXPECTED_MOVE_BELOW_FRICTION: move={expected_move:.3f} <= hurdle={friction_hurdle:.3f} (live spread={spread:.3f})"
+                no_entry_reason=(
+                    f"EXPECTED_MOVE_BELOW_FRICTION: move={expected_move:.4f} <= hurdle={friction_hurdle:.4f} "
+                    f"(friction_proxy={friction_proxy:.4f}, live_bid={bid}, live_ask={ask}, live_spread={spread:.4f})"
+                )
             )
 
-        # 7. Resolve authoritative FX rate (no guessing, no hardcoded defaults)
+        # 7. Resolve authoritative FX rate (no guessing, no hardcoded defaults, NO Yahoo, NO 1.35 seed)
         active_fx = fx_gbpusd
         if active_fx is None and self.fx_provider is not None:
-            if hasattr(self.fx_provider, "get_rate"):
-                active_fx = self.fx_provider.get_rate("GBP", "USD")
-            elif hasattr(self.fx_provider, "get_gbpusd_rate"):
-                active_fx = self.fx_provider.get_gbpusd_rate()
-            elif hasattr(self.fx_provider, "get_gbp_usd_rate"):
-                active_fx = self.fx_provider.get_gbp_usd_rate()
+            prov_cls = getattr(self.fx_provider, "__class__", type(self.fx_provider)).__name__
+            if "PortfolioSnapshot" not in prov_cls:
+                if hasattr(self.fx_provider, "get_rate"):
+                    active_fx = self.fx_provider.get_rate("GBP", "USD")
+                elif hasattr(self.fx_provider, "get_gbpusd_rate"):
+                    active_fx = self.fx_provider.get_gbpusd_rate()
 
         if active_fx is None or active_fx <= 0.0:
             return HitAndRunEntryDecision(
@@ -303,7 +299,8 @@ class DemoStrategyV1:
                 instrument_id=self.TARGET_INSTRUMENT,
                 symbol=self.FEED_TICKER,
                 feed_ticker=self.FEED_TICKER,
-                no_entry_reason="PRODUCT_FAILURE: FX_CONVERSION_RATE_UNAVAILABLE: Authoritative GBP/USD rate missing"
+                current_price=close_px,
+                no_entry_reason="PRODUCT_FAILURE: FX_CONVERSION_RATE_UNAVAILABLE: Authoritative GBP/USD rate missing (no guessed defaults, no seed, no Yahoo)"
             )
 
         # 8. Evaluate Signal Conditions
@@ -384,9 +381,9 @@ class DemoStrategyV1:
         if self.is_session_end(dt_ny):
             return True, "SESSION_END"
 
-        # 2. Fetch latest 5m bar
-        df_raw = self.market_data.fetch_history(self.FEED_TICKER, period="1d", interval=self.BAR_INTERVAL)
-        if df_raw.empty:
+        # 2. Fetch latest 5m bar via Databento Live (ZERO Yahoo calls)
+        df_raw = self.databento_provider.fetch_live_bars(self.FEED_TICKER, interval=self.BAR_INTERVAL)
+        if df_raw is None or df_raw.empty or len(df_raw) < 20:
             return False, "HOLD"
 
         df = self.compute_indicators(df_raw)
@@ -444,9 +441,8 @@ class DemoStrategyV1:
         return [dec]
 
 
-# Singleton instance wired with Databento live data and existing portfolio_snapshot FX provider
-from src.portfolio.portfolio_snapshot import portfolio_snapshot
+# Singleton instance wired with Databento live data; no unapproved FX default
 demo_strategy_v1 = DemoStrategyV1(
     databento_provider=databento_market_data_provider,
-    fx_provider=portfolio_snapshot
+    fx_provider=None
 )

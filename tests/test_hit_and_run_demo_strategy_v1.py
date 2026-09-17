@@ -27,8 +27,32 @@ from src.hit_and_run.demo_strategy_v1 import DemoStrategyV1
 class TestDemoStrategyV1(unittest.TestCase):
 
     def setUp(self):
-        self.mock_market_data = MagicMock()
-        self.strategy = DemoStrategyV1(market_data_provider=self.mock_market_data)
+        self.mock_databento = MagicMock()
+        self.mock_databento.is_configured = True
+        self.mock_databento.data_service = "LIVE"
+        self.mock_databento.client_type = "Live"
+        self.mock_databento.get_current_quote.return_value = {
+            "success": True,
+            "status": "OK",
+            "provider": "DATABENTO",
+            "client_type": "Live",
+            "data_service": "LIVE",
+            "dataset": "DBEQ.BASIC",
+            "schema": "bbo-1s",
+            "instrument": "AAPL",
+            "symbols": ["AAPL"],
+            "latest_price": 310.0,
+            "bid": 309.95,
+            "ask": 310.05,
+            "spread": 0.10,
+            "quote_timestamp": "2026-09-17T20:00:00Z",
+            "fetch_timestamp": "2026-09-17T20:00:01Z",
+            "freshness_seconds": 1.0,
+            "raw_response": {},
+            "http_status": 200
+        }
+        self.mock_databento.fetch_live_bars.return_value = pd.DataFrame()
+        self.strategy = DemoStrategyV1(databento_provider=self.mock_databento)
 
     def _generate_synthetic_5m_data(self, n_bars: int = 50, base_price: float = 330.0, trend: float = 0.5) -> pd.DataFrame:
         dates = pd.date_range("2026-09-17 09:30:00", periods=n_bars, freq="5min", tz="America/New_York")
@@ -128,7 +152,7 @@ class TestDemoStrategyV1(unittest.TestCase):
 
         # Mock market data returning valid breakout
         df_breakout = self._generate_synthetic_5m_data(n_bars=30, base_price=300.0, trend=2.0)
-        self.mock_market_data.fetch_history.return_value = df_breakout
+        self.mock_databento.fetch_live_bars.return_value = df_breakout
 
         # Check entry 1, 2, 3, 4, 5: Must NOT block on daily count
         for i in range(5):
@@ -164,7 +188,7 @@ class TestDemoStrategyV1(unittest.TestCase):
         }
         # Price at 310.0 (> 300 * 1.03 = 309.0)
         df_tp = self._generate_synthetic_5m_data(n_bars=30, base_price=310.0, trend=0.1)
-        self.mock_market_data.fetch_history.return_value = df_tp
+        self.mock_databento.fetch_live_bars.return_value = df_tp
 
         tz_ny = ZoneInfo("America/New_York")
         midday_time = datetime(2026, 9, 17, 12, 0, tzinfo=tz_ny).timestamp()
@@ -185,7 +209,7 @@ class TestDemoStrategyV1(unittest.TestCase):
         df_data = self._generate_synthetic_5m_data(n_bars=30, base_price=300.0, trend=0.5)
         # Drop last bar below SMA20
         df_data.loc[df_data.index[-1], "Close"] = 280.0
-        self.mock_market_data.fetch_history.return_value = df_data
+        self.mock_databento.fetch_live_bars.return_value = df_data
 
         tz_ny = ZoneInfo("America/New_York")
         midday_time = datetime(2026, 9, 17, 12, 0, tzinfo=tz_ny).timestamp()
