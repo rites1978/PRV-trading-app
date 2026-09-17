@@ -50,40 +50,60 @@ class HitAndRunOpportunityScorer:
         quantity_precision = snapshot.get("quantity_precision")
         tick_size = snapshot.get("tick_size")
 
-        current_price = float(snapshot.get("current_price", 0.0))
-        current_price_gbp = float(snapshot.get("current_price_gbp", current_price / quote_divisor))
+        raw_price = snapshot.get("current_price")
+        if raw_price is None or float(raw_price) <= 0.0:
+            raise ValueError(f"Invalid non-positive price for {symbol}: price={raw_price}")
+        current_price = float(raw_price)
+        current_price_gbp = float(snapshot.get("current_price_gbp", current_price / quote_divisor if quote_divisor > 0 else current_price))
 
-        if current_price <= 0.0 or current_price_gbp <= 0.0:
+        if current_price_gbp <= 0.0:
             raise ValueError(f"Invalid non-positive price for {symbol}: price={current_price}, gbp={current_price_gbp}")
 
         recent_prices = snapshot.get("recent_prices", [current_price])
-        intraday_open = float(snapshot.get("intraday_open", recent_prices[0]))
-        intraday_high = float(snapshot.get("intraday_high", max(recent_prices)))
-        intraday_low = float(snapshot.get("intraday_low", min(recent_prices)))
-        benchmark_return = float(snapshot.get("benchmark_return", 0.0))
+        intraday_open = float(snapshot["intraday_open"]) if snapshot.get("intraday_open") is not None else (recent_prices[0] if recent_prices else current_price)
+        intraday_high = float(snapshot["intraday_high"]) if snapshot.get("intraday_high") is not None else (max(recent_prices) if recent_prices else current_price)
+        intraday_low = float(snapshot["intraday_low"]) if snapshot.get("intraday_low") is not None else (min(recent_prices) if recent_prices else current_price)
+        benchmark_return = float(snapshot["benchmark_return"]) if snapshot.get("benchmark_return") is not None else None
 
         # 1. Live Momentum
-        if len(recent_prices) >= 2:
-            momentum = float((recent_prices[-1] - recent_prices[0]) / max(1e-6, recent_prices[0]))
+        if len(recent_prices) >= 2 and recent_prices[0] > 0:
+            momentum = float((recent_prices[-1] - recent_prices[0]) / recent_prices[0])
+        elif intraday_open is not None and intraday_open > 0:
+            momentum = float((current_price - intraday_open) / intraday_open)
         else:
-            momentum = float((current_price - intraday_open) / max(1e-6, intraday_open))
+            momentum = None
 
         # 2. Acceleration (Momentum Change / 2nd Derivative)
-        if len(recent_prices) >= 4:
+        if len(recent_prices) >= 4 and recent_prices[0] > 0:
             mid = len(recent_prices) // 2
             m1 = (recent_prices[mid] - recent_prices[0]) / max(1e-6, recent_prices[0])
             m2 = (recent_prices[-1] - recent_prices[mid]) / max(1e-6, recent_prices[mid])
             acceleration = float(m2 - m1)
         else:
-            acceleration = 0.0
+            acceleration = None
 
         # 3. Relative Strength
-        relative_strength = float(momentum - benchmark_return)
+        if momentum is not None and benchmark_return is not None:
+            relative_strength = float(momentum - benchmark_return)
+        else:
+            relative_strength = None
 
-        # 4. Liquidity
-        volume_recent = float(snapshot.get("volume_recent", 0.0))
-        volume_avg = float(snapshot.get("volume_avg", max(1.0, volume_recent)))
-        liquidity = float(volume_recent * current_price_gbp)
+        # 4. Liquidity & Volume
+        raw_vol_recent = snapshot.get("volume_recent")
+        raw_vol_avg = snapshot.get("volume_avg")
+        volume_recent = float(raw_vol_recent) if raw_vol_recent is not None else None
+        volume_avg = float(raw_vol_avg) if raw_vol_avg is not None else None
+        if volume_recent is not None and volume_avg is not None and volume_avg > 0:
+            volume_activity = float(volume_recent / volume_avg)
+            volume_data_status = "AUTHORISED_VOLUME_DATA"
+        elif volume_recent is not None:
+            volume_activity = None
+            volume_data_status = "AVERAGE_VOLUME_UNAVAILABLE"
+        else:
+            volume_activity = None
+            volume_data_status = "VOLUME_DATA_UNAVAILABLE"
+
+        liquidity = float(volume_recent * current_price_gbp) if volume_recent is not None else None
 
         # 5. Spread Friction (Strictly Authoritative Live Quotes - No Fabricated Fallback)
         raw_bid = snapshot.get("bid")
@@ -98,17 +118,25 @@ class HitAndRunOpportunityScorer:
         # 6. Volatility
         if len(recent_prices) >= 3:
             rets = pd_pct_changes(recent_prices)
-            volatility = float(np.std(rets)) if len(rets) > 1 else 0.0
+            volatility = float(np.std(rets)) if len(rets) > 1 else None
+            volatility_data_status = "AUTHORISED_VOLATILITY_DATA" if volatility is not None else "VOLATILITY_DATA_UNAVAILABLE"
+        elif intraday_high is not None and intraday_low is not None and intraday_high > intraday_low and current_price > 0:
+            volatility = float((intraday_high - intraday_low) / current_price)
+            volatility_data_status = "INTRADAY_RANGE_ESTIMATE"
         else:
-            volatility = float((intraday_high - intraday_low) / max(1e-6, current_price))
-        volatility = max(0.0, volatility)
-
-        # 7. Volume Activity
-        volume_activity = float(volume_recent / max(1.0, volume_avg))
+            volatility = None
+            volatility_data_status = "VOLATILITY_DATA_UNAVAILABLE"
 
         # 8. Distance from Intraday Extremes
-        distance_from_high = float(max(0.0, (intraday_high - current_price) / max(1e-6, current_price)))
-        distance_from_low = float(max(0.0, (current_price - intraday_low) / max(1e-6, current_price)))
+        if current_price > 0 and intraday_high is not None and intraday_high >= current_price:
+            distance_from_high = float(max(0.0, (intraday_high - current_price) / current_price))
+        else:
+            distance_from_high = None
+
+        if current_price > 0 and intraday_low is not None and current_price >= intraday_low:
+            distance_from_low = float(max(0.0, (current_price - intraday_low) / current_price))
+        else:
+            distance_from_low = None
 
         # 9. Authoritative Transaction Cost & Tax Evaluation
         # Evaluates Trading212 FX fee (0.15% per leg), UK SDRT (0.50% buy), PTM levy (£1.50 > £10k),
@@ -218,9 +246,12 @@ class HitAndRunOpportunityScorer:
         downside_str = f"{downside_risk:.2%}" if downside_risk is not None else downside_model_status
         if is_qualified:
             net_desc = f"NetReward {expected_net_reward:+.2%}" if expected_net_reward is not None else "NetReward UNMODELLED"
+            mom_desc = f"Momentum {momentum:+.2%}" if momentum is not None else "Momentum UNKNOWN"
+            acc_desc = f"Accel {acceleration:+.2%}" if acceleration is not None else "Accel UNKNOWN"
+            vol_desc = f"VolRatio {volume_activity:.2f}x" if volume_activity is not None else "VolRatio UNKNOWN"
             entry_thesis = (
-                f"Hit-and-Run Opportunity for {symbol}: Momentum {momentum:+.2%}, "
-                f"Accel {acceleration:+.2%}, VolRatio {volume_activity:.2f}x, "
+                f"Hit-and-Run Opportunity for {symbol}: {mom_desc}, "
+                f"{acc_desc}, {vol_desc}, "
                 f"{net_desc} vs Risk ({downside_str})."
             )
         else:
@@ -243,20 +274,22 @@ class HitAndRunOpportunityScorer:
             exchange_venue=exchange_venue,
             cost_model_complete=cost_eval.cost_model_complete,
             cost_model_reasons=cost_eval.incomplete_reasons,
-            momentum=round(momentum, 5),
-            acceleration=round(acceleration, 5),
-            relative_strength=round(relative_strength, 5),
-            liquidity=round(liquidity, 2),
+            momentum=round(momentum, 5) if momentum is not None else None,
+            acceleration=round(acceleration, 5) if acceleration is not None else None,
+            relative_strength=round(relative_strength, 5) if relative_strength is not None else None,
+            liquidity=round(liquidity, 2) if liquidity is not None else None,
             spread_friction=round(spread_friction, 5) if spread_friction is not None else None,
-            volatility=round(volatility, 5),
-            volume_activity=round(volume_activity, 2),
-            distance_from_high=round(distance_from_high, 5),
-            distance_from_low=round(distance_from_low, 5),
+            volatility=round(volatility, 5) if volatility is not None else None,
+            volume_activity=round(volume_activity, 2) if volume_activity is not None else None,
+            volume_data_status=volume_data_status,
+            volatility_data_status=volatility_data_status,
+            distance_from_high=round(distance_from_high, 5) if distance_from_high is not None else None,
+            distance_from_low=round(distance_from_low, 5) if distance_from_low is not None else None,
             estimated_costs=round(estimated_costs, 5) if estimated_costs is not None else None,
             expected_net_reward=round(expected_net_reward, 5) if expected_net_reward is not None else None,
             downside_risk=round(downside_risk, 5) if downside_risk is not None else None,
             downside_model_status=downside_model_status,
-            risk_reward_ratio=round(risk_reward_ratio, 2) if risk_reward_ratio is not None else 0.0,
+            risk_reward_ratio=round(risk_reward_ratio, 2) if risk_reward_ratio is not None else None,
             opportunity_score=composite_score,
             entry_thesis=entry_thesis,
             technical_execution_supported=True,

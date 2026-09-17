@@ -32,23 +32,25 @@ class OpportunityCandidate:
     cost_model_complete: bool = True
     cost_model_reasons: List[str] = field(default_factory=list)
 
-    # Short-term quantitative indicators
-    momentum: float = 0.0
-    acceleration: float = 0.0
-    relative_strength: float = 0.0
-    liquidity: float = 0.0
+    # Short-term quantitative indicators (None when data unavailable - no semantic fabrication)
+    momentum: Optional[float] = None
+    acceleration: Optional[float] = None
+    relative_strength: Optional[float] = None
+    liquidity: Optional[float] = None
     spread_friction: Optional[float] = None
-    volatility: float = 0.0
-    volume_activity: float = 1.0
-    distance_from_high: float = 0.0
-    distance_from_low: float = 0.0
+    volatility: Optional[float] = None
+    volume_activity: Optional[float] = None
+    distance_from_high: Optional[float] = None
+    distance_from_low: Optional[float] = None
+    volume_data_status: str = "VOLUME_DATA_UNAVAILABLE"
+    volatility_data_status: str = "VOLATILITY_DATA_UNAVAILABLE"
 
     # Economics & Risk
-    estimated_costs: float = 0.0
-    expected_net_reward: float = 0.0
+    estimated_costs: Optional[float] = None
+    expected_net_reward: Optional[float] = None
     downside_risk: Optional[float] = None  # None if downside model unavailable; holding stop capped at 5%
     downside_model_status: str = "DOWNSIDE_MODEL_UNAVAILABLE"
-    risk_reward_ratio: float = 0.0
+    risk_reward_ratio: Optional[float] = None
 
     # AI Conviction & Thesis
     opportunity_score: Optional[float] = None
@@ -89,9 +91,9 @@ class AllocationDecision:
     allocation_pct_of_portfolio: float
     target_quantity: float
     estimated_fill_price: float
-    opportunity_score: float
     entry_thesis: str
     stop_loss_price: float
+    opportunity_score: Optional[float] = None
     max_loss_pct: float = 0.05
     take_profit_target: Optional[float] = None
     currency: str = "GBP"
@@ -187,6 +189,8 @@ class LiveOpportunityState:
     volatility: Optional[float] = None
     distance_from_high: Optional[float] = None
     distance_from_low: Optional[float] = None
+    volume_data_status: str = "VOLUME_DATA_UNAVAILABLE"
+    volatility_data_status: str = "VOLATILITY_DATA_UNAVAILABLE"
 
     # Economics & Cost Model
     estimated_costs: Optional[float] = None
@@ -250,6 +254,7 @@ class OpportunityAnalysisResult:
     downside_model_status: str = "DOWNSIDE_MODEL_UNAVAILABLE"
     expected_gross_move: Optional[float] = None
     expected_move_model_status: str = "EXPECTED_MOVE_MODEL_UNAVAILABLE"
+    setup_classification_status: str = "SETUP_MODEL_UNAVAILABLE"
     opportunity_score: Optional[float] = None  # None if required data are incomplete
 
     def to_dict(self) -> Dict[str, Any]:
@@ -340,7 +345,7 @@ class HoldingState:
     isin: str = ""
     highest_price_seen: float = 0.0
     lowest_price_seen: float = 0.0
-    current_unrealised_net_pnl_gbp: float = 0.0
+    current_unrealised_net_pnl_gbp: Optional[float] = None
 
     def __post_init__(self):
         if self.planned_loss_pct > 0.05:
@@ -370,9 +375,9 @@ class LifecycleAssessment:
     current_bid: Optional[float] = None
     current_ask: Optional[float] = None
     gross_unrealised_pnl_gbp: float = 0.0
-    estimated_exit_costs_gbp: float = 0.0
-    net_unrealised_pnl_gbp: float = 0.0
-    net_unrealised_pct: float = 0.0
+    estimated_exit_costs_gbp: Optional[float] = None
+    net_unrealised_pnl_gbp: Optional[float] = None
+    net_unrealised_pct: Optional[float] = None
     thesis_health: str = "UNKNOWN"       # "INTACT", "EXHAUSTED", "REVERSED", "DECAYED", "STOP_BREACHED", "LIFECYCLE_DECISION_UNAVAILABLE"
     rationale: str = ""
     target_rotation_symbol: Optional[str] = None

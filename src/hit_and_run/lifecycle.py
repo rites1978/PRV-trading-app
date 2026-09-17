@@ -67,10 +67,14 @@ class HitAndRunPositionLifecycleManager:
 
         # Calculate Gross and Net Unrealised PnL
         gross_unrealised_gbp = round(((exit_price - fill_price) / divisor) * qty, 2)
-        exit_cost_rate = current_state.estimated_costs if current_state.estimated_costs is not None else 0.0015
-        estimated_exit_costs_gbp = round(holding.allocated_capital_gbp * exit_cost_rate, 2)
-        net_unrealised_pnl_gbp = round(gross_unrealised_gbp - estimated_exit_costs_gbp, 2)
-        net_unrealised_pct = round(net_unrealised_pnl_gbp / max(1.0, holding.allocated_capital_gbp), 4)
+        if current_state.estimated_costs is not None:
+            estimated_exit_costs_gbp = round(holding.allocated_capital_gbp * current_state.estimated_costs, 2)
+            net_unrealised_pnl_gbp = round(gross_unrealised_gbp - estimated_exit_costs_gbp, 2)
+            net_unrealised_pct = round(net_unrealised_pnl_gbp / max(1.0, holding.allocated_capital_gbp), 4)
+        else:
+            estimated_exit_costs_gbp = None
+            net_unrealised_pnl_gbp = None
+            net_unrealised_pct = None
 
         holding.current_unrealised_net_pnl_gbp = net_unrealised_pnl_gbp
 

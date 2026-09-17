@@ -149,7 +149,7 @@ class HitAndRunEngine:
         except Exception as e:
             system_errors.append(f"OPPORTUNITY_ANALYSIS_ERROR: {str(e)}")
 
-        qualified_count = sum(1 for op in analyzed_opportunities if op.data_quality_state == "COMPLETE" and (op.expected_net_opportunity or 0.0) > 0.0)
+        qualified_count = sum(1 for op in analyzed_opportunities if op.data_quality_state == "COMPLETE" and op.expected_net_opportunity is not None and op.expected_net_opportunity > 0.0)
 
         # -------------------------------------------------------------
         # Step 5: AI Allocation Decision & Entry Decision Generation

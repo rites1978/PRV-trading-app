@@ -97,52 +97,23 @@ class HitAndRunOpportunityAnalyzer:
         dist_high = state.distance_from_high
         dist_low = state.distance_from_low
 
+        # 3. Setup Classification (Unauthorised heuristic thresholds removed per Acceptance Contract)
+        # Any fixed hand-built thresholds (e.g. mom > 0.005, acc > 0.002, vol_act > 1.2)
+        # that influence AI reasoning, allocation, or thesis are UNAUTHORISED_STRATEGY_ASSUMPTIONS.
+        # Pass raw market observations directly; do not fabricate heuristic setup labels.
         detected_setups: List[str] = []
+        primary_setup = "UNKNOWN"
+        setup_classification_status = "SETUP_MODEL_UNAVAILABLE"
 
-        # A. Momentum Continuation
-        if mom is not None and mom > 0.005:
-            detected_setups.append("MOMENTUM_CONTINUATION")
-            supporting_evidence.append(f"Positive momentum continuation: {mom:+.2%}")
-        elif mom is not None and mom < -0.005:
-            contrary_evidence.append(f"Negative momentum trend: {mom:+.2%}")
-
-        # B. Acceleration (Momentum 2nd derivative)
-        if acc is not None and acc > 0.002:
-            detected_setups.append("ACCELERATION")
-            supporting_evidence.append(f"Impulse acceleration expanding: {acc:+.3%}")
-        elif acc is not None and acc < -0.002:
-            contrary_evidence.append(f"Momentum decelerating: {acc:+.3%}")
-
-        # C. Breakout
-        if dist_high is not None and dist_high < 0.008 and (vol_act is not None and vol_act > 1.2):
-            detected_setups.append("BREAKOUT")
-            supporting_evidence.append(f"Breakout near high ({dist_high:.2%}) with volume {vol_act:.1f}x")
-
-        # D. Pullback Continuation
-        if mom is not None and mom > 0 and dist_high is not None and 0.01 <= dist_high <= 0.035:
-            detected_setups.append("PULLBACK_CONTINUATION")
-            supporting_evidence.append(f"Healthy pullback from highs ({dist_high:.2%}) in established uptrend")
-
-        # E. Mean Reversion
-        if dist_low is not None and dist_low < 0.008 and mom is not None and mom < -0.015:
-            detected_setups.append("MEAN_REVERSION")
-            supporting_evidence.append(f"Oversold bounce potential near intraday low ({dist_low:.2%})")
-
-        # F. Relative Strength Divergence
-        if rs is not None and rs > 0.008:
-            detected_setups.append("RELATIVE_STRENGTH_DIVERGENCE")
-            supporting_evidence.append(f"Strong relative strength outperforming benchmark by {rs:+.2%}")
-        elif rs is not None and rs < -0.008:
-            contrary_evidence.append(f"Lagging benchmark by {rs:+.2%}")
-
-        # G. Catalyst-Driven Movement
-        if vol_act is not None and vol_act >= 2.0 and mom is not None and abs(mom) >= 0.015:
-            detected_setups.append("CATALYST_DRIVEN")
-            supporting_evidence.append(f"Exceptional volume catalyst ({vol_act:.1f}x avg) driving impulse")
-
-        primary_setup = detected_setups[0] if len(detected_setups) == 1 else (
-            "MULTI_FACTOR" if detected_setups else "UNCLASSIFIED_NEUTRAL"
-        )
+        # Record factual raw market observations without heuristic thresholds
+        if mom is not None:
+            supporting_evidence.append(f"Observable momentum: {mom:+.2%}")
+        if acc is not None:
+            supporting_evidence.append(f"Observable acceleration: {acc:+.3%}")
+        if vol_act is not None:
+            supporting_evidence.append(f"Observable volume activity ratio: {vol_act:.2f}x")
+        if rs is not None:
+            supporting_evidence.append(f"Observable relative strength: {rs:+.2%}")
 
         # 4. Economics: Expected Net Opportunity vs Downside
         net_opp = state.expected_net_opportunity
@@ -172,7 +143,8 @@ class HitAndRunOpportunityAnalyzer:
             "expected_net_opportunity": net_opp,
             "downside_model_status": downside_model_status,
             "data_quality_state": data_quality_state,
-            "detected_setups": detected_setups
+            "detected_setups": detected_setups,
+            "setup_classification_status": setup_classification_status
         }
 
         # 6. Opportunity Thesis Synthesis (using raw observable features)
@@ -206,6 +178,7 @@ class HitAndRunOpportunityAnalyzer:
             downside_model_status=downside_model_status,
             expected_gross_move=state.expected_gross_move,
             expected_move_model_status=getattr(state, "expected_move_model_status", "EXPECTED_MOVE_MODEL_UNAVAILABLE"),
+            setup_classification_status=setup_classification_status,
             data_quality_state=data_quality_state,
             conviction_evidence=conviction_evidence,
             opportunity_score=opportunity_score

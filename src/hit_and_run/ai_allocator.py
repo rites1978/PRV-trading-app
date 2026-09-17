@@ -377,8 +377,10 @@ class HitAndRunAllocationManager:
                 continue
 
             # Expected Costs in GBP
-            cost_rate = state.estimated_costs or 0.0
-            expected_costs_gbp = round(alloc_gbp * cost_rate, 2)
+            if state.estimated_costs is not None:
+                expected_costs_gbp = round(alloc_gbp * state.estimated_costs, 2)
+            else:
+                expected_costs_gbp = None
 
             entry_decisions.append(HitAndRunEntryDecision(
                 decision="ENTER",

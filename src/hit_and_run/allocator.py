@@ -186,7 +186,8 @@ class DynamicCapitalAllocator:
             and c.instrument_id.upper() not in held_tickers
             and c.symbol.upper() not in held_tickers
             and c.feed_ticker.upper() not in held_tickers
-            and (c.expected_net_reward or 0.0) > 0.0
+            and c.expected_net_reward is not None
+            and c.expected_net_reward > 0.0
         ]
 
         if not qual:
@@ -299,7 +300,7 @@ class DynamicCapitalAllocator:
                 allocation_pct_of_portfolio=pct_of_portfolio,
                 target_quantity=target_qty,
                 estimated_fill_price=cand.current_price,
-                opportunity_score=cand.opportunity_score or 0.0,
+                opportunity_score=cand.opportunity_score,
                 entry_thesis=cand.entry_thesis,
                 stop_loss_price=stop_price,
                 max_loss_pct=actual_loss_pct,

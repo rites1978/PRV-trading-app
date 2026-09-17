@@ -83,14 +83,18 @@ class LiveOpportunityStateBuilder:
             overnight_eligibility = "UNKNOWN"
 
         # Prices & Quote Units
-        current_price = float(snapshot.get("current_price", 0.0))
+        raw_price = snapshot.get("current_price")
+        if raw_price is not None and float(raw_price) > 0:
+            current_price = float(raw_price)
+        else:
+            current_price = 0.0
         current_price_gbp = float(snapshot.get("current_price_gbp", current_price / quote_divisor if quote_divisor > 0 else current_price))
 
         recent_prices = snapshot.get("recent_prices", [current_price] if current_price > 0 else [])
-        intraday_open = float(snapshot.get("intraday_open", recent_prices[0] if recent_prices else current_price))
-        intraday_high = float(snapshot.get("intraday_high", max(recent_prices) if recent_prices else current_price))
-        intraday_low = float(snapshot.get("intraday_low", min(recent_prices) if recent_prices else current_price))
-        benchmark_return = float(snapshot.get("benchmark_return", 0.0))
+        intraday_open = float(snapshot["intraday_open"]) if snapshot.get("intraday_open") is not None else (recent_prices[0] if recent_prices else current_price)
+        intraday_high = float(snapshot["intraday_high"]) if snapshot.get("intraday_high") is not None else (max(recent_prices) if recent_prices else current_price)
+        intraday_low = float(snapshot["intraday_low"]) if snapshot.get("intraday_low") is not None else (min(recent_prices) if recent_prices else current_price)
+        benchmark_return = float(snapshot["benchmark_return"]) if snapshot.get("benchmark_return") is not None else None
 
         # Executable Bid / Ask & Spread Friction (Never fabricate default!)
         raw_bid = snapshot.get("bid")
@@ -106,7 +110,7 @@ class LiveOpportunityStateBuilder:
         # Short-Duration Momentum
         if len(recent_prices) >= 2 and recent_prices[0] > 0:
             momentum = float((recent_prices[-1] - recent_prices[0]) / recent_prices[0])
-        elif intraday_open > 0 and current_price > 0:
+        elif intraday_open is not None and intraday_open > 0 and current_price > 0:
             momentum = float((current_price - intraday_open) / intraday_open)
         else:
             momentum = None
@@ -121,29 +125,42 @@ class LiveOpportunityStateBuilder:
             acceleration = None
 
         # Relative Strength
-        relative_strength = float(momentum - benchmark_return) if momentum is not None else None
+        relative_strength = float(momentum - benchmark_return) if (momentum is not None and benchmark_return is not None) else None
 
         # Volume Activity
-        volume_recent = float(snapshot.get("volume_recent", 0.0))
-        volume_avg = float(snapshot.get("volume_avg", 0.0))
-        volume_activity = float(volume_recent / volume_avg) if volume_avg > 0 and volume_recent > 0 else None
+        raw_vol_recent = snapshot.get("volume_recent")
+        raw_vol_avg = snapshot.get("volume_avg")
+        volume_recent = float(raw_vol_recent) if raw_vol_recent is not None else None
+        volume_avg = float(raw_vol_avg) if raw_vol_avg is not None else None
+        if volume_recent is not None and volume_avg is not None and volume_avg > 0:
+            volume_activity = float(volume_recent / volume_avg)
+            volume_data_status = "AUTHORISED_VOLUME_DATA"
+        elif volume_recent is not None:
+            volume_activity = None
+            volume_data_status = "AVERAGE_VOLUME_UNAVAILABLE"
+        else:
+            volume_activity = None
+            volume_data_status = "VOLUME_DATA_UNAVAILABLE"
 
         # Volatility
         if len(recent_prices) >= 3:
             rets = [(recent_prices[i] - recent_prices[i - 1]) / max(1e-6, recent_prices[i - 1]) for i in range(1, len(recent_prices))]
             volatility = float(np.std(rets)) if len(rets) > 1 else None
-        elif intraday_high > intraday_low and current_price > 0:
+            volatility_data_status = "AUTHORISED_VOLATILITY_DATA" if volatility is not None else "VOLATILITY_DATA_UNAVAILABLE"
+        elif intraday_high is not None and intraday_low is not None and intraday_high > intraday_low and current_price > 0:
             volatility = float((intraday_high - intraday_low) / current_price)
+            volatility_data_status = "INTRADAY_RANGE_ESTIMATE"
         else:
             volatility = None
+            volatility_data_status = "VOLATILITY_DATA_UNAVAILABLE"
 
         # Distance from Intraday Extremes
-        if current_price > 0 and intraday_high >= current_price:
+        if current_price > 0 and intraday_high is not None and intraday_high >= current_price:
             distance_from_high = float(max(0.0, (intraday_high - current_price) / current_price))
         else:
             distance_from_high = None
 
-        if current_price > 0 and current_price >= intraday_low:
+        if current_price > 0 and intraday_low is not None and current_price >= intraday_low:
             distance_from_low = float(max(0.0, (current_price - intraday_low) / current_price))
         else:
             distance_from_low = None
@@ -324,6 +341,8 @@ class LiveOpportunityStateBuilder:
             relative_strength=relative_strength,
             volume_activity=volume_activity,
             volatility=volatility,
+            volume_data_status=volume_data_status,
+            volatility_data_status=volatility_data_status,
             distance_from_high=distance_from_high,
             distance_from_low=distance_from_low,
             estimated_costs=estimated_costs,

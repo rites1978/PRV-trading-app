@@ -461,6 +461,48 @@ class TestHitAndRunScoring(unittest.TestCase):
         self.assertFalse(res_es.cost_model_complete)
         self.assertTrue(any("COST_STATUS_UNKNOWN" in r and "Spanish FTT" in r for r in res_es.incomplete_reasons))
 
+    def test_missing_volume_and_volatility_remain_unknown(self):
+        """Verifies missing volume and volatility data are strictly None with status UNAVAILABLE (no 0.0 conversion)."""
+        snapshot = {
+            "instrument_id": "NO_VOL_EQ",
+            "symbol": "NO_VOL",
+            "current_price": 50.0,
+            "recent_prices": [50.0],
+            "bid": 49.95,
+            "ask": 50.05
+        }
+        candidate = self.scorer.evaluate_opportunity(snapshot)
+        self.assertIsNone(candidate.volume_activity)
+        self.assertIsNone(candidate.liquidity)
+        self.assertEqual(candidate.volume_data_status, "VOLUME_DATA_UNAVAILABLE")
+        self.assertIsNone(candidate.volatility)
+        self.assertEqual(candidate.volatility_data_status, "VOLATILITY_DATA_UNAVAILABLE")
+        self.assertIsNone(candidate.acceleration)
+        self.assertIsNone(candidate.relative_strength)
+
+    def test_setup_model_unavailable_without_unauthorised_thresholds(self):
+        """Verifies opportunity analysis returns UNKNOWN setup family and MODEL_UNAVAILABLE status without heuristic thresholds."""
+        from src.hit_and_run.opportunity_state import opportunity_state_builder
+        from src.hit_and_run.opportunity_analysis import opportunity_analyzer
+
+        snapshot = {
+            "instrument_id": "TEST_MOM_EQ",
+            "symbol": "TEST_MOM",
+            "feed_ticker": "TEST_MOM",
+            "current_price": 100.0,
+            "recent_prices": [95.0, 97.0, 99.0, 100.0],
+            "bid": 99.95,
+            "ask": 100.05,
+            "session_state": "REGULAR"
+        }
+        state = opportunity_state_builder.build_state(snapshot)
+        result = opportunity_analyzer.analyze_opportunity(state)
+
+        self.assertEqual(result.setup_family, "UNKNOWN")
+        self.assertEqual(result.setup_classification_status, "SETUP_MODEL_UNAVAILABLE")
+        self.assertEqual(result.conviction_evidence["detected_setups"], [])
+        self.assertIn("UNKNOWN", result.opportunity_thesis)
+
 
 if __name__ == "__main__":
     unittest.main()
