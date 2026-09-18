@@ -8,6 +8,11 @@ echo "========================================================"
 # Run database migrations / table initialisation
 python -c "from src.database.db import db; print('✅ Database Initialized.')"
 
+# Allow broker writes for practice / demo account unless explicitly live
+if [ "${TRADING_ENV:-demo}" != "live" ]; then
+    export PRV_ALLOW_LIVE_BROKER_WRITES=true
+fi
+
 # Launch Unified FastAPI Gateway directly on Render's dynamic $PORT
 TARGET_PORT="${PORT:-8000}"
 echo "🌐 Binding Unified FastAPI Gateway to 0.0.0.0:${TARGET_PORT}"

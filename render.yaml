@@ -17,6 +17,8 @@ services:
         value: "false"
       - key: TRADING_ENV
         value: demo
+      - key: PRV_ALLOW_LIVE_BROKER_WRITES
+        value: "true"
       - key: TRADING212_API_KEY
         sync: false
       - key: TRADING212_API_SECRET

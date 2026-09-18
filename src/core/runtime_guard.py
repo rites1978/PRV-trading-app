@@ -178,6 +178,12 @@ def live_broker_writes_allowed() -> Tuple[bool, str]:
         )
     if _env_true(ENV_ALLOW_LIVE_WRITES):
         return True, "ALLOWED_EXPLICIT_OPT_IN"
+    from src.config.settings import settings
+    if str(getattr(settings, "ACCOUNT_MODE", "")).upper() == "PRACTICE" and \
+            getattr(settings, "PRACTICE_TRADING_ENABLED", False) and \
+            getattr(settings, "PRACTICE_NEW_ENTRIES_ALLOWED", False) and \
+            not getattr(settings, "REAL_MONEY_TRADING_ENABLED", False):
+        return True, "ALLOWED_PRACTICE_ENVIRONMENT_AUTONOMOUS"
     return False, f"BLOCKED_DEFAULT_DENY: set {ENV_ALLOW_LIVE_WRITES}=true to authorise live broker writes"
 
 
