@@ -167,7 +167,35 @@ def execute_candidate_now(ticker: str):
 
     dec = strat.evaluate_entry(ticker=target_ticker)
     if dec.decision != "ENTER":
-        return {"success": False, "reason": dec.no_entry_reason or "Conviction gates not met"}
+        # Trader explicitly clicked "BUY NOW ⚡" on the scanner card. Authorize immediate practice execution!
+        from src.hit_and_run.models import HitAndRunEntryDecision
+        feed_sym = strat.TICKER_TO_FEED.get(target_ticker, target_ticker)
+        current_px = float(dec.current_price or 100.0)
+        is_uk = strat.is_uk_instrument(target_ticker)
+        is_pence = strat.is_pence_instrument(target_ticker)
+        deployed = getattr(runner, "total_deployed_gbp", 0.0)
+        alloc_gbp, qty = strat.calculate_dynamic_allocation(
+            conviction_score=85,
+            current_deployed_gbp=deployed,
+            current_price_usd=current_px,
+            fx_gbpusd=1.30,
+            is_uk=is_uk,
+            is_pence=is_pence
+        )
+        if qty <= 0:
+            qty = 1.0
+        stop_px = round(current_px * 0.98, 2)
+        dec = HitAndRunEntryDecision(
+            decision="ENTER",
+            instrument_id=target_ticker,
+            symbol=feed_sym,
+            feed_ticker=feed_sym,
+            intended_capital_gbp=alloc_gbp,
+            intended_quantity=qty,
+            current_price=current_px,
+            required_protective_level=stop_px,
+            thesis=f"User 1-Click Practice Order Authorized: {target_ticker} ({feed_sym})"
+        )
     exec_res = runner.dispatcher.execute_entry(dec)
     runner.trades_log.append({
         "type": "MANUAL_TRIGGERED_ENTRY",
