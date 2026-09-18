@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.brokers.trading212 import broker
 from src.hit_and_run.demo_execution import demo_execution_dispatcher, DemoExecutionDispatcher
 from src.hit_and_run.models import HitAndRunEntryDecision
+from src.hit_and_run.banking import DailyBankingLedger
 from src.config.settings import settings
 
 logging.basicConfig(
@@ -77,6 +78,7 @@ class DemoExperimentRunner:
         self.starting_cash: float = 0.0
         self.trades_log: List[Dict[str, Any]] = []
         self.active_holdings: Dict[str, Dict[str, Any]] = {}
+        self.banking_ledger = DailyBankingLedger(base_target_gbp=100.0)
         self.product_failures: List[str] = []
         self.canary_armed: bool = os.getenv("PRV_DEMO_CANARY_ARMED", "true").lower() in ("true", "1", "yes")
         self.canary_executed_dates: set = set()
@@ -152,10 +154,31 @@ class DemoExperimentRunner:
                 "reason": "Strategy rules not yet user-authorised"
             }
 
-        # 1. Check active holdings for strategy exits (TP, Momentum Reversal, Edge Decay, Session End)
+        # 1. Resolve FX rate
+        current_fx = None
+        if hasattr(self.strategy_module, "fx_provider") and self.strategy_module.fx_provider:
+            prov = self.strategy_module.fx_provider
+            if hasattr(prov, "get_gbp_usd_rate"):
+                current_fx = prov.get_gbp_usd_rate()
+            elif hasattr(prov, "get_rate"):
+                current_fx = prov.get_rate("GBP", "USD")
+        active_fx = current_fx or 1.30
+
+        # 2. Check active holdings for strategy exits (Profit Banked £100, TP, Momentum Reversal, Edge Decay, Session End)
         if hasattr(self.strategy_module, "evaluate_exit"):
             for ticker, holding in list(self.active_holdings.items()):
-                should_exit, exit_reason = self.strategy_module.evaluate_exit(holding)
+                import inspect
+                try:
+                    sig = inspect.signature(self.strategy_module.evaluate_exit)
+                    has_fx_param = "fx_gbpusd" in sig.parameters or any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                except Exception:
+                    has_fx_param = True
+
+                if has_fx_param:
+                    should_exit, exit_reason = self.strategy_module.evaluate_exit(holding, fx_gbpusd=current_fx)
+                else:
+                    should_exit, exit_reason = self.strategy_module.evaluate_exit(holding)
+
                 if should_exit:
                     logger.info(f"[Runner] Exit signal for {ticker}: reason={exit_reason}")
                     exit_res = self.dispatcher.execute_exit(
@@ -173,18 +196,61 @@ class DemoExperimentRunner:
                     if exit_res.get("success"):
                         if hasattr(self.strategy_module, "record_exit"):
                             self.strategy_module.record_exit()
+
+                        # Record trade in DailyBankingLedger
+                        try:
+                            fill_p = float(holding.get("fill_price", 0.0))
+                        except (TypeError, ValueError):
+                            fill_p = 0.0
+                        try:
+                            exit_p = float(exit_res.get("fill_price", holding.get("current_price", fill_p)))
+                        except (TypeError, ValueError):
+                            exit_p = fill_p
+                        try:
+                            qty = float(holding.get("quantity", 0.0))
+                        except (TypeError, ValueError):
+                            qty = 0.0
+                        try:
+                            fx_val = float(active_fx) if active_fx else 1.30
+                        except (TypeError, ValueError):
+                            fx_val = 1.30
+
+                        gross_pnl_usd = (exit_p - fill_p) * qty
+                        gross_pnl_gbp = gross_pnl_usd / fx_val
+                        costs_gbp = round((qty * exit_p / fx_val) * 0.0020, 2)
+                        net_pnl_gbp = round(gross_pnl_gbp - costs_gbp, 2)
+
+                        self.banking_ledger.record_realised_trade(
+                            trade_id=f"TRADE_{ticker}_{int(time.time())}",
+                            ticker=ticker,
+                            gross_pnl_gbp=gross_pnl_gbp,
+                            costs_gbp=costs_gbp,
+                            exit_reason=exit_reason,
+                            entry_price=fill_p,
+                            exit_price=exit_p,
+                            quantity=qty
+                        )
+
+                        if exit_reason == "PROFIT_BANK_100_EXIT":
+                            summary = self.banking_ledger.get_banking_summary()
+                            logger.info(
+                                f"[Runner] 🎯 £100+ PROFIT BANKED! Realized £{net_pnl_gbp:+.2f} on {ticker}. "
+                                f"Total Banked Today: £{summary.get('banked_net_profit_today', 0.0):.2f}. "
+                                f"Capital released. Hunting for next opportunity!"
+                            )
+
                         del self.active_holdings[ticker]
 
-        # 2. Strategy decides entries (injected module)
-        try:
-            current_fx = None
-            if hasattr(self.strategy_module, "fx_provider") and self.strategy_module.fx_provider:
-                prov = self.strategy_module.fx_provider
-                if hasattr(prov, "get_gbp_usd_rate"):
-                    current_fx = prov.get_gbp_usd_rate()
-                elif hasattr(prov, "get_rate"):
-                    current_fx = prov.get_rate("GBP", "USD")
+        # 3. Update total deployed capital for 80% ceiling check
+        total_deployed_gbp = sum(
+            float(h.get("quantity", 0.0)) * float(h.get("fill_price", 0.0)) / active_fx
+            for h in self.active_holdings.values()
+        )
+        if hasattr(self.strategy_module, "current_deployed_capital_gbp"):
+            self.strategy_module.current_deployed_capital_gbp = total_deployed_gbp
 
+        # 4. Strategy decides entries (injected module)
+        try:
             import inspect
             try:
                 sig = inspect.signature(self.strategy_module.evaluate)
@@ -227,15 +293,19 @@ class DemoExperimentRunner:
                             "ticker": dec.instrument_id,
                             "fill_price": exec_res["fill_price"],
                             "quantity": exec_res["filled_quantity"],
+                            "entry_cost_gbp": getattr(dec, "intended_capital_gbp", 50.0),
                             "stop_order_id": exec_res["stop_order_id"],
                             "stop_price": exec_res["stop_price"],
-                            "entry_time": exec_res["timestamp"]
+                            "entry_time": exec_res["timestamp"],
+                            "fx_rate": active_fx
                         }
 
         return {
             "cycle_status": "CYCLE_COMPLETED",
             "entries_evaluated": len(entry_decisions),
-            "entries_submitted": executed_entries
+            "entries_submitted": executed_entries,
+            "total_deployed_gbp": round(total_deployed_gbp, 2),
+            "banked_profit_today_gbp": self.banking_ledger.get_banking_summary().get("banked_net_profit_today", 0.0)
         }
 
     def end_of_day_cleanup_and_review(self) -> Dict[str, Any]:
