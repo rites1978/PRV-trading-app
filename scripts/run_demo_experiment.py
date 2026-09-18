@@ -83,6 +83,9 @@ class DemoExperimentRunner:
         self.product_failures: List[str] = []
         self.canary_armed: bool = os.getenv("PRV_DEMO_CANARY_ARMED", "true").lower() in ("true", "1", "yes")
         self.canary_executed_dates: set = set()
+        self.securities_scanned_last_cycle: int = 0
+        self.raw_candidates_last_cycle: int = 0
+        self.final_approvals_last_cycle: int = 0
 
     def _get_git_sha(self) -> str:
         try:
@@ -196,7 +199,7 @@ class DemoExperimentRunner:
                     })
                     if exit_res.get("success"):
                         if hasattr(self.strategy_module, "record_exit"):
-                            self.strategy_module.record_exit()
+                            self.strategy_module.record_exit(ticker=ticker)
 
                         # Record trade in DailyBankingLedger
                         try:
@@ -264,6 +267,8 @@ class DemoExperimentRunner:
         )
         if hasattr(self.strategy_module, "current_deployed_capital_gbp"):
             self.strategy_module.current_deployed_capital_gbp = total_deployed_gbp
+        if hasattr(self.strategy_module, "active_tickers"):
+            self.strategy_module.active_tickers = set(self.active_holdings.keys())
 
         # 4. Strategy decides entries (injected module)
         try:
@@ -293,7 +298,14 @@ class DemoExperimentRunner:
 
         if len(self.active_holdings) < max_concurrent:
             for dec in entry_decisions:
+                if len(self.active_holdings) >= max_concurrent:
+                    break
                 if dec.decision == "ENTER":
+                    intended_cap = getattr(dec, "intended_capital_gbp", 0.0)
+                    if total_deployed_gbp + intended_cap > 40000.0 and total_deployed_gbp >= 39500.0:
+                        logger.info(f"[Runner] 80% capital ceiling (£40,000) reached. Holding further entries.")
+                        break
+
                     exec_res = self.dispatcher.execute_entry(dec)
                     self.trades_log.append({
                         "type": "ENTRY",
@@ -303,6 +315,7 @@ class DemoExperimentRunner:
                     })
                     if exec_res.get("success"):
                         executed_entries += 1
+                        total_deployed_gbp += intended_cap
                         if hasattr(self.strategy_module, "record_entry"):
                             self.strategy_module.record_entry()
                         self.active_holdings[dec.instrument_id] = {
@@ -315,6 +328,15 @@ class DemoExperimentRunner:
                             "entry_time": exec_res["timestamp"],
                             "fx_rate": active_fx
                         }
+
+        # Update telemetry counts
+        self.securities_scanned_last_cycle = getattr(
+            self.strategy_module, "last_securities_scanned", len(getattr(self.strategy_module, "FULL_VISION_UNIVERSE", []))
+        )
+        self.raw_candidates_last_cycle = getattr(
+            self.strategy_module, "last_raw_candidates", len([d for d in entry_decisions if d.decision == "ENTER"])
+        )
+        self.final_approvals_last_cycle = executed_entries
 
         return {
             "cycle_status": "CYCLE_COMPLETED",

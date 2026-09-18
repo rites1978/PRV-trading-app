@@ -57,6 +57,68 @@ from src.research.news_sentiment import news_sentiment
 logger = logging.getLogger("demo_strategy_v1")
 
 
+
+def _load_top_500_universe() -> Tuple[List[str], List[str], List[str], Dict[str, str], Dict[str, str], Dict[str, str]]:
+    """Loads authoritative top UK and US liquid equities universe from data/top_market_universe_500.json."""
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    json_path = os.path.join(base_dir, "data", "top_market_universe_500.json")
+
+    # Baseline core instruments ensuring fail-safe fallback
+    default_uk = [
+        "CSP1_EQ", "EQQQl_EQ", "VUSAl_EQ", "ISFl_EQ", "BARCl_EQ",
+        "LLOYl_EQ", "BPl_EQ", "SHELl_EQ", "AZNl_EQ", "HSBAl_EQ"
+    ]
+    default_us = [
+        "AAPL_US_EQ", "NVDA_US_EQ", "MSFT_US_EQ", "AMZN_US_EQ", "TSLA_US_EQ",
+        "GOOG_US_EQ", "META_US_EQ", "SPY_US_EQ", "QQQ_US_EQ"
+    ]
+    default_feed = {
+        "CSP1_EQ": "CSP1.L", "EQQQl_EQ": "EQQQ.L", "VUSAl_EQ": "VUSA.L", "ISFl_EQ": "ISF.L",
+        "BARCl_EQ": "BARC.L", "LLOYl_EQ": "LLOY.L", "BPl_EQ": "BP.L", "SHELl_EQ": "SHEL.L",
+        "AZNl_EQ": "AZN.L", "HSBAl_EQ": "HSBA.L",
+        "AAPL_US_EQ": "AAPL", "NVDA_US_EQ": "NVDA", "MSFT_US_EQ": "MSFT", "AMZN_US_EQ": "AMZN",
+        "TSLA_US_EQ": "TSLA", "GOOG_US_EQ": "GOOG", "META_US_EQ": "META", "SPY_US_EQ": "SPY", "QQQ_US_EQ": "QQQ"
+    }
+    default_names = {
+        "CSP1_EQ": "iShares Core S&P 500 ETF", "EQQQl_EQ": "Invesco EQQQ Nasdaq 100 ETF",
+        "VUSAl_EQ": "Vanguard S&P 500 ETF", "ISFl_EQ": "iShares Core FTSE 100 ETF",
+        "BARCl_EQ": "Barclays PLC", "LLOYl_EQ": "Lloyds Banking Group",
+        "BPl_EQ": "BP plc", "SHELl_EQ": "Shell plc", "AZNl_EQ": "AstraZeneca plc", "HSBAl_EQ": "HSBC Holdings plc",
+        "AAPL_US_EQ": "Apple Inc.", "NVDA_US_EQ": "NVIDIA Corp.", "MSFT_US_EQ": "Microsoft Corp.",
+        "AMZN_US_EQ": "Amazon.com Inc.", "TSLA_US_EQ": "Tesla Inc.", "GOOG_US_EQ": "Alphabet Inc.",
+        "META_US_EQ": "Meta Platforms Inc.", "SPY_US_EQ": "SPDR S&P 500 ETF Trust", "QQQ_US_EQ": "Invesco QQQ Trust"
+    }
+    default_sectors = {k: "Index ETF" if "ETF" in default_names.get(k, "") else "General" for k in default_uk + default_us}
+
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            uk_list = data.get("uk_universe", [])
+            us_list = data.get("us_universe", [])
+            uk_tickers = [x["ticker"] for x in uk_list]
+            us_tickers = [x["ticker"] for x in us_list]
+            ticker_to_feed = {x["ticker"]: x["feed"] for x in uk_list + us_list}
+            company_names = {x["ticker"]: x["name"] for x in uk_list + us_list}
+            sectors = {x["ticker"]: x.get("sector", "General") for x in uk_list + us_list}
+            # Ensure defaults remain present at head
+            for dt in reversed(default_uk):
+                if dt in uk_tickers:
+                    uk_tickers.remove(dt)
+                uk_tickers.insert(0, dt)
+            for dt in reversed(default_us):
+                if dt in us_tickers:
+                    us_tickers.remove(dt)
+                us_tickers.insert(0, dt)
+            ticker_to_feed.update(default_feed)
+            company_names.update(default_names)
+            return uk_tickers, us_tickers, uk_tickers + us_tickers, ticker_to_feed, company_names, sectors
+        except Exception as e:
+            logger.warning(f"Failed loading top_market_universe_500.json, using defaults: {e}")
+
+    return default_uk, default_us, default_uk + default_us, default_feed, default_names, default_sectors
+
+
 class DemoStrategyV1:
     """Implementation of user-authorised Hit-and-Run and EXP-DEMO-001 strategy."""
 
@@ -68,81 +130,20 @@ class DemoStrategyV1:
     FEED_TICKER: str = "AAPL"
     EXCHANGE_TIMEZONE: str = "America/New_York"
 
-    # UK Tradable Universe (LSE) - Active 08:00 - 16:30 London time
-    UK_UNIVERSE: List[str] = [
-        "CSP1_EQ",   # iShares Core S&P 500 (Acc)
-        "EQQQl_EQ",  # Invesco EQQQ Nasdaq-100 (Dist)
-        "VUSAl_EQ",  # Vanguard S&P 500 (Dist)
-        "ISFl_EQ",   # iShares Core FTSE 100 (Dist)
-        "BARCl_EQ",  # Barclays
-        "LLOYl_EQ",  # Lloyds Banking Group
-        "BPl_EQ",    # BP
-        "SHELl_EQ",  # Shell
-        "AZNl_EQ",   # AstraZeneca
-        "HSBAl_EQ",  # HSBC
-    ]
+    _uk_uni, _us_uni, _full_uni, _t_to_f, _comp_names, _sectors = _load_top_500_universe()
 
-    # US Tradable Universe (NYSE/NASDAQ) - Active 14:30 - 21:00 London time (09:30 - 16:00 ET)
-    US_UNIVERSE: List[str] = [
-        "AAPL_US_EQ",
-        "NVDA_US_EQ",
-        "MSFT_US_EQ",
-        "AMZN_US_EQ",
-        "TSLA_US_EQ",
-        "GOOG_US_EQ",
-        "META_US_EQ",
-        "SPY_US_EQ",
-        "QQQ_US_EQ"
-    ]
+    # UK Tradable Universe (FTSE 100 / FTSE 250 Leaders) - Active 08:00 - 16:30 London time
+    UK_UNIVERSE: List[str] = _uk_uni
 
-    # Full Vision Tradeable Universe (Continuous UK -> US Multi-Market Cycle)
-    FULL_VISION_UNIVERSE: List[str] = UK_UNIVERSE + US_UNIVERSE
+    # US Tradable Universe (S&P 500 / NASDAQ 100 Leaders) - Active 14:30 - 21:00 London time (09:30 - 16:00 ET)
+    US_UNIVERSE: List[str] = _us_uni
 
-    TICKER_TO_FEED: Dict[str, str] = {
-        # UK Feeds (Yahoo .L mapping for real-time live bars)
-        "CSP1_EQ": "CSP1.L",
-        "EQQQl_EQ": "EQQQ.L",
-        "VUSAl_EQ": "VUSA.L",
-        "ISFl_EQ": "ISF.L",
-        "BARCl_EQ": "BARC.L",
-        "LLOYl_EQ": "LLOY.L",
-        "BPl_EQ": "BP.L",
-        "SHELl_EQ": "SHEL.L",
-        "AZNl_EQ": "AZN.L",
-        "HSBAl_EQ": "HSBA.L",
-        # US Feeds (Databento / Direct)
-        "AAPL_US_EQ": "AAPL",
-        "NVDA_US_EQ": "NVDA",
-        "MSFT_US_EQ": "MSFT",
-        "AMZN_US_EQ": "AMZN",
-        "TSLA_US_EQ": "TSLA",
-        "GOOG_US_EQ": "GOOG",
-        "META_US_EQ": "META",
-        "SPY_US_EQ": "SPY",
-        "QQQ_US_EQ": "QQQ"
-    }
+    # Full Vision Tradeable Universe (Broad Market 500+ Top Companies)
+    FULL_VISION_UNIVERSE: List[str] = _full_uni
 
-    COMPANY_NAMES: Dict[str, str] = {
-        "CSP1_EQ": "iShares Core S&P 500 ETF",
-        "EQQQl_EQ": "Invesco EQQQ Nasdaq 100 ETF",
-        "VUSAl_EQ": "Vanguard S&P 500 ETF",
-        "ISFl_EQ": "iShares Core FTSE 100 ETF",
-        "BARCl_EQ": "Barclays PLC",
-        "LLOYl_EQ": "Lloyds Banking Group",
-        "BPl_EQ": "BP plc",
-        "SHELl_EQ": "Shell plc",
-        "AZNl_EQ": "AstraZeneca plc",
-        "HSBAl_EQ": "HSBC Holdings plc",
-        "AAPL_US_EQ": "Apple Inc.",
-        "NVDA_US_EQ": "NVIDIA Corp.",
-        "MSFT_US_EQ": "Microsoft Corp.",
-        "AMZN_US_EQ": "Amazon.com Inc.",
-        "TSLA_US_EQ": "Tesla Inc.",
-        "GOOG_US_EQ": "Alphabet Inc.",
-        "META_US_EQ": "Meta Platforms Inc.",
-        "SPY_US_EQ": "SPDR S&P 500 ETF Trust",
-        "QQQ_US_EQ": "Invesco QQQ Trust"
-    }
+    TICKER_TO_FEED: Dict[str, str] = _t_to_f
+    COMPANY_NAMES: Dict[str, str] = _comp_names
+    SECTORS: Dict[str, str] = _sectors
 
     # Strict Indicator Settings (Zero hidden defaults)
     BAR_INTERVAL: str = "5m"
@@ -182,24 +183,35 @@ class DemoStrategyV1:
         self.last_exit_timestamp: float = 0.0
         self.current_holding: Optional[Dict[str, Any]] = None
         self.current_deployed_capital_gbp: float = 0.0
+        self.last_securities_scanned: int = len(self.FULL_VISION_UNIVERSE)
+        self.last_raw_candidates: int = 0
+        self.last_final_approvals: int = 0
+        self._scan_batch_index: int = 0
+        self.active_tickers: Set[str] = set()
+        self.last_ticker_exit_timestamp: Dict[str, float] = {}
 
         if self.mode == "FULL_VISION":
-            self.MAX_CONCURRENT_POSITIONS = 5
+            self.MAX_CONCURRENT_POSITIONS = 8
             self.SUBSET_TEST = False
+            self.REENTRY_COOLDOWN_SECONDS = 1800.0
 
     def reset_daily_state(self) -> None:
         """Reset state at the start of a new trading session."""
         self.daily_entries_count = 0
         self.last_exit_timestamp = 0.0
+        self.last_ticker_exit_timestamp = {}
         self.current_holding = None
+        self.last_raw_candidates = 0
+        self.last_final_approvals = 0
+        self._scan_batch_index = 0
 
     def is_uk_instrument(self, ticker: str) -> bool:
         t = (ticker or "").upper()
-        return t in self.UK_UNIVERSE or t.endswith("L_EQ") or t == "CSP1_EQ"
+        return t in self.UK_UNIVERSE or t.endswith("L_EQ") or t == "CSP1_EQ" or t.endswith(".L")
 
     def is_pence_instrument(self, ticker: str) -> bool:
         t = (ticker or "").upper()
-        if t in ["VUSAL_EQ", "VUSA_EQ"]:
+        if t in ["VUSAL_EQ", "VUSA_EQ", "VUSA.L"]:
             return False
         return self.is_uk_instrument(t)
 
@@ -351,7 +363,8 @@ class DemoStrategyV1:
         ticker: Optional[str] = None,
         now_time: Optional[float] = None,
         fx_gbpusd: Optional[float] = None,
-        current_deployed_capital: float = 0.0
+        current_deployed_capital: float = 0.0,
+        df_prefetched: Optional[pd.DataFrame] = None
     ) -> HitAndRunEntryDecision:
         """
         Evaluate entry conditions for target instrument across technicals, live news, and sentiment.
@@ -375,8 +388,13 @@ class DemoStrategyV1:
             )
 
         # 2. Check re-entry cooldown
-        if self.last_exit_timestamp > 0.0 and (curr_time - self.last_exit_timestamp) < self.REENTRY_COOLDOWN_SECONDS:
-            remaining_cooldown = int(self.REENTRY_COOLDOWN_SECONDS - (curr_time - self.last_exit_timestamp))
+        if self.mode == "FULL_VISION":
+            cooldown_ts = getattr(self, "last_ticker_exit_timestamp", {}).get(target_inst, 0.0)
+        else:
+            cooldown_ts = self.last_exit_timestamp
+
+        if cooldown_ts > 0.0 and (curr_time - cooldown_ts) < self.REENTRY_COOLDOWN_SECONDS:
+            remaining_cooldown = int(self.REENTRY_COOLDOWN_SECONDS - (curr_time - cooldown_ts))
             return HitAndRunEntryDecision(
                 decision="NO_ENTRY",
                 instrument_id=target_inst,
@@ -399,14 +417,17 @@ class DemoStrategyV1:
         is_pence = self.is_pence_instrument(target_inst)
 
         if is_uk:
-            # 4. Fetch UK Live Market Bars via yfinance
-            import yfinance as yf
-            try:
-                tk_yf = yf.Ticker(feed_ticker)
-                df_raw = tk_yf.history(period="5d", interval=self.BAR_INTERVAL)
-            except Exception as e:
-                logger.warning(f"Failed to fetch UK bars for {feed_ticker}: {e}")
-                df_raw = pd.DataFrame()
+            # 4. Fetch UK Live Market Bars via yfinance (or prefetched batch)
+            if df_prefetched is not None and not df_prefetched.empty and len(df_prefetched) >= 15:
+                df_raw = df_prefetched
+            else:
+                import yfinance as yf
+                try:
+                    tk_yf = yf.Ticker(feed_ticker)
+                    df_raw = tk_yf.history(period="5d", interval=self.BAR_INTERVAL)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch UK bars for {feed_ticker}: {e}")
+                    df_raw = pd.DataFrame()
 
             if df_raw is None or df_raw.empty or len(df_raw) < 15:
                 return HitAndRunEntryDecision(
@@ -536,12 +557,20 @@ class DemoStrategyV1:
 
         # 9. Technical & Multi-Factor Conditions
         cond_bb = close_px >= bb_upper
-        cond_rsi = 55.0 <= rsi_val <= 75.0
+        cond_rsi = (45.0 <= rsi_val <= 78.0) if self.mode == "FULL_VISION" else (55.0 <= rsi_val <= 75.0)
         cond_sma = close_px > sma_20
 
         if self.mode == "FULL_VISION":
             # Multi-factor conviction combining technical momentum + news sentiment
-            tech_conv = 75.0 if (cond_bb and cond_rsi) else (60.0 if cond_sma else 40.0)
+            if cond_bb and cond_rsi:
+                tech_conv = 80.0
+            elif cond_sma and cond_rsi:
+                tech_conv = 68.0
+            elif cond_sma:
+                tech_conv = 55.0
+            else:
+                tech_conv = 35.0
+
             composite_conviction = (0.40 * tech_conv) + (0.40 * sentiment_score) + (0.20 * (65.0 if cond_sma else 40.0))
 
             if composite_conviction < 50.0 or sentiment_score < 40.0 or not cond_sma:
@@ -791,16 +820,21 @@ class DemoStrategyV1:
         """Called when an entry fills."""
         self.daily_entries_count += 1
 
-    def record_exit(self, timestamp: Optional[float] = None) -> None:
+    def record_exit(self, ticker: Optional[str] = None, timestamp: Optional[float] = None) -> None:
         """Called when an exit fills, recording cooldown."""
-        self.last_exit_timestamp = timestamp or time.time()
+        t = timestamp or time.time()
+        self.last_exit_timestamp = t
+        target = ticker or self.TARGET_INSTRUMENT
+        if not hasattr(self, "last_ticker_exit_timestamp"):
+            self.last_ticker_exit_timestamp = {}
+        self.last_ticker_exit_timestamp[target] = t
 
     def evaluate(
         self,
         opportunities: Optional[List[Any]] = None,
         fx_gbpusd: Optional[float] = None
     ) -> List[HitAndRunEntryDecision]:
-        """Runner-compatible evaluate interface."""
+        """Runner-compatible evaluate interface with continuous top-500 market universe scanning."""
         fx = fx_gbpusd
         if fx is None and opportunities and len(opportunities) > 0:
             first_opp = opportunities[0]
@@ -811,19 +845,91 @@ class DemoStrategyV1:
 
         if self.mode == "FULL_VISION":
             current_deployed = getattr(self, "current_deployed_capital_gbp", 0.0)
+            already_held = getattr(self, "active_tickers", set())
+
+            # 1. Determine active market hours (UK: 08:00-16:30 London, US: 14:30-21:00 London)
+            now_lon = datetime.now(ZoneInfo("Europe/London"))
+            is_weekday = (now_lon.weekday() < 5)
+            t_lon = now_lon.time()
+
+            uk_open = datetime.strptime("08:00:00", "%H:%M:%S").time()
+            uk_close = datetime.strptime("16:30:00", "%H:%M:%S").time()
+            us_open = datetime.strptime("14:30:00", "%H:%M:%S").time()
+            us_close = datetime.strptime("21:00:00", "%H:%M:%S").time()
+
+            active_pool = []
+            if is_weekday and uk_open <= t_lon <= uk_close:
+                active_pool.extend(self.UK_UNIVERSE)
+            if is_weekday and us_open <= t_lon <= us_close:
+                active_pool.extend(self.US_UNIVERSE)
+            if not active_pool:
+                active_pool = list(self.FULL_VISION_UNIVERSE)
+
+            eligible = [t for t in active_pool if t not in already_held]
+
+            # 2. Select batch of candidates to scan in this cycle (rotating through entire 500+ universe)
+            batch_size = 40
+            total_eligible = len(eligible)
+            curr_idx = getattr(self, "_scan_batch_index", 0) % max(1, total_eligible)
+            scan_batch = eligible[curr_idx : curr_idx + batch_size]
+            if len(scan_batch) < batch_size and total_eligible > batch_size:
+                scan_batch += eligible[: batch_size - len(scan_batch)]
+            self._scan_batch_index = (curr_idx + batch_size) % max(1, total_eligible)
+
+            # 3. Batch fetch data where possible (UK feeds via yfinance batch)
+            uk_feeds_map = {}
+            for t in scan_batch:
+                if self.is_uk_instrument(t):
+                    f = self.TICKER_TO_FEED.get(t, t)
+                    uk_feeds_map[f] = t
+
+            prefetched_dfs = {}
+            if uk_feeds_map:
+                try:
+                    import yfinance as yf
+                    df_bulk = yf.download(
+                        list(uk_feeds_map.keys()),
+                        period="2d",
+                        interval=self.BAR_INTERVAL,
+                        group_by="ticker",
+                        threads=False,
+                        progress=False
+                    )
+                    if df_bulk is not None and not df_bulk.empty:
+                        for feed_sym, inst_t in uk_feeds_map.items():
+                            if hasattr(df_bulk.columns, "levels") and feed_sym in df_bulk.columns.levels[0]:
+                                prefetched_dfs[inst_t] = df_bulk[feed_sym].dropna()
+                except Exception as be:
+                    logger.warning(f"Batch UK download failed, falling back to per-asset fetch: {be}")
+
             decisions = []
-            for ticker in self.FULL_VISION_UNIVERSE:
+            max_total_ceiling = self.TOTAL_CAPITAL_BASE_GBP * self.MAX_DEPLOYMENT_CEILING_PCT  # £40,000.00
+            for ticker in scan_batch:
+                if current_deployed >= max_total_ceiling - 250.0:
+                    break
+                if len(already_held) + len(decisions) >= self.MAX_CONCURRENT_POSITIONS:
+                    break
+
+                df_p = prefetched_dfs.get(ticker)
                 dec = self.evaluate_entry(
                     ticker=ticker,
                     fx_gbpusd=fx,
-                    current_deployed_capital=current_deployed
+                    current_deployed_capital=current_deployed,
+                    df_prefetched=df_p
                 )
                 if dec.decision == "ENTER":
                     decisions.append(dec)
+                    current_deployed += getattr(dec, "intended_capital_gbp", 0.0)
+
+            # Record telemetry
+            self.last_securities_scanned = len(active_pool)
+            self.last_raw_candidates = len(decisions)
+            self.last_final_approvals = len(decisions)
+
             if decisions:
                 return decisions
             # Return primary candidate for telemetry logging
-            return [self.evaluate_entry(ticker=self.FULL_VISION_UNIVERSE[0], fx_gbpusd=fx)]
+            return [self.evaluate_entry(ticker=eligible[0] if eligible else self.FULL_VISION_UNIVERSE[0], fx_gbpusd=fx)]
 
         dec = self.evaluate_entry(fx_gbpusd=fx)
         return [dec]
@@ -870,7 +976,17 @@ class DemoStrategyV1:
         max_total_ceiling = self.TOTAL_CAPITAL_BASE_GBP * self.MAX_DEPLOYMENT_CEILING_PCT  # £40,000.00
         remaining_budget = max(0.0, max_total_ceiling - current_deployed_capital)
 
-        for ticker in self.FULL_VISION_UNIVERSE:
+        # Select active display set for the scanner matrix
+        if is_weekday and us_open <= t_lon <= uk_close:
+            display_universe = self.UK_UNIVERSE[:15] + self.US_UNIVERSE[:15]
+        elif is_weekday and uk_open <= t_lon < us_open:
+            display_universe = self.UK_UNIVERSE[:25] + self.US_UNIVERSE[:5]
+        elif is_weekday and uk_close < t_lon <= us_close:
+            display_universe = self.US_UNIVERSE[:25] + self.UK_UNIVERSE[:5]
+        else:
+            display_universe = self.UK_UNIVERSE[:15] + self.US_UNIVERSE[:15]
+
+        for ticker in display_universe:
             feed = self.TICKER_TO_FEED.get(ticker, ticker)
             comp_name = self.COMPANY_NAMES.get(ticker, feed)
             is_uk = self.is_uk_instrument(ticker)
@@ -1083,7 +1199,8 @@ class DemoStrategyV1:
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
             "session_label": session_label,
             "in_entry_window": is_weekday and (uk_open <= t_lon <= us_close),
-            "universe_count": len(candidates),
+            "universe_count": len(self.FULL_VISION_UNIVERSE),
+            "displayed_candidates_count": len(candidates),
             "capital_ceiling_gbp": max_total_ceiling,
             "capital_deployed_gbp": round(current_deployed_capital, 2),
             "capital_available_gbp": round(remaining_budget, 2),
