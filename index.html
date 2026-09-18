@@ -368,6 +368,381 @@
             border-radius: 12px;
         }
 
+        /* 🧠 PRV Autonomous AI Market Research & Live Decision Matrix */
+        .scanner-panel {
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(9, 13, 22, 0.98) 100%);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            border-radius: var(--radius);
+            padding: 18px 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+        }
+        .scanner-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 16px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .scanner-title-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .scanner-main-title {
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: -0.3px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .scanner-subtitle {
+            font-size: 11px;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+        .scanner-session-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .scanner-session-badge.active {
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.35);
+        }
+        .scanner-session-badge.premarket {
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.35);
+        }
+        .scanner-session-badge.closed {
+            background: rgba(100, 116, 139, 0.18);
+            color: #94a3b8;
+            border: 1px solid rgba(100, 116, 139, 0.3);
+        }
+
+        /* Scanner Telemetry Banner */
+        .scanner-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+        .scanner-stat-card {
+            background: rgba(30, 41, 59, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+        .scanner-stat-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .scanner-stat-val {
+            font-size: 17px;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-top: 4px;
+        }
+        .scanner-stat-sub {
+            font-size: 10px;
+            color: var(--text-secondary);
+            margin-top: 3px;
+        }
+
+        /* £100 Banking Progress Tracker */
+        .profit-tracker-box {
+            background: rgba(16, 185, 129, 0.06);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+        }
+        .profit-tracker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .profit-tracker-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #10b981;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .profit-tracker-empty {
+            font-size: 12px;
+            color: #cbd5e1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+        }
+        .profit-pos-card {
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 12px;
+            margin-top: 8px;
+        }
+        .progress-bar-bg {
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 6px;
+            height: 10px;
+            width: 100%;
+            overflow: hidden;
+            margin: 8px 0;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #38bdf8 0%, #10b981 100%);
+            border-radius: 6px;
+            transition: width 0.4s ease;
+        }
+        .progress-bar-fill.hit {
+            background: linear-gradient(90deg, #10b981 0%, #4ade80 100%);
+            box-shadow: 0 0 10px #10b981;
+        }
+
+        /* Universe Candidates Cards Grid */
+        .scanner-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+            gap: 14px;
+        }
+        .scanner-card {
+            background: rgba(18, 25, 39, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.15s ease, border-color 0.2s ease;
+        }
+        .scanner-card:hover {
+            border-color: rgba(56, 189, 248, 0.4);
+            transform: translateY(-2px);
+        }
+        .scanner-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+        .scanner-ticker-box {
+            display: flex;
+            flex-direction: column;
+        }
+        .scanner-ticker {
+            font-size: 17px;
+            font-weight: 800;
+            color: #fff;
+            letter-spacing: -0.2px;
+        }
+        .scanner-company {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 1px;
+            max-width: 180px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .scanner-action-badge {
+            font-size: 11px;
+            font-weight: 800;
+            padding: 4px 10px;
+            border-radius: 6px;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+        }
+        .scanner-action-badge.green {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+        }
+        .scanner-action-badge.cyan {
+            background: rgba(6, 182, 212, 0.2);
+            color: #06b6d4;
+            border: 1px solid rgba(6, 182, 212, 0.4);
+        }
+        .scanner-action-badge.amber {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+        .scanner-action-badge.gray {
+            background: rgba(100, 116, 139, 0.2);
+            color: #94a3b8;
+            border: 1px solid rgba(100, 116, 139, 0.3);
+        }
+        .scanner-action-badge.rose {
+            background: rgba(244, 63, 94, 0.2);
+            color: #f43f5e;
+            border: 1px solid rgba(244, 63, 94, 0.4);
+        }
+
+        .scanner-price-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            background: rgba(15, 23, 42, 0.5);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .scanner-price-val {
+            font-weight: 700;
+            color: #fff;
+        }
+        .scanner-price-gbp {
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-left: 4px;
+        }
+        .scanner-spread-val {
+            font-size: 11px;
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
+        /* News & Sentiment */
+        .scanner-news-box {
+            background: rgba(30, 41, 59, 0.35);
+            border-left: 3px solid #38bdf8;
+            border-radius: 0 6px 6px 0;
+            padding: 8px 10px;
+            margin-bottom: 10px;
+        }
+        .scanner-news-box.sentiment-pos { border-left-color: #10b981; }
+        .scanner-news-box.sentiment-neg { border-left-color: #f43f5e; }
+        .scanner-news-box.sentiment-neu { border-left-color: #f59e0b; }
+
+        .scanner-news-headline {
+            font-size: 11px;
+            color: #cbd5e1;
+            font-style: italic;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .scanner-sentiment-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 6px;
+        }
+        .scanner-sentiment-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .scanner-sentiment-badge.pos { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .scanner-sentiment-badge.neu { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+        .scanner-sentiment-badge.neg { background: rgba(244, 63, 94, 0.2); color: #f43f5e; }
+
+        /* Conviction Meter */
+        .scanner-conviction-row {
+            margin-bottom: 10px;
+        }
+        .scanner-conviction-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+        .scanner-conviction-bar {
+            height: 6px;
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .scanner-conviction-fill {
+            height: 100%;
+            border-radius: 4px;
+        }
+
+        /* Tech Gating Row */
+        .scanner-tech-row {
+            display: flex;
+            justify-content: space-between;
+            background: rgba(15, 23, 42, 0.4);
+            border-radius: 6px;
+            padding: 6px 8px;
+            font-size: 11px;
+            margin-bottom: 10px;
+        }
+        .scanner-tech-item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .scanner-tech-label {
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+        .scanner-tech-val {
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+
+        /* Allocation & Sizing Row */
+        .scanner-sizing-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            background: rgba(56, 189, 248, 0.08);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 6px;
+            font-size: 11px;
+            margin-bottom: 10px;
+        }
+        .scanner-sizing-label {
+            color: #38bdf8;
+            font-weight: 600;
+        }
+        .scanner-sizing-val {
+            font-weight: 800;
+            color: #fff;
+        }
+
+        /* Rationale Box */
+        .scanner-rationale-box {
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
         /* Middle Section Layout */
         .middle-row-grid {
             display: grid;
@@ -918,6 +1293,78 @@
                         <div id="execTopRejectedList" style="display: flex; flex-direction: column; gap: 4px; font-size: 11px;"></div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- 🧠 PRV Autonomous AI Market Research & Live Decision Matrix Panel -->
+        <div id="liveScannerPanel" class="scanner-panel">
+            <div class="scanner-header">
+                <div class="scanner-title-group">
+                    <div class="scanner-main-title">
+                        <span>🧠 Live AI Market Research & Real-Time Decision Matrix</span>
+                        <div class="pulse-dot" style="color: #38bdf8;"></div>
+                    </div>
+                    <div class="scanner-subtitle">
+                        Autonomous market intelligence scanning, financial news sentiment, Databento BBO liquidity gating, dynamic £40k capital allocation, and auto-banking upon reaching £100 net profit.
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <span id="scannerSessionLabel" class="scanner-session-badge premarket">PRE-MARKET AI INTELLIGENCE & SENTIMENT ANALYSIS</span>
+                    <span id="scannerTimestamp" style="font-size: 11px; color: var(--text-muted); font-family: monospace;">--</span>
+                </div>
+            </div>
+
+            <!-- Scanner Capital & Exit Rules Telemetry -->
+            <div class="scanner-stats-grid">
+                <div class="scanner-stat-card">
+                    <div class="scanner-stat-label">Scanned Universe</div>
+                    <div id="scannerUniverseCount" class="scanner-stat-val">9 Securities</div>
+                    <div class="scanner-stat-sub">AAPL, NVDA, MSFT, AMZN, TSLA, GOOG, META, SPY, QQQ</div>
+                </div>
+                <div class="scanner-stat-card">
+                    <div class="scanner-stat-label">Capital Deployment Ceiling</div>
+                    <div id="scannerCapitalCeiling" class="scanner-stat-val" style="color: #38bdf8;">£40,000.00</div>
+                    <div class="scanner-stat-sub">Strict 80% Max of £50k Base</div>
+                </div>
+                <div class="scanner-stat-card">
+                    <div class="scanner-stat-label">Current Deployed Capital</div>
+                    <div id="scannerCapitalDeployed" class="scanner-stat-val">£0.00</div>
+                    <div id="scannerCapitalPct" class="scanner-stat-sub">0.0% of £40k Ceiling</div>
+                </div>
+                <div class="scanner-stat-card">
+                    <div class="scanner-stat-label">Free Deployable Capital</div>
+                    <div id="scannerCapitalAvailable" class="scanner-stat-val" style="color: #10b981;">£40,000.00</div>
+                    <div class="scanner-stat-sub">Ready for High-Conviction Trades</div>
+                </div>
+                <div class="scanner-stat-card">
+                    <div class="scanner-stat-label">Profit Banking Target</div>
+                    <div class="scanner-stat-val" style="color: #10b981;">£100.00 Net</div>
+                    <div class="scanner-stat-sub">Immediate Sell & Bank per Position</div>
+                </div>
+            </div>
+
+            <!-- Active Position £100 Banking Progress Tracker -->
+            <div id="scannerProfitTracker" class="profit-tracker-box">
+                <div class="profit-tracker-header">
+                    <div class="profit-tracker-title">
+                        <span>🎯 Active Position £100 Net Profit Banking Tracker</span>
+                    </div>
+                    <span id="scannerActiveCountBadge" style="font-size: 11px; font-weight: 700; color: #10b981; background: rgba(16, 185, 129, 0.15); padding: 2px 8px; border-radius: 8px;">0 ACTIVE TRADES</span>
+                </div>
+                <div id="scannerActivePositionsContainer">
+                    <div class="profit-tracker-empty">
+                        <span>🛡️ 100% Capital Preserved & Liquid. AI Engine is continuously evaluating the 9-asset universe for the next high-conviction £100 profit rotation.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-Time Universe Cards Grid -->
+            <div style="margin-bottom: 12px; font-size: 13px; font-weight: 700; color: var(--text-secondary); display: flex; justify-content: space-between; align-items: center;">
+                <span>AI UNIVERSE INTELLIGENCE & CONVICTION MATRIX</span>
+                <span id="scannerMatrixCount" style="font-size: 11px; color: var(--text-muted); font-weight: 500;">9 Candidates Evaluated</span>
+            </div>
+            <div id="scannerCardsGrid" class="scanner-cards-grid">
+                <!-- Cards will be populated dynamically -->
             </div>
         </div>
 
@@ -2583,35 +3030,222 @@
             }
         }
 
+        // 🧠 Live AI Market Scanner & Decision Matrix Fetcher
+        let isScannerInFlight = false;
+        async function fetchLiveScanner() {
+            if (isScannerInFlight) return;
+            isScannerInFlight = true;
+            try {
+                const res = await safeFetch(API_BASE + '/api/engine/live_scanner', {}, 5000);
+                if (!res || !res.ok) return;
+                const data = await res.json();
+
+                // 1. Header & Session
+                const sessionBadge = document.getElementById('scannerSessionLabel');
+                if (sessionBadge) {
+                    sessionBadge.textContent = data.session_label || 'PRE-MARKET AI INTELLIGENCE & SENTIMENT ANALYSIS';
+                    if (data.in_entry_window) {
+                        sessionBadge.className = 'scanner-session-badge active';
+                    } else {
+                        sessionBadge.className = 'scanner-session-badge premarket';
+                    }
+                }
+                const tsEl = document.getElementById('scannerTimestamp');
+                if (tsEl) tsEl.textContent = data.timestamp || '--';
+
+                // 2. Telemetry Stats
+                const ceiling = Number(data.capital_ceiling_gbp || 40000);
+                const deployed = Number(data.capital_deployed_gbp || 0);
+                const available = Number(data.capital_available_gbp || (ceiling - deployed));
+                const deployedPct = ceiling > 0 ? (deployed / ceiling * 100).toFixed(1) : '0.0';
+
+                const ceilEl = document.getElementById('scannerCapitalCeiling');
+                if (ceilEl) ceilEl.textContent = `£${ceiling.toLocaleString('en-GB', {minimumFractionDigits: 2})}`;
+
+                const depEl = document.getElementById('scannerCapitalDeployed');
+                if (depEl) depEl.textContent = `£${deployed.toLocaleString('en-GB', {minimumFractionDigits: 2})}`;
+
+                const depPctEl = document.getElementById('scannerCapitalPct');
+                if (depPctEl) depPctEl.textContent = `${deployedPct}% of £40k Ceiling`;
+
+                const availEl = document.getElementById('scannerCapitalAvailable');
+                if (availEl) availEl.textContent = `£${available.toLocaleString('en-GB', {minimumFractionDigits: 2})}`;
+
+                const actCountEl = document.getElementById('scannerActiveCountBadge');
+                if (actCountEl) actCountEl.textContent = `${data.active_positions_count || 0} ACTIVE TRADES`;
+
+                // 3. Active Positions £100 Banking Tracker
+                const activeContainer = document.getElementById('scannerActivePositionsContainer');
+                if (activeContainer) {
+                    const activeList = data.active_positions || [];
+                    if (activeList.length === 0) {
+                        activeContainer.innerHTML = `
+                            <div class="profit-tracker-empty">
+                                <span>🛡️ 100% Capital Preserved & Liquid. AI Engine is continuously evaluating the 9-asset universe for the next high-conviction £100 profit rotation.</span>
+                            </div>
+                        `;
+                    } else {
+                        activeContainer.innerHTML = activeList.map(pos => {
+                            const netColor = pos.net_profit_gbp >= 0 ? '#10b981' : '#f43f5e';
+                            const isHit = pos.banking_triggered || pos.net_profit_gbp >= 100.0;
+                            const fillClass = isHit ? 'progress-bar-fill hit' : 'progress-bar-fill';
+                            const statusText = isHit
+                                ? '🎯 £100 TARGET HIT — AUTO EXIT & BANKING PROFIT'
+                                : `Tracking to £100.00 Target (Progress: ${pos.progress_pct}%)`;
+
+                            return `
+                                <div class="profit-pos-card">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                                        <div>
+                                            <span style="font-weight: 800; font-size: 15px; color: #fff;">${pos.symbol}</span>
+                                            <span style="font-size: 11px; color: var(--text-secondary); margin-left: 6px;">${pos.company_name}</span>
+                                            <span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">(${pos.shares} shares @ £${Number(pos.entry_price).toFixed(2)})</span>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span style="font-weight: 800; font-size: 16px; color: ${netColor};">${pos.net_profit_gbp >= 0 ? '+' : ''}£${Number(pos.net_profit_gbp).toFixed(2)} NET</span>
+                                            <span style="font-size: 10px; color: var(--text-muted); margin-left: 6px;">(Fees: £${Number(pos.estimated_costs_gbp).toFixed(2)})</span>
+                                        </div>
+                                    </div>
+                                    <div class="progress-bar-bg">
+                                        <div class="${fillClass}" style="width: ${Math.min(100, Math.max(0, pos.progress_pct))}%;"></div>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                                        <span style="font-weight: 700; color: ${isHit ? '#10b981' : '#38bdf8'};">${statusText}</span>
+                                        <span style="color: var(--text-muted);">Current: £${Number(pos.current_price).toFixed(2)} | Target: £${Number(pos.entry_price + (100 / (pos.shares || 1))).toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                }
+
+                // 4. Candidate Cards Grid
+                const grid = document.getElementById('scannerCardsGrid');
+                if (grid && data.candidates) {
+                    grid.innerHTML = data.candidates.map(c => {
+                        const sentClass = c.sentiment_score > 0.05 ? 'pos' : (c.sentiment_score < -0.05 ? 'neg' : 'neu');
+                        const boxSentClass = c.sentiment_score > 0.05 ? 'sentiment-pos' : (c.sentiment_score < -0.05 ? 'sentiment-neg' : 'sentiment-neu');
+                        const convColor = c.conviction_score >= 70 ? '#10b981' : (c.conviction_score >= 50 ? '#f59e0b' : '#64748b');
+
+                        return `
+                            <div class="scanner-card">
+                                <div>
+                                    <div class="scanner-card-header">
+                                        <div class="scanner-ticker-box">
+                                            <div class="scanner-ticker">${c.symbol}</div>
+                                            <div class="scanner-company" title="${c.company_name}">${c.company_name}</div>
+                                        </div>
+                                        <span class="scanner-action-badge ${c.badge_color || 'cyan'}">${c.action}</span>
+                                    </div>
+
+                                    <div class="scanner-price-row">
+                                        <div>
+                                            <span class="scanner-price-val">$${Number(c.price_usd).toFixed(2)}</span>
+                                            <span class="scanner-price-gbp">(~£${Number(c.price_gbp).toFixed(2)})</span>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <span class="scanner-spread-val">${c.spread_bps} bps spread</span>
+                                            <span style="font-size: 9px; color: var(--text-muted); display: block;">${c.quote_source}</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="scanner-conviction-row">
+                                        <div class="scanner-conviction-header">
+                                            <span style="color: var(--text-muted);">AI Conviction Score</span>
+                                            <span style="font-weight: 800; color: ${convColor};">${c.conviction_score}%</span>
+                                        </div>
+                                        <div class="scanner-conviction-bar">
+                                            <div class="scanner-conviction-fill" style="width: ${c.conviction_score}%; background: ${convColor};"></div>
+                                        </div>
+                                    </div>
+
+                                    <div class="scanner-news-box ${boxSentClass}">
+                                        <div class="scanner-news-headline">"${c.headline}"</div>
+                                        <div class="scanner-sentiment-row">
+                                            <span style="font-size: 9px; color: var(--text-muted);">${c.headline_source}</span>
+                                            <span class="scanner-sentiment-badge ${sentClass}">${c.sentiment_score >= 0 ? '+' : ''}${c.sentiment_score.toFixed(2)} ${c.sentiment_label}</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="scanner-tech-row">
+                                        <div class="scanner-tech-item">
+                                            <span class="scanner-tech-label">RSI (14)</span>
+                                            <span class="scanner-tech-val">${c.rsi}</span>
+                                        </div>
+                                        <div class="scanner-tech-item">
+                                            <span class="scanner-tech-label">20D SMA</span>
+                                            <span class="scanner-tech-val">$${c.sma_20}</span>
+                                        </div>
+                                        <div class="scanner-tech-item">
+                                            <span class="scanner-tech-label">BBO Bid/Ask</span>
+                                            <span class="scanner-tech-val">$${Number(c.bid).toFixed(2)} / $${Number(c.ask).toFixed(2)}</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="scanner-sizing-row">
+                                        <span class="scanner-sizing-label">Dynamic Sizing:</span>
+                                        <span class="scanner-sizing-val">£${Number(c.allocated_capital_gbp).toLocaleString('en-GB', {minimumFractionDigits: 2})} <span style="font-weight: 500; font-size: 10px; color: #cbd5e1;">(${c.target_shares} shs)</span></span>
+                                    </div>
+                                </div>
+
+                                <div class="scanner-rationale-box">
+                                    <strong style="color: #cbd5e1; display: block; font-size: 10px; text-transform: uppercase; margin-bottom: 2px;">Decision Rationale:</strong>
+                                    ${c.decision_rationale}
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            } catch (err) {
+                console.warn("Live scanner fetch error:", err);
+            } finally {
+                isScannerInFlight = false;
+            }
+        }
+
         // --- Initial Boot Sequencer ---
         fetchFastSummary();
+        fetchLiveScanner();
+        fetchStrategyV2Panel();
         fetchBrokerParity();
         fetchPositionsBackground();
-        fetchStrategyV2Panel();
         loadEquityCurve();
 
-        // ⏱️ Active periodic poll (Refreshes summary, parity, positions, and strategy v2 every 10s)
+        // ⏱️ Fast In-Memory Interval (Refreshes summary and live AI market scanner every 10s without broker hits)
         setInterval(() => {
             fetchFastSummary();
-            fetchBrokerParity();
-            fetchPositionsBackground();
-            fetchStrategyV2Panel();
+            fetchLiveScanner();
         }, 10000);
 
-        // 🔄 Lifecycle Refresh Handlers (window focus, visibilitychange, pageshow)
+        // ⏱️ Strategy V2 Interval (Refreshes rotation telemetry every 15s)
+        setInterval(() => {
+            fetchStrategyV2Panel();
+        }, 15000);
+
+        // ⏱️ Broker-Safe Polling (Parity and positions every 30s to strictly honor Trading212 rate limits)
+        setInterval(() => {
+            fetchBrokerParity();
+            fetchPositionsBackground();
+        }, 30000);
+
+        // 🔄 Lifecycle Refresh Handlers (window focus, visibilitychange, pageshow) with 30s debounce
         let isLifecycleSyncInFlight = false;
+        let lastLifecycleSyncTime = 0;
         async function handleAppResume() {
-            if (isLifecycleSyncInFlight) return;
+            const now = Date.now();
+            if (isLifecycleSyncInFlight || (now - lastLifecycleSyncTime < 30000)) return;
             isLifecycleSyncInFlight = true;
+            lastLifecycleSyncTime = now;
             try {
-                // 1. Immediately paint latest cached snapshot (< 10ms)
+                // 1. Immediately paint latest cached snapshots (< 10ms)
                 await Promise.allSettled([
                     fetchFastSummary(),
-                    fetchBrokerParity(),
-                    fetchPositionsBackground()
+                    fetchLiveScanner(),
+                    fetchStrategyV2Panel()
                 ]);
-                // 2. Trigger non-blocking broker sync on server in background
-                safeFetch(API_BASE + '/api/portfolio/sync', { method: 'POST' }, 3000).catch(() => {});
+                // 2. Refresh positions and parity without hammering broker
+                fetchBrokerParity();
+                fetchPositionsBackground();
             } catch(e) {
                 console.warn("Lifecycle sync error:", e);
             } finally {

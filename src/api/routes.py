@@ -639,18 +639,49 @@ def get_portfolio_equity_curve(timeframe: str = "1W"):
         "data": [p["nav"] for p in points]
     }
 
+_last_manual_sync_timestamp = 0.0
+
 @app.post("/api/portfolio/sync")
 @app.get("/api/portfolio/sync")
 def trigger_broker_sync(background_tasks: BackgroundTasks):
-    """Trigger non-blocking broker snapshot refresh on app lifecycle events (focus, visibilitychange, pageshow)."""
+    """Trigger non-blocking broker snapshot refresh on app lifecycle events. Throttled to 30s to prevent 429 rate limit."""
+    global _last_manual_sync_timestamp
+    now = time.time()
+    if now - _last_manual_sync_timestamp < 30.0:
+        return {
+            "status": "THROTTLED",
+            "last_broker_sync": getattr(broker, "_last_sync_timestamp", ""),
+            "nav": getattr(broker, "_last_verified_nav", 50000.0)
+        }
+    _last_manual_sync_timestamp = now
     def _sync():
-        broker.refresh_broker_snapshot(force=True)
+        try:
+            broker.refresh_broker_snapshot(force=True)
+        except Exception as e:
+            logger.warning(f"Background broker snapshot refresh notice: {e}")
     background_tasks.add_task(_sync)
     return {
         "status": "SYNC_TRIGGERED",
         "last_broker_sync": getattr(broker, "_last_sync_timestamp", ""),
         "nav": getattr(broker, "_last_verified_nav", 50000.0)
     }
+
+@app.get("/api/engine/live_scanner")
+def get_engine_live_scanner():
+    """
+    Returns visual live market scanner matrix across full tradeable universe.
+    Powers real-time UI display of news headlines, sentiment scores, technical indicators,
+    conviction meters, dynamic sizing, and transparent buy/pass decision rationales.
+    """
+    from src.hit_and_run.demo_strategy_v1 import demo_strategy_v1
+    runner = getattr(app.state, "demo_experiment_runner", None)
+    deployed = runner.total_deployed_gbp if runner and hasattr(runner, "total_deployed_gbp") else 0.0
+    open_pos = broker.get_open_positions(force_refresh=False) or []
+    return demo_strategy_v1.get_live_scanner_matrix(
+        fx_gbpusd=1.30,
+        current_deployed_capital=deployed,
+        open_positions=open_pos
+    )
 
 @app.post("/api/portfolio/test_set_nav")
 def test_set_nav(nav: float):
