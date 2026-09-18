@@ -94,10 +94,10 @@ class DemoExperimentRunner:
         except Exception:
             return "UNKNOWN_GIT_SHA"
 
-    def pre_session_startup(self) -> Dict[str, Any]:
+    def pre_session_startup(self, allow_existing_positions: bool = False) -> Dict[str, Any]:
         """
         Phase 1: Pre-session validation and account verification.
-        Fails closed if pre-existing positions or orders exist.
+        Fails closed if pre-existing positions or orders exist (unless allow_existing_positions=True).
         """
         logger.info(f"[Runner] Initializing Pre-Session for Experiment {self.experiment_id} (SHA: {self.git_sha})")
 
@@ -123,13 +123,42 @@ class DemoExperimentRunner:
         # 3. Verify clean slate (0 positions, 0 orders)
         reconcile = self.dispatcher.reconcile_broker_state()
         if not reconcile["is_clean_slate"]:
-            msg = (
-                f"ACCOUNT_STATE_NOT_CLEAN: Found {reconcile['positions_count']} open positions "
-                f"and {reconcile['orders_count']} open orders in DEMO account. "
-                f"Abort startup to avoid contaminating experiment."
-            )
-            logger.critical(msg)
-            raise RuntimeError(msg)
+            if not allow_existing_positions:
+                msg = (
+                    f"ACCOUNT_STATE_NOT_CLEAN: Found {reconcile['positions_count']} open positions "
+                    f"and {reconcile['orders_count']} open orders in DEMO account. "
+                    f"Abort startup to avoid contaminating experiment."
+                )
+                logger.critical(msg)
+                raise RuntimeError(msg)
+            else:
+                logger.warning(
+                    f"[Runner] Existing positions found in DEMO account ({reconcile['positions_count']} positions). "
+                    f"Adopting existing positions into active monitoring."
+                )
+                for pos in reconcile.get("positions", []):
+                    ticker = pos.get("ticker", "")
+                    if ticker and ticker not in self.active_holdings:
+                        qty = float(pos.get("quantity", 0.0))
+                        avg_p = float(pos.get("averagePrice", 0.0))
+                        cur_p = float(pos.get("currentPrice", avg_p))
+                        is_pence = ((str(ticker).endswith("l_EQ") or ticker == "CSP1_EQ") and ticker != "VUSAl_EQ")
+                        if is_pence:
+                            entry_gbp = round(qty * avg_p / 100.0, 2)
+                        elif str(ticker).endswith("l_EQ") or str(ticker).endswith(".L"):
+                            entry_gbp = round(qty * avg_p, 2)
+                        else:
+                            entry_gbp = round(qty * avg_p / 1.30, 2)
+
+                        self.active_holdings[ticker] = {
+                            "ticker": ticker,
+                            "quantity": qty,
+                            "fill_price": avg_p,
+                            "current_price": cur_p,
+                            "entry_cost_gbp": entry_gbp,
+                            "entry_time": datetime.now(timezone.utc).isoformat(),
+                            "fx_rate": 1.0 if (str(ticker).endswith("l_EQ") or ticker == "CSP1_EQ") else 1.30
+                        }
 
         startup_record = {
             "experiment_id": self.experiment_id,
@@ -138,11 +167,11 @@ class DemoExperimentRunner:
             "broker_environment": "DEMO",
             "starting_cash": self.starting_cash,
             "starting_equity": self.starting_equity,
-            "open_positions": 0,
-            "open_orders": 0,
+            "open_positions": len(self.active_holdings),
+            "open_orders": reconcile.get("orders_count", 0),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        logger.info(f"[Runner] Pre-session verified: Cash=£{self.starting_cash:.2f}, Equity=£{self.starting_equity:.2f}")
+        logger.info(f"[Runner] Pre-session verified: Cash=£{self.starting_cash:.2f}, Equity=£{self.starting_equity:.2f}, Active Holdings={len(self.active_holdings)}")
         return startup_record
 
     def run_scan_and_execute_cycle(self, opportunities: List[Any]) -> Dict[str, Any]:
@@ -446,7 +475,7 @@ class DemoExperimentRunner:
         startup -> continuous scan/evaluate loop -> execute entries -> monitor holdings -> evaluate exits -> continue scanning after exits -> session-end reconciliation.
         """
         logger.info(f"[Runner] Starting single session loop for {self.experiment_id}")
-        self.pre_session_startup()
+        self.pre_session_startup(allow_existing_positions=True)
 
         cycles_count = 0
         try:
@@ -606,7 +635,7 @@ class DemoExperimentRunner:
                     logger.info(f"[Multi-Session Worker] New trading session opening: {today} {t_lon.strftime('%H:%M:%S')} London time")
                     self.reset_session_state()
                     try:
-                        self.pre_session_startup()
+                        self.pre_session_startup(allow_existing_positions=True)
                         active_session_date = today
                     except Exception as e:
                         logger.error(f"[Multi-Session Worker] Pre-session startup failed for {today}: {e}")

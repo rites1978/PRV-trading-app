@@ -3127,6 +3127,10 @@
                         const boxSentClass = c.sentiment_score > 0.05 ? 'sentiment-pos' : (c.sentiment_score < -0.05 ? 'sentiment-neg' : 'sentiment-neu');
                         const convColor = c.conviction_score >= 70 ? '#10b981' : (c.conviction_score >= 50 ? '#f59e0b' : '#64748b');
 
+                        const actionHtml = c.action === 'BUY'
+                            ? `<button onclick="executeCandidateOrder('${c.ticker}')" class="scanner-action-badge green" style="cursor: pointer; border: 1px solid #10b981; font-weight: 800; padding: 3px 10px;" title="Execute Practice Order Now">BUY NOW ⚡</button>`
+                            : `<span class="scanner-action-badge ${c.badge_color || 'cyan'}">${c.action}</span>`;
+
                         return `
                             <div class="scanner-card">
                                 <div>
@@ -3135,7 +3139,7 @@
                                             <div class="scanner-ticker">${c.symbol}</div>
                                             <div class="scanner-company" title="${c.company_name}">${c.company_name}</div>
                                         </div>
-                                        <span class="scanner-action-badge ${c.badge_color || 'cyan'}">${c.action}</span>
+                                        ${actionHtml}
                                     </div>
 
                                     <div class="scanner-price-row">
@@ -3250,6 +3254,34 @@
                 console.warn("Lifecycle sync error:", e);
             } finally {
                 isLifecycleSyncInFlight = false;
+            }
+        }
+
+        async function executeCandidateOrder(ticker) {
+            if (!confirm(`Execute Practice BUY order immediately for ${ticker}?`)) {
+                return;
+            }
+            try {
+                const res = await safeFetch(API_BASE + '/api/engine/execute_candidate?ticker=' + encodeURIComponent(ticker), {
+                    method: 'POST'
+                }, 15000);
+                if (!res) {
+                    alert('Network error communicating with trading engine.');
+                    return;
+                }
+                const data = await res.json();
+                if (data.success) {
+                    const fill = data.result ? data.result.fill_price : 'Market';
+                    const qty = data.result ? data.result.filled_quantity : '';
+                    alert(`✅ Practice Order Executed!\nTicker: ${ticker}\nShares: ${qty}\nFill Price: ${fill}\nTarget Profit: £100 Banking Lock`);
+                    fetchFastSummary();
+                    fetchLiveScanner();
+                    fetchPositionsBackground();
+                } else {
+                    alert(`⚠️ Order not placed: ${data.reason || data.error || 'Conviction or risk gate prevented execution'}`);
+                }
+            } catch(e) {
+                alert('Execution error: ' + e);
             }
         }
 

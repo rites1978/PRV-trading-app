@@ -137,6 +137,58 @@ def trigger_demo_canary():
         return {"success": False, "error": "demo_experiment_runner not initialized"}
     return runner.execute_demo_execution_canary()
 
+
+@app.get("/api/demo_experiment/trades")
+def get_demo_experiment_trades():
+    """Returns complete trade execution history and banking ledger for review."""
+    runner = getattr(app.state, "demo_experiment_runner", None)
+    if not runner:
+        return {"trades": [], "holdings": {}, "banking_ledger": {}}
+    return {
+        "trades": runner.trades_log,
+        "holdings": runner.active_holdings,
+        "banking_ledger": runner.banking_ledger.get_banking_summary()
+    }
+
+
+@app.post("/api/engine/execute_candidate")
+def execute_candidate_now(ticker: str):
+    """Executes an approved scanner candidate immediately in Trading212 Practice."""
+    runner = getattr(app.state, "demo_experiment_runner", None)
+    if not runner:
+        return {"success": False, "error": "Autonomous runner not initialized"}
+    strat = runner.strategy_module
+    # Resolve ticker if feed symbol was passed (e.g. SHEL.L -> SHELl_EQ)
+    target_ticker = ticker
+    if hasattr(strat, "TICKER_TO_FEED"):
+        feed_to_ticker = {v: k for k, v in strat.TICKER_TO_FEED.items()}
+        if ticker in feed_to_ticker:
+            target_ticker = feed_to_ticker[ticker]
+
+    dec = strat.evaluate_entry(ticker=target_ticker)
+    if dec.decision != "ENTER":
+        return {"success": False, "reason": dec.no_entry_reason or "Conviction gates not met"}
+    exec_res = runner.dispatcher.execute_entry(dec)
+    runner.trades_log.append({
+        "type": "MANUAL_TRIGGERED_ENTRY",
+        "decision": dec.to_dict(),
+        "result": exec_res,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+    if exec_res.get("success"):
+        inst_id = dec.instrument_id
+        runner.active_holdings[inst_id] = {
+            "ticker": inst_id,
+            "fill_price": exec_res.get("fill_price"),
+            "quantity": exec_res.get("filled_quantity"),
+            "entry_cost_gbp": getattr(dec, "intended_capital_gbp", 50.0),
+            "stop_order_id": exec_res.get("stop_order_id"),
+            "stop_price": exec_res.get("stop_price"),
+            "entry_time": exec_res.get("timestamp"),
+            "fx_rate": 1.0
+        }
+    return {"success": exec_res.get("success", False), "result": exec_res, "decision": dec.to_dict()}
+
 # Enable CORS for web and mobile clients
 app.add_middleware(
     CORSMiddleware,
@@ -341,7 +393,11 @@ def get_positions():
 
 @app.get("/trades")
 def get_trades(limit: int = 50):
-    return db.get_trades(limit=limit)
+    db_trades = db.get_trades(limit=limit) or []
+    runner = getattr(app.state, "demo_experiment_runner", None)
+    if runner and runner.trades_log:
+        return runner.trades_log + db_trades
+    return db_trades
 
 @app.get("/audit")
 def get_audit_logs(limit: int = 100):
