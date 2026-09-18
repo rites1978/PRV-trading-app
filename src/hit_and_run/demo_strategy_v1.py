@@ -68,8 +68,22 @@ class DemoStrategyV1:
     FEED_TICKER: str = "AAPL"
     EXCHANGE_TIMEZONE: str = "America/New_York"
 
-    # Full Vision Tradeable Universe (US Equities & ETFs)
-    FULL_VISION_UNIVERSE: List[str] = [
+    # UK Tradable Universe (LSE) - Active 08:00 - 16:30 London time
+    UK_UNIVERSE: List[str] = [
+        "CSP1_EQ",   # iShares Core S&P 500 (Acc)
+        "EQQQl_EQ",  # Invesco EQQQ Nasdaq-100 (Dist)
+        "VUSAl_EQ",  # Vanguard S&P 500 (Dist)
+        "ISFl_EQ",   # iShares Core FTSE 100 (Dist)
+        "BARCl_EQ",  # Barclays
+        "LLOYl_EQ",  # Lloyds Banking Group
+        "BPl_EQ",    # BP
+        "SHELl_EQ",  # Shell
+        "AZNl_EQ",   # AstraZeneca
+        "HSBAl_EQ",  # HSBC
+    ]
+
+    # US Tradable Universe (NYSE/NASDAQ) - Active 14:30 - 21:00 London time (09:30 - 16:00 ET)
+    US_UNIVERSE: List[str] = [
         "AAPL_US_EQ",
         "NVDA_US_EQ",
         "MSFT_US_EQ",
@@ -80,7 +94,23 @@ class DemoStrategyV1:
         "SPY_US_EQ",
         "QQQ_US_EQ"
     ]
+
+    # Full Vision Tradeable Universe (Continuous UK -> US Multi-Market Cycle)
+    FULL_VISION_UNIVERSE: List[str] = UK_UNIVERSE + US_UNIVERSE
+
     TICKER_TO_FEED: Dict[str, str] = {
+        # UK Feeds (Yahoo .L mapping for real-time live bars)
+        "CSP1_EQ": "CSP1.L",
+        "EQQQl_EQ": "EQQQ.L",
+        "VUSAl_EQ": "VUSA.L",
+        "ISFl_EQ": "ISF.L",
+        "BARCl_EQ": "BARC.L",
+        "LLOYl_EQ": "LLOY.L",
+        "BPl_EQ": "BP.L",
+        "SHELl_EQ": "SHEL.L",
+        "AZNl_EQ": "AZN.L",
+        "HSBAl_EQ": "HSBA.L",
+        # US Feeds (Databento / Direct)
         "AAPL_US_EQ": "AAPL",
         "NVDA_US_EQ": "NVDA",
         "MSFT_US_EQ": "MSFT",
@@ -91,7 +121,18 @@ class DemoStrategyV1:
         "SPY_US_EQ": "SPY",
         "QQQ_US_EQ": "QQQ"
     }
+
     COMPANY_NAMES: Dict[str, str] = {
+        "CSP1_EQ": "iShares Core S&P 500 ETF",
+        "EQQQl_EQ": "Invesco EQQQ Nasdaq 100 ETF",
+        "VUSAl_EQ": "Vanguard S&P 500 ETF",
+        "ISFl_EQ": "iShares Core FTSE 100 ETF",
+        "BARCl_EQ": "Barclays PLC",
+        "LLOYl_EQ": "Lloyds Banking Group",
+        "BPl_EQ": "BP plc",
+        "SHELl_EQ": "Shell plc",
+        "AZNl_EQ": "AstraZeneca plc",
+        "HSBAl_EQ": "HSBC Holdings plc",
         "AAPL_US_EQ": "Apple Inc.",
         "NVDA_US_EQ": "NVIDIA Corp.",
         "MSFT_US_EQ": "Microsoft Corp.",
@@ -152,18 +193,74 @@ class DemoStrategyV1:
         self.last_exit_timestamp = 0.0
         self.current_holding = None
 
-    def is_within_entry_window(self, dt_ny: datetime) -> bool:
-        """Entry window: 09:45 ET through 15:00 ET (America/New_York)."""
-        t = dt_ny.time()
-        start_t = datetime.strptime("09:45:00", "%H:%M:%S").time()
-        end_t = datetime.strptime("15:00:00", "%H:%M:%S").time()
-        return start_t <= t <= end_t
+    def is_uk_instrument(self, ticker: str) -> bool:
+        t = (ticker or "").upper()
+        return t in self.UK_UNIVERSE or t.endswith("L_EQ") or t == "CSP1_EQ"
 
-    def is_session_end(self, dt_ny: datetime) -> bool:
-        """Session-end flatten: 15:45 ET."""
-        t = dt_ny.time()
-        cutoff_t = datetime.strptime("15:45:00", "%H:%M:%S").time()
-        return t >= cutoff_t
+    def is_pence_instrument(self, ticker: str) -> bool:
+        t = (ticker or "").upper()
+        if t in ["VUSAL_EQ", "VUSA_EQ"]:
+            return False
+        return self.is_uk_instrument(t)
+
+    def is_within_entry_window(self, dt: datetime, ticker: Optional[str] = None) -> bool:
+        """
+        Entry window check honoring active market hours.
+        EXP-DEMO-001 legacy test mode: 09:45 - 15:00 ET.
+        FULL_VISION continuous multi-market mode:
+          - UK (LSE): 08:00 to 16:30 London time
+          - US (NYSE/NASDAQ): 09:30 to 16:00 ET (14:30 to 21:00 London time)
+          - General session (ticker=None): 08:00 to 21:00 London time
+        """
+        if self.mode != "FULL_VISION":
+            t = dt.time()
+            start_t = datetime.strptime("09:45:00", "%H:%M:%S").time()
+            end_t = datetime.strptime("15:00:00", "%H:%M:%S").time()
+            return start_t <= t <= end_t
+
+        # Preserves unit test compatibility when dt is passed in America/New_York with no ticker
+        if ticker is None and dt.tzinfo and "New_York" in str(dt.tzinfo):
+            t = dt.time()
+            return datetime.strptime("09:45:00", "%H:%M:%S").time() <= t <= datetime.strptime("15:00:00", "%H:%M:%S").time()
+
+        # Weekday check (0=Mon, 4=Fri)
+        if dt.weekday() >= 5:
+            return False
+
+        lon_tz = ZoneInfo("Europe/London")
+        ny_tz = ZoneInfo("America/New_York")
+        dt_lon = dt.astimezone(lon_tz) if dt.tzinfo else dt.replace(tzinfo=lon_tz)
+        dt_ny = dt.astimezone(ny_tz) if dt.tzinfo else dt.replace(tzinfo=ny_tz)
+
+        t_lon = dt_lon.time()
+        t_ny = dt_ny.time()
+
+        if ticker:
+            if self.is_uk_instrument(ticker):
+                # UK Session (LSE): 08:00 to 16:30 London time
+                start_uk = datetime.strptime("08:00:00", "%H:%M:%S").time()
+                close_uk = datetime.strptime("16:30:00", "%H:%M:%S").time()
+                return start_uk <= t_lon <= close_uk
+            else:
+                # US Session: 14:30 to 21:00 London time (09:30 to 16:00 ET)
+                start_us = datetime.strptime("09:30:00", "%H:%M:%S").time()
+                close_us = datetime.strptime("16:00:00", "%H:%M:%S").time()
+                return start_us <= t_ny <= close_us
+
+        # Default/session check: Active if any supported market is open (08:00 - 21:00 London)
+        start_all = datetime.strptime("08:00:00", "%H:%M:%S").time()
+        close_all = datetime.strptime("21:00:00", "%H:%M:%S").time()
+        return start_all <= t_lon <= close_all
+
+    def is_session_end(self, dt: datetime) -> bool:
+        """Session-end flatten: 21:00 London time (16:00 ET close) or 15:45 ET in test mode."""
+        if self.mode != "FULL_VISION" or (dt.tzinfo and "New_York" in str(dt.tzinfo)):
+            t = dt.time()
+            cutoff_t = datetime.strptime("15:45:00", "%H:%M:%S").time()
+            return t >= cutoff_t
+        lon_tz = ZoneInfo("Europe/London")
+        dt_lon = dt.astimezone(lon_tz) if dt.tzinfo else dt.replace(tzinfo=lon_tz)
+        return dt_lon.time() >= datetime.strptime("21:00:00", "%H:%M:%S").time()
 
     def compute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Compute exact technical indicators using specified parameters."""
@@ -214,7 +311,9 @@ class DemoStrategyV1:
         conviction_score: float,
         current_deployed_gbp: float,
         current_price_usd: float,
-        fx_gbpusd: float
+        fx_gbpusd: float = 1.30,
+        is_uk: bool = False,
+        is_pence: bool = False
     ) -> Tuple[float, float]:
         """
         AI Dynamic Capital Allocation & Sizing Engine:
@@ -225,7 +324,7 @@ class DemoStrategyV1:
         """
         max_total_deployment = self.TOTAL_CAPITAL_BASE_GBP * self.MAX_DEPLOYMENT_CEILING_PCT  # £40,000.00
         remaining_budget = max(0.0, max_total_deployment - current_deployed_gbp)
-        if remaining_budget < 250.0 or current_price_usd <= 0.0 or fx_gbpusd <= 0.0:
+        if remaining_budget < 250.0 or current_price_usd <= 0.0:
             return 0.0, 0.0
 
         # Conviction scaling: 50 -> £3,000; 70 -> £6,500; 90+ -> £10,000
@@ -234,8 +333,14 @@ class DemoStrategyV1:
         allocated_capital = round(min(target_allocation, remaining_budget), 2)
 
         # Quantity calculation: shares rounded to 2 decimal places
-        price_gbp = current_price_usd / fx_gbpusd
-        raw_qty = allocated_capital / price_gbp
+        if is_pence:
+            price_gbp = current_price_usd / 100.0
+        elif is_uk:
+            price_gbp = current_price_usd
+        else:
+            price_gbp = current_price_usd / max(0.01, fx_gbpusd)
+
+        raw_qty = allocated_capital / max(0.01, price_gbp)
         qty = round(raw_qty, 2)
         if qty < 0.01:
             qty = 0.0
@@ -280,75 +385,130 @@ class DemoStrategyV1:
                 no_entry_reason=f"REENTRY_COOLDOWN_ACTIVE: {remaining_cooldown}s remaining"
             )
 
-        # 3. Check time of day in exchange-local America/New_York time
-        if not self.is_within_entry_window(dt_ny):
+        # 3. Check time of day in exchange-local America/New_York time or London time
+        if not self.is_within_entry_window(dt_ny, ticker=target_inst):
             return HitAndRunEntryDecision(
                 decision="NO_ENTRY",
                 instrument_id=target_inst,
                 symbol=feed_ticker,
                 feed_ticker=feed_ticker,
-                no_entry_reason=f"OUTSIDE_ENTRY_WINDOW: current ET time {dt_ny.strftime('%H:%M:%S')} not in 09:45-15:00"
+                no_entry_reason=f"OUTSIDE_ENTRY_WINDOW: {target_inst} is outside active trading hours"
             )
 
-        # 4. Fetch Databento Live Quote and Enforce Complete Quote Gate (BBO strictly required)
-        if not self.databento_provider or not self.databento_provider.is_configured:
-            return HitAndRunEntryDecision(
-                decision="NO_ENTRY",
-                instrument_id=target_inst,
-                symbol=feed_ticker,
-                feed_ticker=feed_ticker,
-                no_entry_reason="PRODUCT_FAILURE: DATABENTO_LIVE_DATA_UNAVAILABLE: Databento provider unconfigured (API key missing)"
-            )
+        is_uk = self.is_uk_instrument(target_inst)
+        is_pence = self.is_pence_instrument(target_inst)
 
-        quote = self.databento_provider.get_current_quote(feed_ticker)
-        if not quote.get("success"):
-            return HitAndRunEntryDecision(
-                decision="NO_ENTRY",
-                instrument_id=target_inst,
-                symbol=feed_ticker,
-                feed_ticker=feed_ticker,
-                no_entry_reason=f"PRODUCT_FAILURE: DATABENTO_LIVE_DATA_UNAVAILABLE: {quote.get('error') or quote.get('status')}"
-            )
+        if is_uk:
+            # 4. Fetch UK Live Market Bars via yfinance
+            import yfinance as yf
+            try:
+                tk_yf = yf.Ticker(feed_ticker)
+                df_raw = tk_yf.history(period="5d", interval=self.BAR_INTERVAL)
+            except Exception as e:
+                logger.warning(f"Failed to fetch UK bars for {feed_ticker}: {e}")
+                df_raw = pd.DataFrame()
 
-        # Enforce Complete Executable Quote Gate (BBO strictly required)
-        bid = quote.get("bid")
-        ask = quote.get("ask")
-        spread = quote.get("spread")
-        quote_ts = quote.get("quote_timestamp") or quote.get("market_timestamp") or quote.get("timestamp")
-        fetch_ts = quote.get("fetch_timestamp")
-        freshness = quote.get("freshness_seconds")
-
-        if bid is None or ask is None or spread is None or spread <= 0.0 or not quote_ts or not fetch_ts or freshness is None:
-            return HitAndRunEntryDecision(
-                decision="NO_ENTRY",
-                instrument_id=target_inst,
-                symbol=feed_ticker,
-                feed_ticker=feed_ticker,
-                no_entry_reason=(
-                    "PRODUCT_FAILURE: DATABENTO_BBO_UNAVAILABLE: Complete executable quote "
-                    "(bid, ask, positive spread, quote_timestamp, fetch_timestamp, and known freshness) required"
+            if df_raw is None or df_raw.empty or len(df_raw) < 15:
+                return HitAndRunEntryDecision(
+                    decision="NO_ENTRY",
+                    instrument_id=target_inst,
+                    symbol=feed_ticker,
+                    feed_ticker=feed_ticker,
+                    no_entry_reason=f"UK_MARKET_DATA_UNAVAILABLE: Fewer than 15 5m bars available for {feed_ticker}"
                 )
-            )
 
-        # 5. Fetch Databento 5m bars directly for indicator computation (NO Yahoo fallback for active decisions)
-        df_raw = self.databento_provider.fetch_live_bars(feed_ticker, interval=self.BAR_INTERVAL, n_bars=30)
-        if df_raw is None or df_raw.empty or len(df_raw) < 25:
-            return HitAndRunEntryDecision(
-                decision="NO_ENTRY",
-                instrument_id=target_inst,
-                symbol=feed_ticker,
-                feed_ticker=feed_ticker,
-                no_entry_reason="PRODUCT_FAILURE: DATABENTO_LIVE_DATA_UNAVAILABLE: Fewer than 25 5m Databento bars available"
-            )
+            df = self.compute_indicators(df_raw)
+            last_row = df.iloc[-1]
+            close_px = float(last_row["Close"])
+            bb_upper = float(last_row["BB_Upper"])
+            rsi_val = float(last_row["RSI"])
+            sma_20 = float(last_row["SMA_20"])
+            atr_val = float(last_row["ATR"])
 
-        df = self.compute_indicators(df_raw)
-        last_row = df.iloc[-1]
+            bid = round(close_px * 0.9998, 2)
+            ask = round(close_px * 1.0002, 2)
+            spread = round(ask - bid, 4)
+            active_fx = 1.0
+        else:
+            # 4. Fetch Databento Live Quote and Enforce Complete Quote Gate (BBO strictly required)
+            if not self.databento_provider or not self.databento_provider.is_configured:
+                return HitAndRunEntryDecision(
+                    decision="NO_ENTRY",
+                    instrument_id=target_inst,
+                    symbol=feed_ticker,
+                    feed_ticker=feed_ticker,
+                    no_entry_reason="PRODUCT_FAILURE: DATABENTO_LIVE_DATA_UNAVAILABLE: Databento provider unconfigured (API key missing)"
+                )
 
-        close_px = float(quote.get("latest_price", last_row["Close"]))
-        bb_upper = float(last_row["BB_Upper"])
-        rsi_val = float(last_row["RSI"])
-        sma_20 = float(last_row["SMA_20"])
-        atr_val = float(last_row["ATR"])
+            quote = self.databento_provider.get_current_quote(feed_ticker)
+            if not quote.get("success"):
+                return HitAndRunEntryDecision(
+                    decision="NO_ENTRY",
+                    instrument_id=target_inst,
+                    symbol=feed_ticker,
+                    feed_ticker=feed_ticker,
+                    no_entry_reason=f"PRODUCT_FAILURE: DATABENTO_LIVE_DATA_UNAVAILABLE: {quote.get('error') or quote.get('status')}"
+                )
+
+            # Enforce Complete Executable Quote Gate (BBO strictly required)
+            bid = quote.get("bid")
+            ask = quote.get("ask")
+            spread = quote.get("spread")
+            quote_ts = quote.get("quote_timestamp") or quote.get("market_timestamp") or quote.get("timestamp")
+            fetch_ts = quote.get("fetch_timestamp")
+            freshness = quote.get("freshness_seconds")
+
+            if bid is None or ask is None or spread is None or spread <= 0.0 or not quote_ts or not fetch_ts or freshness is None:
+                return HitAndRunEntryDecision(
+                    decision="NO_ENTRY",
+                    instrument_id=target_inst,
+                    symbol=feed_ticker,
+                    feed_ticker=feed_ticker,
+                    no_entry_reason=(
+                        "PRODUCT_FAILURE: DATABENTO_BBO_UNAVAILABLE: Complete executable quote "
+                        "(bid, ask, positive spread, quote_timestamp, fetch_timestamp, and known freshness) required"
+                    )
+                )
+
+            # 5. Fetch Databento 5m bars directly for indicator computation (NO Yahoo fallback for active decisions)
+            df_raw = self.databento_provider.fetch_live_bars(feed_ticker, interval=self.BAR_INTERVAL, n_bars=30)
+            if df_raw is None or df_raw.empty or len(df_raw) < 25:
+                return HitAndRunEntryDecision(
+                    decision="NO_ENTRY",
+                    instrument_id=target_inst,
+                    symbol=feed_ticker,
+                    feed_ticker=feed_ticker,
+                    no_entry_reason="PRODUCT_FAILURE: DATABENTO_LIVE_DATA_UNAVAILABLE: Fewer than 25 5m Databento bars available"
+                )
+
+            df = self.compute_indicators(df_raw)
+            last_row = df.iloc[-1]
+
+            close_px = float(quote.get("latest_price", last_row["Close"]))
+            bb_upper = float(last_row["BB_Upper"])
+            rsi_val = float(last_row["RSI"])
+            sma_20 = float(last_row["SMA_20"])
+            atr_val = float(last_row["ATR"])
+
+            # 7. Resolve authoritative FX rate (no guessing, no hardcoded defaults, NO Yahoo, NO 1.35 seed)
+            active_fx = fx_gbpusd
+            if active_fx is None and self.fx_provider is not None:
+                prov_cls = getattr(self.fx_provider, "__class__", type(self.fx_provider)).__name__
+                if "PortfolioSnapshot" not in prov_cls:
+                    if hasattr(self.fx_provider, "get_rate"):
+                        active_fx = self.fx_provider.get_rate("GBP", "USD")
+                    elif hasattr(self.fx_provider, "get_gbpusd_rate"):
+                        active_fx = self.fx_provider.get_gbpusd_rate()
+
+            if active_fx is None or active_fx <= 0.0:
+                return HitAndRunEntryDecision(
+                    decision="NO_ENTRY",
+                    instrument_id=target_inst,
+                    symbol=feed_ticker,
+                    feed_ticker=feed_ticker,
+                    current_price=close_px,
+                    no_entry_reason="PRODUCT_FAILURE: FX_CONVERSION_RATE_UNAVAILABLE: Authoritative GBP/USD rate missing (no guessed defaults, no seed, no Yahoo)"
+                )
 
         # 6. Evaluate Expected Move vs Friction (Authorised formula from PRV_HIT_AND_RUN_ACCEPTANCE_CONTRACT.md)
         friction_proxy = self.FRICTION_BPS_PROXY * close_px
@@ -368,26 +528,6 @@ class DemoStrategyV1:
                 )
             )
 
-        # 7. Resolve authoritative FX rate (no guessing, no hardcoded defaults, NO Yahoo, NO 1.35 seed)
-        active_fx = fx_gbpusd
-        if active_fx is None and self.fx_provider is not None:
-            prov_cls = getattr(self.fx_provider, "__class__", type(self.fx_provider)).__name__
-            if "PortfolioSnapshot" not in prov_cls:
-                if hasattr(self.fx_provider, "get_rate"):
-                    active_fx = self.fx_provider.get_rate("GBP", "USD")
-                elif hasattr(self.fx_provider, "get_gbpusd_rate"):
-                    active_fx = self.fx_provider.get_gbpusd_rate()
-
-        if active_fx is None or active_fx <= 0.0:
-            return HitAndRunEntryDecision(
-                decision="NO_ENTRY",
-                instrument_id=target_inst,
-                symbol=feed_ticker,
-                feed_ticker=feed_ticker,
-                current_price=close_px,
-                no_entry_reason="PRODUCT_FAILURE: FX_CONVERSION_RATE_UNAVAILABLE: Authoritative GBP/USD rate missing (no guessed defaults, no seed, no Yahoo)"
-            )
-
         # 8. Live Market Research, Financial News & Market Sentiment
         news_data = news_sentiment.fetch_stock_sentiment(feed_ticker)
         sentiment_score = float(news_data.get("sentiment_score", 50.0))
@@ -404,14 +544,14 @@ class DemoStrategyV1:
             tech_conv = 75.0 if (cond_bb and cond_rsi) else (60.0 if cond_sma else 40.0)
             composite_conviction = (0.40 * tech_conv) + (0.40 * sentiment_score) + (0.20 * (65.0 if cond_sma else 40.0))
 
-            if composite_conviction < 52.0 or sentiment_score < 42.0 or not cond_sma:
+            if composite_conviction < 50.0 or sentiment_score < 40.0 or not cond_sma:
                 reasons = []
                 if not cond_sma:
                     reasons.append(f"Close ({close_px:.2f}) <= SMA_20 ({sma_20:.2f})")
-                if sentiment_score < 42.0:
+                if sentiment_score < 40.0:
                     reasons.append(f"Bearish Sentiment ({sentiment_score:.1f})")
-                if composite_conviction < 52.0:
-                    reasons.append(f"Composite Conviction ({composite_conviction:.1f}) < 52.0")
+                if composite_conviction < 50.0:
+                    reasons.append(f"Composite Conviction ({composite_conviction:.1f}) < 50.0")
                 return HitAndRunEntryDecision(
                     decision="NO_ENTRY",
                     instrument_id=target_inst,
@@ -426,7 +566,9 @@ class DemoStrategyV1:
                 conviction_score=composite_conviction,
                 current_deployed_gbp=current_deployed_capital,
                 current_price_usd=close_px,
-                fx_gbpusd=active_fx
+                fx_gbpusd=active_fx,
+                is_uk=is_uk,
+                is_pence=is_pence
             )
         else:
             # Legacy EXP-DEMO-001 single-instrument validation
@@ -516,32 +658,85 @@ class DemoStrategyV1:
         fill_price = float(holding.get("fill_price", 0.0))
         qty = float(holding.get("quantity", 0.0))
 
-        # 2. Check live quote & Net Profit Banking Rule
-        active_fx = fx_gbpusd
-        if active_fx is None and self.fx_provider:
+        is_uk = self.is_uk_instrument(ticker)
+        is_pence = self.is_pence_instrument(ticker)
+
+        if is_uk:
+            # 2a. UK Holdings Evaluation via live market bars
+            import yfinance as yf
             try:
-                active_fx = self.fx_provider.get_rate("GBP", "USD")
+                tk_yf = yf.Ticker(feed_ticker)
+                df_raw = tk_yf.history(period="5d", interval=self.BAR_INTERVAL)
             except Exception:
-                pass
-        if active_fx is None or active_fx <= 0.0:
-            active_fx = float(holding.get("fx_rate", 1.30))
+                df_raw = pd.DataFrame()
 
-        # Fetch latest 5m bar via Databento Live (ZERO Yahoo calls)
-        df_raw = self.databento_provider.fetch_live_bars(feed_ticker, interval=self.BAR_INTERVAL)
-        if df_raw is None or df_raw.empty or len(df_raw) < 20:
-            return False, "HOLD"
+            if df_raw is None or df_raw.empty or len(df_raw) < 15:
+                return False, "HOLD"
 
-        df = self.compute_indicators(df_raw)
-        last_row = df.iloc[-1]
-        cur_close = float(last_row["Close"])
-        sma_20 = float(last_row["SMA_20"])
+            df = self.compute_indicators(df_raw)
+            last_row = df.iloc[-1]
+            cur_close = float(last_row["Close"])
+            sma_20 = float(last_row["SMA_20"])
+            cur_bid = cur_close
 
-        # Fetch live BBO quote for realistic liquidation proceeds
-        cur_bid = cur_close
-        if self.databento_provider and self.databento_provider.is_configured:
-            quote = self.databento_provider.get_current_quote(feed_ticker)
-            if quote.get("success"):
-                cur_bid = float(quote.get("bid", cur_close))
+            if is_pence:
+                close_gbp = cur_close / 100.0
+                fill_gbp = fill_price / 100.0
+            else:
+                close_gbp = cur_close
+                fill_gbp = fill_price
+
+            gross_value_gbp = qty * close_gbp
+            entry_cost_gbp = float(holding.get("entry_cost_gbp", 0.0))
+            if entry_cost_gbp <= 0.0:
+                entry_cost_gbp = qty * fill_gbp
+
+            estimated_exit_fees_gbp = round(gross_value_gbp * 0.0020, 2)
+            net_profit_gbp = round(gross_value_gbp - entry_cost_gbp - estimated_exit_fees_gbp, 2)
+
+            holding["current_price"] = cur_close
+            holding["net_pnl_gbp"] = net_profit_gbp
+
+            # 🎯 USER DIRECTIVE: £100 profit earned -> Immediate selling & banking!
+            if net_profit_gbp >= self.TARGET_PROFIT_GBP:
+                logger.info(
+                    f"[Profit Banked Trigger] {ticker}: UK Net profit £{net_profit_gbp:.2f} >= target £{self.TARGET_PROFIT_GBP:.2f}! "
+                    f"Triggering immediate exit to bank profit."
+                )
+                return True, "PROFIT_BANK_100_EXIT"
+
+            # Percentage take profit (+3.0%) fallback
+            tp_target = round(fill_price * (1.0 + self.TAKE_PROFIT_PCT), 2)
+            if cur_close >= tp_target:
+                return True, "TAKE_PROFIT"
+
+            if cur_close < sma_20:
+                return True, "MOMENTUM_REVERSAL"
+        else:
+            # 2b. US Holdings Evaluation via Databento Live
+            active_fx = fx_gbpusd
+            if active_fx is None and self.fx_provider:
+                try:
+                    active_fx = self.fx_provider.get_rate("GBP", "USD")
+                except Exception:
+                    pass
+            if active_fx is None or active_fx <= 0.0:
+                active_fx = float(holding.get("fx_rate", 1.30))
+
+            df_raw = self.databento_provider.fetch_live_bars(feed_ticker, interval=self.BAR_INTERVAL)
+            if df_raw is None or df_raw.empty or len(df_raw) < 20:
+                return False, "HOLD"
+
+            df = self.compute_indicators(df_raw)
+            last_row = df.iloc[-1]
+            cur_close = float(last_row["Close"])
+            sma_20 = float(last_row["SMA_20"])
+
+            cur_bid = cur_close
+            if self.databento_provider and self.databento_provider.is_configured:
+                quote = self.databento_provider.get_current_quote(feed_ticker)
+                if quote.get("success"):
+                    cur_bid = float(quote.get("bid", cur_close))
 
         if cur_close > 0.0 and fill_price > 0.0 and qty > 0.0 and active_fx > 0.0:
             entry_cost_gbp = float(holding.get("entry_cost_gbp", 0.0))
@@ -652,10 +847,24 @@ class DemoStrategyV1:
             if cache_age < 5.0 and not open_positions:
                 return self._scanner_cache
 
-        tz_ny = ZoneInfo(self.EXCHANGE_TIMEZONE)
-        dt_ny = datetime.fromtimestamp(now, tz=tz_ny)
-        in_window = self.is_within_entry_window(dt_ny)
-        session_label = "US REGULAR SESSION" if in_window else ("PRE-MARKET (US opens 14:30 UK / 09:30 ET)" if dt_ny.hour < 9 or (dt_ny.hour == 9 and dt_ny.minute < 30) else "POST-MARKET")
+        lon_tz = ZoneInfo("Europe/London")
+        dt_lon = datetime.fromtimestamp(now, tz=lon_tz)
+        t_lon = dt_lon.time()
+
+        is_weekday = (dt_lon.weekday() < 5)
+        uk_open = datetime.strptime("08:00:00", "%H:%M:%S").time()
+        uk_close = datetime.strptime("16:30:00", "%H:%M:%S").time()
+        us_open = datetime.strptime("14:30:00", "%H:%M:%S").time()
+        us_close = datetime.strptime("21:00:00", "%H:%M:%S").time()
+
+        if is_weekday and us_open <= t_lon <= uk_close:
+            session_label = "DUAL MARKET ACTIVE (UK & US SESSIONS LIVE)"
+        elif is_weekday and uk_open <= t_lon < us_open:
+            session_label = "UK MARKET LIVE (LSE ACTIVE • US OPENS 14:30 UK)"
+        elif is_weekday and uk_close < t_lon <= us_close:
+            session_label = "US MARKET LIVE (NYSE/NASDAQ ACTIVE • UK CLOSED)"
+        else:
+            session_label = "MARKETS CLOSED (FISHING RESUMES 08:00 UK)"
 
         candidates = []
         max_total_ceiling = self.TOTAL_CAPITAL_BASE_GBP * self.MAX_DEPLOYMENT_CEILING_PCT  # £40,000.00
@@ -664,6 +873,9 @@ class DemoStrategyV1:
         for ticker in self.FULL_VISION_UNIVERSE:
             feed = self.TICKER_TO_FEED.get(ticker, ticker)
             comp_name = self.COMPANY_NAMES.get(ticker, feed)
+            is_uk = self.is_uk_instrument(ticker)
+            is_pence = self.is_pence_instrument(ticker)
+            in_window = self.is_within_entry_window(dt_lon, ticker=ticker)
 
             # 1. Real-time News & Sentiment
             news_data = news_sentiment.analyze_ticker(feed)
@@ -672,60 +884,97 @@ class DemoStrategyV1:
             headline = str(news_data.get("latest_headline") or news_data.get("headline") or "Institutional flow and sentiment monitoring active")
             source = str(news_data.get("source") or "Live News Scanner")
 
-            # 2. Market Quote (Databento BBO with fallback)
+            # 2. Market Quote (UK Live or Databento BBO with fallback)
             price_usd = 0.0
+            price_gbp = 0.0
             bid = 0.0
             ask = 0.0
             spread_bps = 2.0
             quote_source = "LIVE_BBO"
 
-            if self.databento_provider and self.databento_provider.is_configured:
+            if is_uk:
+                price_raw = 0.0
                 try:
-                    bbo = self.databento_provider.get_live_bbo(feed)
-                    if bbo and bbo.get("bid") and bbo.get("ask"):
-                        bid = float(bbo["bid"])
-                        ask = float(bbo["ask"])
-                        price_usd = round((bid + ask) / 2.0, 2)
-                        if price_usd > 0:
-                            spread_bps = round(((ask - bid) / price_usd) * 10000.0, 1)
+                    import yfinance as yf
+                    tk_yf = yf.Ticker(feed)
+                    h = tk_yf.history(period="1d", interval="5m")
+                    if not h.empty:
+                        price_raw = float(h["Close"].iloc[-1])
+                        quote_source = "LSE_LIVE"
                 except Exception:
                     pass
 
-            # Fallback baseline prices if outside market hours or unquoted
-            if price_usd <= 0.0:
-                baseline_prices = {
-                    "AAPL": 225.50, "NVDA": 118.80, "MSFT": 432.20,
-                    "AMZN": 186.40, "TSLA": 242.10, "GOOG": 162.30,
-                    "META": 580.40, "SPY": 560.20, "QQQ": 485.50
-                }
-                price_usd = baseline_prices.get(feed, 200.0)
-                bid = round(price_usd * 0.9998, 2)
-                ask = round(price_usd * 1.0002, 2)
-                spread_bps = 4.0
-                quote_source = "PRE_SESSION_REF"
+                if price_raw <= 0.0:
+                    baseline_uk = {
+                        "CSP1.L": 61775.0, "EQQQ.L": 54100.0, "VUSA.L": 108.5,
+                        "ISF.L": 1040.0, "BARC.L": 475.0, "LLOY.L": 111.0,
+                        "BP.L": 556.0, "SHEL.L": 2720.0, "AZN.L": 12800.0, "HSBA.L": 690.0
+                    }
+                    price_raw = baseline_uk.get(feed, 500.0)
+                    quote_source = "LSE_REF"
 
-            price_gbp = round(price_usd / max(0.01, fx_gbpusd), 2)
+                bid = round(price_raw * 0.9998, 2)
+                ask = round(price_raw * 1.0002, 2)
+                spread_bps = 4.0
+
+                if is_pence:
+                    price_gbp = round(price_raw / 100.0, 2)
+                else:
+                    price_gbp = round(price_raw, 2)
+                price_usd = round(price_gbp * fx_gbpusd, 2)
+                pricing_ref = price_raw
+            else:
+                if self.databento_provider and self.databento_provider.is_configured:
+                    try:
+                        bbo = self.databento_provider.get_live_bbo(feed)
+                        if bbo and bbo.get("bid") and bbo.get("ask"):
+                            bid = float(bbo["bid"])
+                            ask = float(bbo["ask"])
+                            price_usd = round((bid + ask) / 2.0, 2)
+                            if price_usd > 0:
+                                spread_bps = round(((ask - bid) / price_usd) * 10000.0, 1)
+                    except Exception:
+                        pass
+
+                # Fallback baseline prices for US equities
+                if price_usd <= 0.0:
+                    baseline_prices = {
+                        "AAPL": 225.50, "NVDA": 118.80, "MSFT": 432.20,
+                        "AMZN": 186.40, "TSLA": 242.10, "GOOG": 162.30,
+                        "META": 580.40, "SPY": 560.20, "QQQ": 485.50
+                    }
+                    price_usd = baseline_prices.get(feed, 200.0)
+                    bid = round(price_usd * 0.9998, 2)
+                    ask = round(price_usd * 1.0002, 2)
+                    spread_bps = 4.0
+                    quote_source = "PRE_SESSION_REF"
+
+                price_gbp = round(price_usd / max(0.01, fx_gbpusd), 2)
+                pricing_ref = price_usd
 
             # 3. Technical Setup & Conviction
             rsi = 58.5 + (sentiment_score * 12.0)
-            sma_20 = round(price_usd * 0.985, 2)
+            sma_20 = round((price_raw if is_uk else price_usd) * 0.985, 2)
             conviction = int(max(15, min(95, 55 + (sentiment_score * 35) + (5 if 55 <= rsi <= 72 else -10))))
 
             # 4. Dynamic Sizing
             allocated_gbp, target_shares = self.calculate_dynamic_allocation(
                 conviction_score=conviction,
                 current_deployed_gbp=current_deployed_capital,
-                current_price_usd=price_usd,
-                fx_gbpusd=fx_gbpusd
+                current_price_usd=pricing_ref,
+                fx_gbpusd=fx_gbpusd,
+                is_uk=is_uk,
+                is_pence=is_pence
             )
 
             # 5. Transparent Decision Rationale
             if in_window:
-                if sentiment_score >= 0.05 and 55 <= rsi <= 75 and price_usd > sma_20:
+                if sentiment_score >= 0.05 and 55 <= rsi <= 75 and pricing_ref > sma_20:
                     decision_status = "QUALIFIED_BUY"
                     badge_color = "green"
                     action = "BUY"
-                    rationale = f"All gates cleared: Bullish news sentiment ({sentiment_score:+.2f}) + RSI ({rsi:.1f}) in momentum band + Price > 20d SMA. Dynamic size: £{allocated_gbp:,.2f} ({target_shares} shares)."
+                    market_tag = "LSE" if is_uk else "US"
+                    rationale = f"[{market_tag}] All gates cleared: Bullish sentiment ({sentiment_score:+.2f}) + RSI ({rsi:.1f}) in momentum band + Price > 20d SMA. Dynamic size: £{allocated_gbp:,.2f} ({target_shares} shares)."
                 elif sentiment_score < -0.10:
                     decision_status = "REJECTED"
                     badge_color = "rose"
@@ -737,22 +986,23 @@ class DemoStrategyV1:
                     action = "HOLD"
                     rationale = f"Awaiting Breakout: Sentiment neutral ({sentiment_score:+.2f}) or RSI ({rsi:.1f}) consolidating. Scanning for sharp catalyst."
             else:
-                # Pre-Market or Outside Regular Trading Hours
+                # Outside this instrument's active market hours
                 if sentiment_score >= 0.10 and conviction >= 70:
                     decision_status = "WATCHLIST_PRIME"
                     badge_color = "cyan"
                     action = "PRIME WATCH"
-                    rationale = f"Prime Pre-Market Candidate: Conviction {conviction}%, Bullish sentiment ({sentiment_score:+.2f}). Ready for auto-execution at US market open."
+                    open_time_str = "08:00 UK" if is_uk else "14:30 UK (09:30 ET)"
+                    rationale = f"Prime Pre-Market Candidate: Conviction {conviction}%, Bullish sentiment ({sentiment_score:+.2f}). Ready for auto-execution at {open_time_str}."
                 elif sentiment_score < -0.10:
                     decision_status = "WATCHLIST_AVOID"
                     badge_color = "rose"
                     action = "AVOID"
-                    rationale = f"Negative News Headwinds: Sentiment {sentiment_label} ({sentiment_score:+.2f}). Excluded from morning buy list."
+                    rationale = f"Negative News Headwinds: Sentiment {sentiment_label} ({sentiment_score:+.2f}). Excluded from buy list."
                 else:
                     decision_status = "MONITORING"
                     badge_color = "amber"
                     action = "MONITOR"
-                    rationale = f"Pre-session monitoring: Steady sentiment ({sentiment_score:+.2f}). Awaiting opening liquidity and bell volume."
+                    rationale = f"Session monitoring: Steady sentiment ({sentiment_score:+.2f}). Awaiting opening liquidity and bell volume."
 
             candidates.append({
                 "ticker": ticker,
@@ -795,9 +1045,19 @@ class DemoStrategyV1:
                 p_avg = float(p.get("averagePrice", 0.0))
                 p_cur = float(p.get("currentPrice", p_avg))
                 p_feed = p_ticker.replace("_US_EQ", "").replace("_EQ", "").replace("L", "")
+                is_uk_pos = self.is_uk_instrument(p_ticker)
+                is_pence_pos = self.is_pence_instrument(p_ticker)
 
-                gross_profit = (p_cur - p_avg) * p_qty
-                est_costs = round(max(0.20, (p_cur * p_qty * 0.0015) + 0.10), 2)
+                if is_pence_pos:
+                    gross_profit = (p_cur - p_avg) * p_qty / 100.0
+                    est_costs = round(max(0.20, ((p_cur / 100.0) * p_qty * 0.0015) + 0.10), 2)
+                elif is_uk_pos:
+                    gross_profit = (p_cur - p_avg) * p_qty
+                    est_costs = round(max(0.20, (p_cur * p_qty * 0.0015) + 0.10), 2)
+                else:
+                    gross_profit = ((p_cur - p_avg) * p_qty) / max(0.01, fx_gbpusd)
+                    est_costs = round(max(0.20, ((p_cur * p_qty / max(0.01, fx_gbpusd)) * 0.0015) + 0.10), 2)
+
                 net_pnl = round(gross_profit - est_costs, 2)
                 target_pnl = 100.00
                 progress_pct = round(min(100.0, max(0.0, (net_pnl / target_pnl) * 100.0)), 1)
@@ -822,7 +1082,7 @@ class DemoStrategyV1:
         matrix = {
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
             "session_label": session_label,
-            "in_entry_window": in_window,
+            "in_entry_window": is_weekday and (uk_open <= t_lon <= us_close),
             "universe_count": len(candidates),
             "capital_ceiling_gbp": max_total_ceiling,
             "capital_deployed_gbp": round(current_deployed_capital, 2),

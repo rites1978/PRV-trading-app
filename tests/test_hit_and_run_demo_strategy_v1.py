@@ -218,6 +218,78 @@ class TestDemoStrategyV1(unittest.TestCase):
         self.assertTrue(should_exit)
         self.assertEqual(reason, "MOMENTUM_REVERSAL")
 
+    def test_09_multi_market_continuous_fishing_windows(self):
+        """Verify UK market (08:00 - 16:30 London) and US market (14:30 - 21:00 London) fishing windows."""
+        lon_tz = ZoneInfo("Europe/London")
+
+        # 1. 07:30 London -> Both UK and US markets closed
+        dt_pre_uk = datetime(2026, 9, 18, 7, 30, tzinfo=lon_tz)
+        self.assertFalse(self.strategy.is_within_entry_window(dt_pre_uk, ticker="CSP1_EQ"))
+        self.assertFalse(self.strategy.is_within_entry_window(dt_pre_uk, ticker="AAPL_US_EQ"))
+
+        # 2. 08:15 London -> UK market open (fishing active!), US market closed (pre-market)
+        dt_uk_open = datetime(2026, 9, 18, 8, 15, tzinfo=lon_tz)
+        self.assertTrue(self.strategy.is_within_entry_window(dt_uk_open, ticker="CSP1_EQ"))
+        self.assertFalse(self.strategy.is_within_entry_window(dt_uk_open, ticker="AAPL_US_EQ"))
+
+        # 3. 15:00 London -> Overlap: Both UK and US markets open simultaneously
+        dt_overlap = datetime(2026, 9, 18, 15, 0, tzinfo=lon_tz)
+        self.assertTrue(self.strategy.is_within_entry_window(dt_overlap, ticker="CSP1_EQ"))
+        self.assertTrue(self.strategy.is_within_entry_window(dt_overlap, ticker="AAPL_US_EQ"))
+
+        # 4. 17:00 London -> UK market closed (post-16:30), US market open (fishing active!)
+        dt_us_only = datetime(2026, 9, 18, 17, 0, tzinfo=lon_tz)
+        self.assertFalse(self.strategy.is_within_entry_window(dt_us_only, ticker="CSP1_EQ"))
+        self.assertTrue(self.strategy.is_within_entry_window(dt_us_only, ticker="AAPL_US_EQ"))
+
+        # 5. 21:15 London -> Both markets closed
+        dt_eod = datetime(2026, 9, 18, 21, 15, tzinfo=lon_tz)
+        self.assertFalse(self.strategy.is_within_entry_window(dt_eod, ticker="CSP1_EQ"))
+        self.assertFalse(self.strategy.is_within_entry_window(dt_eod, ticker="AAPL_US_EQ"))
+
+    def test_10_uk_pence_dynamic_sizing(self):
+        """Dynamic sizing for UK pence assets (e.g. Barclays ~475p, CSP1 ~61800p)."""
+        # BARC at 475.0p (£4.75), allocation ~£6,500 (score 70)
+        # Sizing should produce shares = £6,500 / £4.75 ~ 1368.42 shares
+        allocated, qty = self.strategy.calculate_dynamic_allocation(
+            conviction_score=70.0,
+            current_deployed_gbp=0.0,
+            current_price_usd=475.0,  # 475.0 GBX
+            is_uk=True,
+            is_pence=True
+        )
+        self.assertEqual(allocated, 6500.0)
+        self.assertAlmostEqual(qty, 1368.42, places=1)
+
+    def test_11_uk_profit_bank_100_exit(self):
+        """Verify £100 profit banking trigger on UK holding."""
+        holding = {
+            "ticker": "CSP1_EQ",
+            "fill_price": 60000.0,  # 60000p = £600.00
+            "quantity": 10.0,       # 10 shares (£6,000 cost)
+            "entry_cost_gbp": 6000.0,
+            "entry_time": datetime.now(timezone.utc).isoformat()
+        }
+        from unittest.mock import patch
+        with patch("yfinance.Ticker") as mock_yf:
+            mock_inst = MagicMock()
+            dates = pd.date_range("2026-09-18 08:00:00", periods=25, freq="5min", tz="Europe/London")
+            df_uk = pd.DataFrame({
+                "Open": [61100.0] * 25,
+                "High": [61300.0] * 25,
+                "Low": [61000.0] * 25,
+                "Close": [61200.0] * 25,
+                "Volume": [1000.0] * 25
+            }, index=dates)
+            mock_inst.history.return_value = df_uk
+            mock_yf.return_value = mock_inst
+
+            lon_tz = ZoneInfo("Europe/London")
+            midday = datetime(2026, 9, 18, 10, 30, tzinfo=lon_tz).timestamp()
+            should_exit, reason = self.strategy.evaluate_exit(holding, now_time=midday)
+            self.assertTrue(should_exit)
+            self.assertEqual(reason, "PROFIT_BANK_100_EXIT")
+
 
 if __name__ == "__main__":
     unittest.main()

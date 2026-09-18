@@ -37,6 +37,7 @@ import json
 import logging
 import subprocess
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional
 
 # Ensure project root in sys.path
@@ -215,9 +216,18 @@ class DemoExperimentRunner:
                         except (TypeError, ValueError):
                             fx_val = 1.30
 
-                        gross_pnl_usd = (exit_p - fill_p) * qty
-                        gross_pnl_gbp = gross_pnl_usd / fx_val
-                        costs_gbp = round((qty * exit_p / fx_val) * 0.0020, 2)
+                        is_uk_pence = (ticker.endswith("l_EQ") or ticker == "CSP1_EQ") and (ticker != "VUSAl_EQ")
+                        if is_uk_pence:
+                            gross_pnl_gbp = (exit_p - fill_p) * qty / 100.0
+                            costs_gbp = round((qty * exit_p / 100.0) * 0.0020, 2)
+                        elif ticker == "VUSAl_EQ":
+                            gross_pnl_gbp = (exit_p - fill_p) * qty
+                            costs_gbp = round((qty * exit_p) * 0.0020, 2)
+                        else:
+                            gross_pnl_usd = (exit_p - fill_p) * qty
+                            gross_pnl_gbp = gross_pnl_usd / fx_val
+                            costs_gbp = round((qty * exit_p / fx_val) * 0.0020, 2)
+
                         net_pnl_gbp = round(gross_pnl_gbp - costs_gbp, 2)
 
                         self.banking_ledger.record_realised_trade(
@@ -243,8 +253,14 @@ class DemoExperimentRunner:
 
         # 3. Update total deployed capital for 80% ceiling check
         total_deployed_gbp = sum(
-            float(h.get("quantity", 0.0)) * float(h.get("fill_price", 0.0)) / active_fx
-            for h in self.active_holdings.values()
+            float(h.get("entry_cost_gbp", 0.0)) or (
+                float(h.get("quantity", 0.0)) * (
+                    float(h.get("fill_price", 0.0)) / 100.0 if ((str(k).endswith("l_EQ") or k == "CSP1_EQ") and k != "VUSAl_EQ")
+                    else float(h.get("fill_price", 0.0)) if k == "VUSAl_EQ"
+                    else float(h.get("fill_price", 0.0)) / active_fx
+                )
+            )
+            for k, h in self.active_holdings.items()
         )
         if hasattr(self.strategy_module, "current_deployed_capital_gbp"):
             self.strategy_module.current_deployed_capital_gbp = total_deployed_gbp
@@ -548,21 +564,24 @@ class DemoExperimentRunner:
                 logger.info("[Runner] Stop event signaled. Multi-session worker stopping.")
                 break
 
+            now_lon = datetime.now(ZoneInfo("Europe/London"))
             now_et = datetime.now(tz_ny)
-            today = now_et.date()
-            is_weekday = (now_et.weekday() < 5)  # 0=Mon, 4=Fri
-            t = now_et.time()
+            today = now_lon.date()
+            is_weekday = (now_lon.weekday() < 5)  # 0=Mon, 4=Fri
+            t_lon = now_lon.time()
 
-            start_t = datetime.strptime("09:45:00", "%H:%M:%S").time()
-            cutoff_t = datetime.strptime("15:45:00", "%H:%M:%S").time()
+            # Continuous fishing cycle: 08:00 London (UK open) through 21:00 London (16:00 ET US close)
+            # No time limits applied during open market hours!
+            start_lon = datetime.strptime("08:00:00", "%H:%M:%S").time()
+            cutoff_lon = datetime.strptime("21:00:00", "%H:%M:%S").time()
 
-            in_session = is_weekday and (start_t <= t < cutoff_t)
-            past_eod = is_weekday and (t >= cutoff_t)
+            in_session = is_weekday and (start_lon <= t_lon < cutoff_lon)
+            past_eod = is_weekday and (t_lon >= cutoff_lon)
 
             if in_session:
                 # 1. Start new session if not started for today
                 if active_session_date != today:
-                    logger.info(f"[Multi-Session Worker] New trading session opening: {today} {t.strftime('%H:%M:%S')} ET")
+                    logger.info(f"[Multi-Session Worker] New trading session opening: {today} {t_lon.strftime('%H:%M:%S')} London time")
                     self.reset_session_state()
                     try:
                         self.pre_session_startup()
@@ -575,8 +594,12 @@ class DemoExperimentRunner:
                 # 2. Run DEMO canary if armed and not yet run for today
                 if self.canary_armed and today not in self.canary_executed_dates:
                     try:
-                        logger.info(f"[Multi-Session Worker] Executing authorised DEMO_EXECUTION_CANARY for {today}...")
-                        canary_res = self.execute_demo_execution_canary()
+                        is_uk_session = (t_lon < datetime.strptime("14:30:00", "%H:%M:%S").time())
+                        canary_ticker = "CSP1_EQ" if is_uk_session else "AAPL_US_EQ"
+                        canary_sym = "CSP1" if is_uk_session else "AAPL"
+                        canary_qty = 1.0 if is_uk_session else 0.19
+                        logger.info(f"[Multi-Session Worker] Executing authorised DEMO_EXECUTION_CANARY for {today} on {canary_ticker}...")
+                        canary_res = self.execute_demo_execution_canary(ticker=canary_ticker, symbol=canary_sym, feed_ticker=canary_sym, quantity=canary_qty)
                         self.canary_executed_dates.add(today)
                         logger.info(f"[Multi-Session Worker] DEMO Canary status: {canary_res.get('status')}")
                     except Exception as ce:

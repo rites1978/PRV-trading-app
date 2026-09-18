@@ -29,7 +29,27 @@ COMPANY_NAMES = {
     "GOOG": "Alphabet Google",
     "META": "Meta Facebook",
     "SPY": "S&P 500 ETF",
-    "QQQ": "Invesco QQQ ETF"
+    "QQQ": "Invesco QQQ ETF",
+    "CSP1": "iShares Core S&P 500",
+    "EQQQ": "Invesco EQQQ Nasdaq",
+    "VUSA": "Vanguard S&P 500",
+    "ISF": "iShares Core FTSE 100",
+    "BARC": "Barclays",
+    "LLOY": "Lloyds Banking Group",
+    "BP": "BP oil",
+    "SHEL": "Shell oil",
+    "AZN": "AstraZeneca",
+    "HSBA": "HSBC",
+    "CSP1.L": "iShares Core S&P 500",
+    "EQQQ.L": "Invesco EQQQ Nasdaq",
+    "VUSA.L": "Vanguard S&P 500",
+    "ISF.L": "iShares Core FTSE 100",
+    "BARC.L": "Barclays",
+    "LLOY.L": "Lloyds Banking Group",
+    "BP.L": "BP oil",
+    "SHEL.L": "Shell oil",
+    "AZN.L": "AstraZeneca",
+    "HSBA.L": "HSBC",
 }
 
 class NewsSentimentResearcher:
@@ -58,11 +78,12 @@ class NewsSentimentResearcher:
     def fetch_stock_sentiment(self, symbol: str, company_name: str = "") -> Dict[str, Any]:
         """Fetch and analyze live news headlines and sentiment for target security."""
         headlines: List[str] = []
-        c_name = company_name or COMPANY_NAMES.get(symbol.upper(), "")
+        clean_sym = symbol.replace(".L", "").strip().upper()
+        c_name = company_name or COMPANY_NAMES.get(clean_sym, "") or COMPANY_NAMES.get(symbol.upper(), "")
 
         # 1. Real-time Google News RSS with US English financial filtering
         try:
-            query_term = f"{symbol} stock market when:2d"
+            query_term = f"{c_name or clean_sym} shares stock market when:2d"
             rss_url = f"https://news.google.com/rss/search?q={requests.utils.quote(query_term)}&hl=en-US&gl=US&ceid=US:en"
             resp = requests.get(rss_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}, timeout=4)
             if resp.status_code == 200:
