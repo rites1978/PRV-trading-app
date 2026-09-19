@@ -226,11 +226,13 @@ class DemoExperimentRunner:
                         "result": exit_res,
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     })
-                    if exit_res.get("success"):
+                    err_str = str(exit_res.get("error", ""))
+                    is_already_closed = ("selling-equity-not-owned" in err_str) or ("owned: 0.0" in err_str)
+                    if exit_res.get("success") or is_already_closed:
                         if hasattr(self.strategy_module, "record_exit"):
                             self.strategy_module.record_exit(ticker=ticker)
 
-                        # Record trade in DailyBankingLedger
+                        # Record trade in DailyBankingLedger if fill price returned
                         try:
                             fill_p = float(holding.get("fill_price", 0.0))
                         except (TypeError, ValueError):
@@ -281,7 +283,8 @@ class DemoExperimentRunner:
                                 f"Capital released. Hunting for next opportunity!"
                             )
 
-                        del self.active_holdings[ticker]
+                        if ticker in self.active_holdings:
+                            del self.active_holdings[ticker]
 
         # 3. Update total deployed capital for 80% ceiling check
         total_deployed_gbp = sum(
@@ -395,8 +398,11 @@ class DemoExperimentRunner:
                 "result": exit_res,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
-            if exit_res.get("success"):
-                del self.active_holdings[ticker]
+            err_str = str(exit_res.get("error", ""))
+            is_already_closed = ("selling-equity-not-owned" in err_str) or ("owned: 0.0" in err_str)
+            if exit_res.get("success") or is_already_closed:
+                if ticker in self.active_holdings:
+                    del self.active_holdings[ticker]
 
         # 2. Reconcile final broker state
         reconcile = self.dispatcher.reconcile_broker_state()

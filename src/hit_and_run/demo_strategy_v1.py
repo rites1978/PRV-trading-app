@@ -177,7 +177,7 @@ class DemoStrategyV1:
     MAX_DAILY_ENTRIES: Optional[int] = None
     PLANNED_LOSS_PCT: float = 0.02
     TAKE_PROFIT_PCT: float = 0.03
-    EDGE_DECAY_BARS: int = 12  # 12 x 5m = 60 minutes
+    EDGE_DECAY_BARS: int = 48  # 48 x 5m = 240 minutes (4 hours) - ample room to reach £100 target
     REENTRY_COOLDOWN_SECONDS: float = 1800.0  # 30 minutes
     FRICTION_BPS_PROXY: float = 0.0010  # 10 bps
 
@@ -267,14 +267,14 @@ class DemoStrategyV1:
 
         if ticker:
             if self.is_uk_instrument(ticker):
-                # UK Session (LSE): 08:00 to 16:30 London time
+                # UK Session (LSE): 08:00 to 16:00 London time (cut off new entries 20m before 16:20 flatten)
                 start_uk = datetime.strptime("08:00:00", "%H:%M:%S").time()
-                close_uk = datetime.strptime("16:30:00", "%H:%M:%S").time()
+                close_uk = datetime.strptime("16:00:00", "%H:%M:%S").time()
                 return start_uk <= t_lon <= close_uk
             else:
-                # US Session: 14:30 to 21:00 London time (09:30 to 16:00 ET)
+                # US Session: 14:30 to 20:20 London time / 09:30 to 15:20 ET (cut off new entries 30m before 15:50 flatten)
                 start_us = datetime.strptime("09:30:00", "%H:%M:%S").time()
-                close_us = datetime.strptime("16:00:00", "%H:%M:%S").time()
+                close_us = datetime.strptime("15:20:00", "%H:%M:%S").time()
                 return start_us <= t_ny <= close_us
 
         # Default/session check: Active if any supported market is open (08:00 - 21:00 London)
@@ -282,15 +282,30 @@ class DemoStrategyV1:
         close_all = datetime.strptime("21:00:00", "%H:%M:%S").time()
         return start_all <= t_lon <= close_all
 
-    def is_session_end(self, dt: datetime) -> bool:
-        """Session-end flatten: 21:00 London time (16:00 ET close) or 15:45 ET in test mode."""
-        if self.mode != "FULL_VISION" or (dt.tzinfo and "New_York" in str(dt.tzinfo)):
+    def is_session_end(self, dt: datetime, ticker: Optional[str] = None) -> bool:
+        """
+        Session-end flatten:
+        - In legacy/test mode: 15:45 ET cutoff.
+        - In FULL_VISION mode:
+          * UK (LSE): 16:20 London time (10m before 16:30 close, ensuring liquid exit while LSE is open).
+          * US (NYSE/NASDAQ): 15:50 ET / 20:50 London time (10m before 16:00 ET close).
+          * General fallback: 20:50 London time.
+        """
+        if self.mode != "FULL_VISION" or (ticker is None and dt.tzinfo and "New_York" in str(dt.tzinfo)):
             t = dt.time()
             cutoff_t = datetime.strptime("15:45:00", "%H:%M:%S").time()
             return t >= cutoff_t
         lon_tz = ZoneInfo("Europe/London")
+        ny_tz = ZoneInfo("America/New_York")
         dt_lon = dt.astimezone(lon_tz) if dt.tzinfo else dt.replace(tzinfo=lon_tz)
-        return dt_lon.time() >= datetime.strptime("21:00:00", "%H:%M:%S").time()
+        dt_ny = dt.astimezone(ny_tz) if dt.tzinfo else dt.replace(tzinfo=ny_tz)
+
+        if ticker and self.is_uk_instrument(ticker):
+            return dt_lon.time() >= datetime.strptime("16:20:00", "%H:%M:%S").time()
+        elif ticker:
+            return dt_ny.time() >= datetime.strptime("15:50:00", "%H:%M:%S").time()
+
+        return dt_lon.time() >= datetime.strptime("20:50:00", "%H:%M:%S").time()
 
     def compute_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Compute exact technical indicators using specified parameters."""
@@ -715,17 +730,22 @@ class DemoStrategyV1:
         tz_ny = ZoneInfo(self.EXCHANGE_TIMEZONE)
         dt_ny = datetime.fromtimestamp(curr_time, tz=tz_ny)
 
-        # 1. Session End Rule (15:45 ET)
-        if self.is_session_end(dt_ny):
+        # 1. Session End Rule (UK 16:20 London / US 15:50 ET)
+        ticker = holding.get("ticker", self.TARGET_INSTRUMENT)
+        if self.is_session_end(dt_ny, ticker=ticker):
             return True, "SESSION_END"
 
-        ticker = holding.get("ticker", self.TARGET_INSTRUMENT)
         feed_ticker = self.TICKER_TO_FEED.get(ticker, self.FEED_TICKER)
         fill_price = float(holding.get("fill_price", 0.0))
         qty = float(holding.get("quantity", 0.0))
 
         is_uk = self.is_uk_instrument(ticker)
         is_pence = self.is_pence_instrument(ticker)
+
+        cur_close = fill_price
+        cur_bid = fill_price
+        sma_20 = fill_price
+        rsi_val = 50.0
 
         if is_uk:
             # 2a. UK Holdings Evaluation via live market bars
@@ -743,6 +763,7 @@ class DemoStrategyV1:
             last_row = df.iloc[-1]
             cur_close = float(last_row["Close"])
             sma_20 = float(last_row["SMA_20"])
+            rsi_val = float(last_row.get("RSI", 50.0))
             cur_bid = cur_close
 
             if is_pence:
@@ -762,22 +783,6 @@ class DemoStrategyV1:
 
             holding["current_price"] = cur_close
             holding["net_pnl_gbp"] = net_profit_gbp
-
-            # 🎯 USER DIRECTIVE: £100 profit earned -> Immediate selling & banking!
-            if net_profit_gbp >= self.TARGET_PROFIT_GBP:
-                logger.info(
-                    f"[Profit Banked Trigger] {ticker}: UK Net profit £{net_profit_gbp:.2f} >= target £{self.TARGET_PROFIT_GBP:.2f}! "
-                    f"Triggering immediate exit to bank profit."
-                )
-                return True, "PROFIT_BANK_100_EXIT"
-
-            # Percentage take profit (+3.0%) fallback
-            tp_target = round(fill_price * (1.0 + self.TAKE_PROFIT_PCT), 2)
-            if cur_close >= tp_target:
-                return True, "TAKE_PROFIT"
-
-            if cur_close < sma_20:
-                return True, "MOMENTUM_REVERSAL"
         else:
             # 2b. US Holdings Evaluation via Databento Live
             active_fx = fx_gbpusd
@@ -797,6 +802,7 @@ class DemoStrategyV1:
             last_row = df.iloc[-1]
             cur_close = float(last_row["Close"])
             sma_20 = float(last_row["SMA_20"])
+            rsi_val = float(last_row.get("RSI", 50.0))
 
             cur_bid = cur_close
             if self.databento_provider and self.databento_provider.is_configured:
@@ -804,7 +810,6 @@ class DemoStrategyV1:
                 if quote.get("success"):
                     cur_bid = float(quote.get("bid", cur_close))
 
-        if cur_close > 0.0 and fill_price > 0.0 and qty > 0.0 and active_fx > 0.0:
             entry_cost_gbp = float(holding.get("entry_cost_gbp", 0.0))
             if entry_cost_gbp <= 0.0:
                 entry_cost_gbp = (qty * fill_price) / active_fx
@@ -818,29 +823,44 @@ class DemoStrategyV1:
             holding["current_price"] = liquidation_price
             holding["net_pnl_gbp"] = net_profit_gbp
 
-            # 🎯 USER DIRECTIVE: The moment £100 profit after fees and tax is earned, selling happens & money is banked!
-            if net_profit_gbp >= self.TARGET_PROFIT_GBP:
-                logger.info(
-                    f"[Profit Banked Trigger] {ticker}: Net profit £{net_profit_gbp:.2f} >= target £{self.TARGET_PROFIT_GBP:.2f}! "
-                    f"Triggering immediate exit to bank profit."
-                )
-                return True, "PROFIT_BANK_100_EXIT"
+        # 🎯 USER DIRECTIVE 1: The moment £100 profit after fees & tax is earned, sell immediately & bank profit!
+        if net_profit_gbp >= self.TARGET_PROFIT_GBP:
+            logger.info(
+                f"[Profit Banked Trigger] {ticker}: Net profit £{net_profit_gbp:.2f} >= target £{self.TARGET_PROFIT_GBP:.2f}! "
+                f"Triggering immediate exit to bank profit."
+            )
+            return True, "PROFIT_BANK_100_EXIT"
 
-            # Percentage take profit (+3.0%) fallback
-            tp_target = round(fill_price * (1.0 + self.TAKE_PROFIT_PCT), 2)
-            if cur_close >= tp_target:
-                return True, "TAKE_PROFIT"
+        # 🎯 USER DIRECTIVE 2: Trailing Profit Lock (If profit reached >= £75 and pulls back to £50, bank the £50!)
+        high_water = float(holding.get("high_water_net_pnl_gbp", 0.0))
+        if net_profit_gbp > high_water:
+            high_water = net_profit_gbp
+            holding["high_water_net_pnl_gbp"] = high_water
+        if high_water >= 75.0 and net_profit_gbp <= 50.0:
+            logger.info(
+                f"[Trailing Profit Bank] {ticker}: High water profit £{high_water:.2f} pulled back to £{net_profit_gbp:.2f}. "
+                f"Locking in trailing profit!"
+            )
+            return True, "TRAILING_PROFIT_LOCK_EXIT"
 
-        # 3. Indicators for momentum reversal
-        if df_raw is not None and not df_raw.empty and len(df_raw) >= 20:
-            df = self.compute_indicators(df_raw)
-            last_row = df.iloc[-1]
-            cur_c = float(last_row["Close"])
-            sma_20 = float(last_row["SMA_20"])
-            if cur_c < sma_20:
+        # 🎯 Percentage Take Profit (+3.0%) fallback
+        tp_target = round(fill_price * (1.0 + self.TAKE_PROFIT_PCT), 2)
+        if cur_close >= tp_target:
+            return True, "TAKE_PROFIT"
+
+        # 📉 Momentum Reversal (Close < SMA_20 with noise buffer)
+        # Avoid panic exits on 0.05% wiggles: require close < SMA_20 * 0.995 (0.5% clear break)
+        if cur_close < sma_20:
+            if self.mode != "FULL_VISION" or (cur_close < sma_20 * 0.995):
                 return True, "MOMENTUM_REVERSAL"
 
-        # 4. Edge Decay Rule (12 consecutive 5m bars = 3600 seconds)
+        # 🛡️ Hard Stop Loss Protection (PLANNED_LOSS_PCT = 2.0% loss from fill)
+        stop_loss_px = fill_price * (1.0 - self.PLANNED_LOSS_PCT)
+        if cur_close <= stop_loss_px:
+            logger.info(f"[Stop Loss Exit] {ticker}: Price {cur_close:.2f} <= stop floor {stop_loss_px:.2f} (-{self.PLANNED_LOSS_PCT*100:.1f}%)")
+            return True, "STOP_LOSS_EXIT"
+
+        # ⏳ Edge Decay Rule (held for >= EDGE_DECAY_BARS = 48 consecutive 5m bars = 4 hours)
         entry_time_iso = holding.get("entry_time")
         if entry_time_iso:
             try:
@@ -895,10 +915,24 @@ class DemoStrategyV1:
             us_close = datetime.strptime("21:00:00", "%H:%M:%S").time()
 
             active_pool = []
-            if is_weekday and uk_open <= t_lon <= uk_close:
-                active_pool.extend(self.UK_UNIVERSE)
-            if is_weekday and us_open <= t_lon <= us_close:
+            uk_active = is_weekday and uk_open <= t_lon <= uk_close
+            us_active = is_weekday and us_open <= t_lon <= us_close
+
+            # Separate zero-stamp-duty UK ETFs (0% SDRT) from individual UK shares (0.50% SDRT)
+            uk_etfs = [t for t in self.UK_UNIVERSE if t in ["CSP1_EQ", "EQQQl_EQ", "VUSAl_EQ", "ISFl_EQ"] or "ETF" in self.COMPANY_NAMES.get(t, "")]
+            uk_stocks = [t for t in self.UK_UNIVERSE if t not in uk_etfs]
+
+            if us_active:
+                # During US hours (14:30 - 21:00 London): Prioritize US stocks (0% stamp duty) & UK ETFs
                 active_pool.extend(self.US_UNIVERSE)
+                if uk_active:
+                    active_pool.extend(uk_etfs)
+                    active_pool.extend(uk_stocks)
+            elif uk_active:
+                # During UK-only morning hours (08:00 - 14:30 London): Prioritize zero-stamp-duty UK ETFs first, then liquid leaders
+                active_pool.extend(uk_etfs)
+                active_pool.extend(uk_stocks)
+
             if not active_pool:
                 active_pool = list(self.FULL_VISION_UNIVERSE)
 

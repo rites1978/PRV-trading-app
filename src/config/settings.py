@@ -38,9 +38,9 @@ class TradingSettings(BaseModel):
     # Challenge Metadata - OFFICIAL 30-DAY CHALLENGE
     CHALLENGE_STATUS: str = "OFFICIAL_30_DAY_CHALLENGE_ACTIVE"
     CHALLENGE_ACTIVE: bool = True
-    CHALLENGE_START_TIMESTAMP: str = "2026-09-08 08:30:00 UTC"
-    CHALLENGE_END_TIMESTAMP: str = "2026-10-08 08:30:00 UTC"
-    CHALLENGE_START_NAV: float = 49897.38
+    CHALLENGE_START_TIMESTAMP: str = "2026-09-21 08:00:00 UTC"
+    CHALLENGE_END_TIMESTAMP: str = "2026-10-21 08:00:00 UTC"
+    CHALLENGE_START_NAV: float = 50000.00
     CHALLENGE_DURATION_DAYS: int = 30
 
     TRADING_ENV: str = Field(default_factory=lambda: os.getenv("TRADING_ENV", "demo").lower())
@@ -48,18 +48,18 @@ class TradingSettings(BaseModel):
     TRADING212_API_SECRET: str = Field(default_factory=lambda: os.getenv("TRADING212_API_SECRET") or os.getenv("T212_API_SECRET", ""))
     
     # Capital Management Bands & Capital Preservation Reserve
-    STARTING_CAPITAL: float = 49897.38
-    REQUIRED_CASH_RESERVE_PCT: float = 45.0 # Mandatory 45.0% Capital Preservation Cash reserve (£22,453 floor)
-    MIN_CASH_BUFFER_PCT: float = 0.05       # 5% cash safety buffer (£2,495)
-    MAX_DEPLOYMENT_BEAR: float = 0.25       # 15%-30% (Target 25%) in bear markets
-    MAX_DEPLOYMENT_NEUTRAL: float = 0.45    # 30%-50% (Target 45%) in neutral markets
-    MAX_DEPLOYMENT_BULL: float = 0.55       # 45%-55% (Target 55%) in bull markets (capped by 45% cash floor)
+    STARTING_CAPITAL: float = 50000.00
+    REQUIRED_CASH_RESERVE_PCT: float = 20.0 # 20.0% Capital Preservation Reserve (£10,000 floor for 80% deployment)
+    MIN_CASH_BUFFER_PCT: float = 0.05       # 5% cash safety buffer (£2,500)
+    MAX_DEPLOYMENT_BEAR: float = 0.40       # Up to 40% in bear markets
+    MAX_DEPLOYMENT_NEUTRAL: float = 0.60    # Up to 60% in neutral markets
+    MAX_DEPLOYMENT_BULL: float = 0.80       # 80% capital deployment authorization (£40,000 ceiling)
 
     # 🏛️ Daily Net Profit Objective & Anti-Overtrading Mandate
-    BASE_TRADING_CAPITAL: float = 49896.38
-    REFERENCE_BASE_CAPITAL: float = 49896.38
-    MAX_DEPLOYABLE_TRADING_CAPITAL: float = 49896.38
-    MAX_NORMAL_DEPLOYABLE_CAPITAL: float = 49896.38
+    BASE_TRADING_CAPITAL: float = 50000.00
+    REFERENCE_BASE_CAPITAL: float = 50000.00
+    MAX_DEPLOYABLE_TRADING_CAPITAL: float = 50000.00
+    MAX_NORMAL_DEPLOYABLE_CAPITAL: float = 50000.00
     
     # Permanent Invariants & Strategy Governance
     RATIFIED_STRATEGY_ID: str = "PRV_CAUSAL_CROSS_SECTIONAL_ETF_V1"

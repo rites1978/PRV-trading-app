@@ -151,6 +151,33 @@ def get_demo_experiment_trades():
     }
 
 
+@app.post("/api/demo_experiment/reset")
+def reset_demo_experiment():
+    """Resets the demo experiment state, clears active holdings, resets banking ledger to £0.00, and resyncs with broker £50,000 baseline."""
+    from src.hit_and_run.banking import DailyBankingLedger
+    runner = getattr(app.state, "demo_experiment_runner", None)
+    if runner:
+        runner.active_holdings.clear()
+        runner.trades_log.clear()
+        runner.banking_ledger = DailyBankingLedger(base_target_gbp=100.0)
+        if hasattr(runner.strategy_module, "reset_daily_state"):
+            runner.strategy_module.reset_daily_state()
+        if hasattr(runner.strategy_module, "current_deployed_capital_gbp"):
+            runner.strategy_module.current_deployed_capital_gbp = 0.0
+        if hasattr(runner.strategy_module, "active_tickers"):
+            runner.strategy_module.active_tickers = set()
+
+    from src.portfolio.portfolio_snapshot import portfolio_snapshot
+    snap = portfolio_snapshot.get_authoritative_snapshot(force_refresh=True)
+    return {
+        "success": True,
+        "message": "Demo experiment state reset. Clean slate verified.",
+        "portfolio_nav": snap["account_summary"]["total_nav"],
+        "free_cash": snap["account_summary"]["free_cash"],
+        "active_holdings": 0
+    }
+
+
 @app.post("/api/engine/execute_candidate")
 def execute_candidate_now(ticker: str):
     """Executes an approved scanner candidate immediately in Trading212 Practice."""

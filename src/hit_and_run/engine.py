@@ -216,6 +216,8 @@ class HitAndRunEngine:
             if simulate_exits and assessment.action in (
                 LifecycleAction.STOP_LOSS_EXIT,
                 LifecycleAction.TAKE_PROFIT,
+                LifecycleAction.PROFIT_BANK_100_EXIT,
+                LifecycleAction.TRAILING_PROFIT_LOCK_EXIT,
                 LifecycleAction.EDGE_DECAY_EXIT,
                 LifecycleAction.MOMENTUM_REVERSAL_EXIT,
                 LifecycleAction.ROTATE,
